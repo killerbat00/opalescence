@@ -2,3 +2,4 @@
 *.torrent
 *.txt
 test_torrent_dir/*
+config.py

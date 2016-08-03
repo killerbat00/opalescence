@@ -73,8 +73,8 @@ def verify(decoded_obj):
     info_keys_set = set(decoded_obj["info"].keys())
 
     # no duplicate keys
-    if list(keys_set) != decoded_obj.keys():
-        raise DecodeError("Duplicate keys in torrent.")
+#    if list(keys_set) != decoded_obj.keys():
+#        raise DecodeError("Duplicate keys in torrent.")
 
 
 

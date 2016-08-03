@@ -11,7 +11,6 @@ from utils.exceptions import CreationError, DecodeError
 from bencoding import bencode, bdecode
 
 
-
 class FileItem(object):
     """
     An individual file within a torrent.
