@@ -1,0 +1,4 @@
+.idea/*
+*.torrent
+*.txt
+test_torrent_dir/*
