@@ -36,10 +36,10 @@ def test_obj_to_file(obj, outfile):
     print("Success!")
 
 
-def test_file_to_torrent(file):
-    assert os.path.exists(file), "[!!!] Path does not exist %s" % file
-    print("[*] Creating torrent from {file}".format(file=file))
-    result = Torrent.from_file(file)
+def test_file_to_torrent(torrent_file):
+    assert os.path.exists(torrent_file), "[!!!] Path does not exist %s" % torrent_file
+    print("[*] Creating torrent from {file}".format(file=torrent_file))
+    result = Torrent.from_file(torrent_file)
     print("Success!")
     return result
 
@@ -69,10 +69,10 @@ if __name__ == '__main__':
         # Create a Torrent from a directory
         torrent_from_dir = test_dir_to_torrent(config.TEST_TORRENT_DIR)
 
-        # Write the newly created torrent to a file
-        #torrent_from_dir.write_file(path)
-
-
+#        # Write the newly created torrent to a file
+#        torrent_from_dir.write_file(path)
+#
+#
 #        # Decode a file into a python object
 #        torrent_repr = test_decode_file(config.TEST_FILE)
 #
@@ -87,6 +87,7 @@ if __name__ == '__main__':
 #
 #        # Pretty print a bencoded string
 #        test_pp_bencoding(torrent_repr)
+        print("halt")
 
     except (CreationError, DecodeError, EncodeError, ValueError, IOError) as e:
         print(e.message)

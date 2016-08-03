@@ -10,6 +10,7 @@ from collections import OrderedDict
 import utils.decorators
 from utils.exceptions import DecodeError, EncodeError, PrintError
 
+
 DICT_START = "d"
 DICT_END = "e"
 LIST_START = "l"
@@ -17,71 +18,6 @@ LIST_END = "e"
 NUM_START = "i"
 NUM_END = "e"
 DIVIDER = ":"
-
-
-@utils.decorators.log_this
-def pretty_print(bdecoded_obj):
-    # type (OrderedDict, int) -> None
-    """
-    Prints a nicely formatted representation of a decoded torrent's python object
-    :param bdecoded_obj: object to print
-    """
-    assert(isinstance(bdecoded_obj, types.DictionaryType))
-    try:
-        pp_dict(bdecoded_obj)
-    except PrintError as pe:
-        raise pe
-
-
-@utils.decorators.log_this
-def pp_list(decoded_list, lvl=None):
-    # type (list, int) -> None
-    """
-    Recursively prints items in a list inside a torrent object
-    mutually recursive with pp_dict
-    :param decoded_list:    the decoded list
-    :param lvl:             current recursion level (used for indentation)
-    """
-    assert(isinstance(decoded_list, types.ListType))
-
-    if lvl is None:
-        lvl = 0
-
-    for itm in decoded_list:
-        if isinstance(itm, types.DictionaryType):
-            pp_dict(itm, lvl)
-        elif isinstance(itm, types.ListType):
-            pp_list(itm, lvl)
-        elif isinstance(itm, types.StringType) or isinstance(itm, types.IntType):
-            print("\t"*lvl + itm)
-        else:
-            raise PrintError("Unexpected value {val} in torrent.".format(val=itm))
-
-
-@utils.decorators.log_this
-def pp_dict(decoded_dict, lvl=None):
-    # type (OrderedDict, int) -> None
-    """
-    Recursively prints keys and values from an OrderedDict representing a torrent
-    mutually recursive with pp_list
-    :param decoded_dict:    dict to print
-    :param lvl:             current recursion level (used for indentation)
-    """
-    assert(isinstance(decoded_dict, types.DictionaryType))
-
-    if lvl is None:
-        lvl = 0
-
-    for k, v in decoded_dict.iteritems():
-        print("\t"*lvl + k)
-        if isinstance(v, types.DictionaryType):
-            pp_dict(v, lvl=lvl+1)
-        elif isinstance(v, types.ListType):
-            pp_list(v, lvl=lvl+1)
-        elif isinstance(v, types.StringType) or isinstance(v, types.IntType):
-            print("\t"*(lvl+1) + str(v))
-        else:
-            raise PrintError("Unexpected value {val} in torrent.".format(val=v))
 
 
 @utils.decorators.log_this
@@ -95,7 +31,9 @@ def bdecode(bencoded_string):
     assert(isinstance(bencoded_string, types.StringType))
 
     try:
-        return _decode(StringIO(bencoded_string))
+        decoded_obj = _decode(StringIO(bencoded_string))
+        verify(decoded_obj)
+        return decoded_obj
     except DecodeError as e:
         raise e
 
@@ -111,9 +49,38 @@ def bencode(decoded_obj):
     assert(isinstance(decoded_obj, types.DictionaryType))
 
     try:
+        verify(decoded_obj)
         return _encode(decoded_obj)
     except (EnvironmentError, EncodeError) as e:
         raise e
+
+
+@utils.decorators.log_this
+def verify(decoded_obj):
+    # type (OrderedDict) -> str
+    """
+    Verifies a decoded pythonobj of a torrent contains valid keys
+    :param decoded_obj: object to verify
+    :return: True if valid, raises DecodeError otherwise
+    """
+    min_required_keys = {"announce", "info"}
+    info_required_keys = {"name", "piece length", "pieces"}
+    single_required_keys = list(info_required_keys).append("length")
+    mult_required_keys = list(info_required_keys).append("files")
+    file_dict_required_keys = ["path", "length"]
+
+    keys_set = set(decoded_obj.keys())
+    info_keys_set = set(decoded_obj["info"].keys())
+
+    # no duplicate keys
+    if list(keys_set) != decoded_obj.keys():
+        raise DecodeError("Duplicate keys in torrent.")
+
+
+
+
+
+
 
 
 @utils.decorators.log_this
@@ -269,3 +236,68 @@ def _encode_str(string_obj):
     return "{length}{div}{str}".format(length=len(string_obj),
                                        div=DIVIDER,
                                        str=string_obj)
+
+
+@utils.decorators.log_this
+def pretty_print(bdecoded_obj):
+    # type (OrderedDict, int) -> None
+    """
+    Prints a nicely formatted representation of a decoded torrent's python object
+    :param bdecoded_obj: object to print
+    """
+    assert(isinstance(bdecoded_obj, types.DictionaryType))
+    try:
+        pp_dict(bdecoded_obj)
+    except PrintError as pe:
+        raise pe
+
+
+@utils.decorators.log_this
+def pp_list(decoded_list, lvl=None):
+    # type (list, int) -> None
+    """
+    Recursively prints items in a list inside a torrent object
+    mutually recursive with pp_dict
+    :param decoded_list:    the decoded list
+    :param lvl:             current recursion level (used for indentation)
+    """
+    assert(isinstance(decoded_list, types.ListType))
+
+    if lvl is None:
+        lvl = 0
+
+    for itm in decoded_list:
+        if isinstance(itm, types.DictionaryType):
+            pp_dict(itm, lvl)
+        elif isinstance(itm, types.ListType):
+            pp_list(itm, lvl)
+        elif isinstance(itm, types.StringType) or isinstance(itm, types.IntType):
+            print("\t"*lvl + itm)
+        else:
+            raise PrintError("Unexpected value {val} in torrent.".format(val=itm))
+
+
+@utils.decorators.log_this
+def pp_dict(decoded_dict, lvl=None):
+    # type (OrderedDict, int) -> None
+    """
+    Recursively prints keys and values from an OrderedDict representing a torrent
+    mutually recursive with pp_list
+    :param decoded_dict:    dict to print
+    :param lvl:             current recursion level (used for indentation)
+    """
+    assert(isinstance(decoded_dict, types.DictionaryType))
+
+    if lvl is None:
+        lvl = 0
+
+    for k, v in decoded_dict.iteritems():
+        print("\t"*lvl + k)
+        if isinstance(v, types.DictionaryType):
+            pp_dict(v, lvl=lvl+1)
+        elif isinstance(v, types.ListType):
+            pp_list(v, lvl=lvl+1)
+        elif isinstance(v, types.StringType) or isinstance(v, types.IntType):
+            print("\t"*(lvl+1) + str(v))
+        else:
+            raise PrintError("Unexpected value {val} in torrent.".format(val=v))

@@ -7,8 +7,9 @@ import hashlib
 import utils.decorators
 
 from collections import OrderedDict
-from utils.exceptions import CreationError
+from utils.exceptions import CreationError, DecodeError
 from bencoding import bencode, bdecode
+
 
 
 class FileItem(object):
@@ -33,20 +34,26 @@ class Torrent(object):
     """
     @utils.decorators.log_this
     def __init__(self, announce, announce_list, files, location, name, url_list,
-                 comment="", piece_length=16384, private=False):
+                 comment="", created_by=config.FULL_NAME, creation_date=int(time.time()),
+                 pieces=None, piece_length=16384, private=False):
+        if pieces is None:
+            pieces = []
         self.announce = announce
         self.announce_list = announce_list
         self.comment = comment
-        self.created_by = config.FULL_NAME
-        self.creation_date = int(time.time())
+        self.created_by = created_by
+        self.creation_date = creation_date
         self.files = files
         self.location = location
         self.name = name
         self.piece_length = piece_length
-        self.pieces = []
+        self.pieces = pieces
         self.private = private
         self.url_list = url_list
         self.block_size = piece_length
+
+        if len(files) > 0:
+            self._collect_pieces()
 
     def _collect_pieces(self):
         base_path = config.TEST_TORRENT_DIR
@@ -109,30 +116,15 @@ class Torrent(object):
         :param torrent_file:    path to .torrent file
         :return:                Torrent representing the .torrent file
         """
-        # TODO: add proper error handling
         assert(os.path.exists(torrent_file))
 
-        mult_files = False
-        min_required_keys = ["announce", "info"]
-        min_required_keys = {"announce", "info"}
-        info_required_keys = {"name", "piece length", "pieces"}
-        single_required_keys = list(min_required_keys).append("length")
-        mult_required_keys = list(min_required_keys).append("files")
-        file_dict_required_keys = ["path", "length"]
+        try:
+            with open(torrent_file, mode='rb') as f:
+                torrent_obj = bdecode(f.read())
+        except DecodeError() as e:
+            raise e
 
-        with open(torrent_file, mode='rb') as f:
-            torrent_obj = bdecode(f.read())
-
-        # TODO: there should be some validation surrounding expected keys in the torrent_obj to validate the torrent
-        # min required keys: announce, info, name, piece length, pieces
-        # required for single file: min required keys + length
-        # required for mult files: min required keys + files
-        # required in mult files: path, length
-        # always optional: comment, url-list
         if torrent_obj is not None:
-            for k in min_required_keys:
-                if k not in torrent_obj:
-                    raise CreationError("Cannot create from file. Invalid key")
 
             torrent = Torrent(torrent_obj["announce"], [], [], torrent_file,
                               torrent_obj["info"]["name"], torrent_obj["url-list"],
@@ -153,12 +145,12 @@ class Torrent(object):
             # pieces
             piece_str = bytearray()
             piece_str.extend(torrent_obj["info"]["pieces"])
-            torrent_obj.pieces = list(torrent._pc(torrent_obj["info"]["pieces"], 160))
+            torrent.pieces = list(torrent._pc(torrent_obj["info"]["pieces"]))
 
             return torrent
 
-    def _pc(self, string, length):
-        # TODO: iterate 160 bits over a time.
+    def _pc(self, string, length=20):
+        # TODO: iterate 160 bits over a time == 20 bytes
         return (string[0+i:length+i] for i in range(0, len(string), length))
 
     @staticmethod
@@ -185,6 +177,5 @@ class Torrent(object):
 
         torrent = Torrent(announce, announce_list, files, config.TEST_TORRENT_DIR_OUTPUT, name,
                           url_list, comment=comment, private=private)
-
         torrent._collect_pieces()
         return torrent
