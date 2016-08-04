@@ -6,12 +6,12 @@ from collections import OrderedDict
 
 import config
 import utils.decorators
-from bencoding import bdecode
-from utils.exceptions import CreationError, DecodeError
+from bencoding import bdecode, bencode
+from utils.exceptions import CreationError, DecodeError, EncodeError
 
 
 @utils.decorators.log_this
-def _pc(piece_string, length=20):
+def _pc(piece_string, length=20, start=0):
     # type (str, int) -> generator comprehension
     """
     pieces a string into pieces of specified length.
@@ -21,7 +21,7 @@ def _pc(piece_string, length=20):
     :param length:
     :return: generator comprehension
     """
-    return (piece_string[0+i:length+i] for i in range(0, len(piece_string), length))
+    return (piece_string[0+i:length+i] for i in range(start, len(piece_string), length))
 
 
 class FileItem(object):
@@ -37,7 +37,7 @@ class FileItem(object):
         :param size:    file size
         """
         self.path = path
-        self.size = size
+        self.size = int(size)
 
 
 class Torrent(object):
@@ -56,12 +56,12 @@ class Torrent(object):
         :param location:        output location
         :param name:            torrent's name
         :param url_list:        list of urls
-        :param comment:         optional, comment
-        :param created_by:      optional, defaults to opalescense
-        :param creation_date:   optional, defaults to time of instantiation
-        :param pieces:          optional, defaults to []
-        :param piece_length:    optional, defaults to 16384
-        :param private:         optional, defaults to False
+        :param comment:         optional,comment
+        :param created_by:      optional,defaults to opalescense
+        :param creation_date:   optional,defaults to time of instantiation
+        :param pieces:          optional,defaults to []
+        :param piece_length:    optional,defaults to 16384 bytes; piece length in bytes
+        :param private:         optional,defaults to False
         """
         if pieces is None:
             pieces = []
@@ -79,8 +79,9 @@ class Torrent(object):
         self.private = private
         self.url_list = url_list
         self.block_size = piece_length
+        self.piece_byte_length = self.piece_length / 8
 
-        if pieces is []:
+        if not pieces:
             self._collect_pieces()
 
     @utils.decorators.log_this
@@ -98,7 +99,7 @@ class Torrent(object):
         # abstracts away the file handling and just gives me the
         # sha1 digest of a self.piece_length chunk of the file
         for file_itm in self.files:
-            with open(os.path.join(base_path, file_itm.path), mode="rb") as f:
+            with open(os.path.join(base_path, file_itm.path[0]), mode="rb") as f:
                 current_pos = 0
                 if left_in_piece > 0:
                     next_pc += f.read(left_in_piece)
@@ -119,6 +120,7 @@ class Torrent(object):
                         left_in_piece = self.piece_length - remainder_to_read
                         break
 
+    # => Alternate constructors
     @staticmethod
     @utils.decorators.log_this
     def from_file(torrent_file):
@@ -187,44 +189,67 @@ class Torrent(object):
         elif ntpath.isdir(path):
             name = ntpath.basename(path)
 
+            # os.listdir returns paths in arbitrary order - possible danger here
             for f in os.listdir(path):
                 size = ntpath.getsize(ntpath.join(path, f))
-                files.append(FileItem(f, size))
+                fi = FileItem(f, size)
+                fi.path = [fi.path]
+                files.append(fi)
         else:
             raise CreationError("Error creating torrent.")
 
-        torrent = Torrent(announce, announce_list, files, config.TEST_TORRENT_DIR_OUTPUT, name,
+        torrent = Torrent(announce, [announce_list], files, config.TEST_TORRENT_DIR_OUTPUT, name,
                           url_list, comment=comment, private=private, piece_length=piece_size)
         return torrent
 
+    # => Output
     @utils.decorators.log_this
     def to_file(self, save_path):
-        # type (Torrent) -> OrderedDict
+        # type (Torrent, str) -> None
         """
         converts a Torrent class object to its equivalent python object for easier bencoding.
-        :param self:        instance of Torrent
         :param save_path:   path to save the torrent
         """
-        assert(os.path.exists(save_path))
-
         obj = OrderedDict()
         info = OrderedDict()
         files = []
 
-        obj.setdefault("announce", self.announce)
-        if self.announce_list is not None:
-            obj.setdefault("announce-list", [self.announce_list])
-
-        obj.setdefault("created by", self.created_by)
-        obj.setdefault("creation date", self.creation_date)
-        if self.comment != "":
+        obj.setdefault("announce", self.announce)   # required key
+        if self.announce_list is not None:          # optional key
+            obj.setdefault("announce-list", self.announce_list)
+        if self.comment:                            # optional key
             obj.setdefault("comment", self.comment)
-        obj["created by"] = self.created_by
-        obj["creation date"] = self.creation_date
+        if self.created_by:                         # optional key
+            obj.setdefault("created by", self.created_by)
+        if self.creation_date:                      # optional key
+            obj.setdefault("creation date", self.creation_date)
 
-        for file_itm in self.files:
-            f = OrderedDict()
-            f['length'] = file_itm.size
-            f['path'] = [file_itm.path]
-            files.append(f)
+        if len(self.files) > 1:
+            for file_itm in self.files:
+                f = OrderedDict()
+                f.setdefault("length", file_itm.size)
+                f.setdefault("path", file_itm.path)
+                files.append(f)
+            info.setdefault("files", files)
 
+        info.setdefault("name", self.name)
+        info.setdefault("piece length", self.piece_length)
+        info.setdefault("pieces", "".join(self.pieces))
+
+        if len(self.files) == 1:
+            info.setdefault("length", self.files[0].size)
+
+        if self.private:
+            info.setdefault("private", 1)
+
+        obj.setdefault("info", info)
+
+        if self.url_list:
+            obj.setdefault("url-list", self.url_list)
+
+        try:
+            decoded_str = bencode(obj)
+            with open(save_path, mode="wb") as f:
+                f.write(decoded_str)
+        except EncodeError as e:
+            raise e

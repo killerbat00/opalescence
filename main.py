@@ -55,12 +55,15 @@ def test_dir_to_torrent(directory):
 
 
 def test_torrent_to_file(torrent_obj, path):
-    assert os.path.exists(path), "[!!!] Path does not exist %s" % path
     assert isinstance(torrent_obj, Torrent), "[!!!] Invalid torrent object"
 
+    print("[*] Writing torrent to {path}".format(path=path))
+    try:
+        torrent_obj.to_file(path)
+    except EncodeError as e:
+        print e.message
 
-
-
+    print("Success!")
 
 
 def test_pp_bencoding(bencoded_str):
@@ -78,7 +81,8 @@ if __name__ == '__main__':
         # Create a Torrent from a directory
         torrent_from_dir = test_dir_to_torrent(config.TEST_TORRENT_DIR)
 
-        test_torrent_to_file(torrent_from_file, config.TEST_FILE)
+        test_torrent_to_file(torrent_from_file, config.TEST_OUTPUT_FILE)
+        test_torrent_to_file(torrent_from_dir, config.TEST_TORRENT_DIR_OUTPUT)
 
         if torrent_from_file.pieces == torrent_from_dir.pieces:
             print("Success!!!")
