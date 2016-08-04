@@ -233,13 +233,12 @@ class Torrent(object):
                 f.setdefault("path", file_itm.path)
                 files.append(f)
             info.setdefault("files", files)
+        else:
+            info.setdefault("length", self.files[0].size)
 
         info.setdefault("name", self.name)
         info.setdefault("piece length", self.piece_length)
         info.setdefault("pieces", "".join(self.pieces))
-
-        if len(self.files) == 1:
-            info.setdefault("length", self.files[0].size)
 
         if self.private:
             info.setdefault("private", 1)

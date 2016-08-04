@@ -7,6 +7,6 @@ A torrent client that strives not to impress, but rather to just...exist.
 Currently, it's a glorified torrent creation machine.
 
 #TODO
-- [*] refactor torrent creation from path
-- [*] simplify torrent translation lifecycle (textfile -> pyobject -> Torrent)
+- [x] refactor torrent creation from path
+- [x] simplify torrent translation lifecycle (textfile -> pyobject -> Torrent)
 - [ ] more effective torrent dictionary verification after decoding and before encoding
