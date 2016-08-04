@@ -7,9 +7,9 @@ import os
 import sys
 
 import config
-from torrent_utils.torrent import Torrent
 import torrent_utils.bencoding as bencoding
 from torrent_utils.bencoding import bencode, bdecode
+from torrent_utils.torrent import Torrent
 from utils.exceptions import DecodeError, EncodeError, CreationError
 
 
@@ -54,6 +54,15 @@ def test_dir_to_torrent(directory):
     return result
 
 
+def test_torrent_to_file(torrent_obj, path):
+    assert os.path.exists(path), "[!!!] Path does not exist %s" % path
+    assert isinstance(torrent_obj, Torrent), "[!!!] Invalid torrent object"
+
+
+
+
+
+
 def test_pp_bencoding(bencoded_str):
     print("[*] Pretty printing {str}".format(str=bencoded_str))
     bencoding.pretty_print(bencoded_str)
@@ -68,6 +77,13 @@ if __name__ == '__main__':
 
         # Create a Torrent from a directory
         torrent_from_dir = test_dir_to_torrent(config.TEST_TORRENT_DIR)
+
+        test_torrent_to_file(torrent_from_file, config.TEST_FILE)
+
+        if torrent_from_file.pieces == torrent_from_dir.pieces:
+            print("Success!!!")
+        else:
+            print("Failure")
 
 #        # Write the newly created torrent to a file
 #        torrent_from_dir.write_file(path)

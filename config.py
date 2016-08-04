@@ -1,11 +1,11 @@
 LOGGING = False
 DEBUG = True
 
-TEST_FILE = "F:\opalescense\\torrent_from_dir.torrent"
-TEST_OUTPUT_FILE = "F:\opalescense\\op_test_output.torrent"
+TEST_FILE = "C:\Users\\bmorrow\Documents\dev\opalescense\\torrent_from_dir.torrent"
+TEST_OUTPUT_FILE = "C:\Users\\bmorrow\Documents\dev\opalescense\\op_test_output.torrent"
 
-TEST_TORRENT_DIR = "F:\opalescense\\test_torrent_dir"
-TEST_TORRENT_DIR_OUTPUT = "F:\opalescense\\op_test_torrent_dir.torrent"
+TEST_TORRENT_DIR = "C:\Users\\bmorrow\Documents\dev\opalescense\\test_torrent_dir"
+TEST_TORRENT_DIR_OUTPUT = "C:\Users\\bmorrow\Documents\dev\opalescense\\op_test_torrent_dir.torrent"
 
 NAME = "opalescense"
 VERSION = "0.1"
