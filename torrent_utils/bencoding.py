@@ -3,13 +3,11 @@ Functions for bencoding a python object and decoding a bencoded string
 """
 import string
 import types
-
 from StringIO import StringIO
 from collections import OrderedDict
 
 import utils.decorators
 from utils.exceptions import DecodeError, EncodeError, PrintError
-
 
 DICT_START = "d"
 DICT_END = "e"
@@ -28,11 +26,11 @@ def bdecode(bencoded_string):
     :param bencoded_string:  bencoded string to decode
     :return:                 decoded torrent info as a python object
     """
-    assert(isinstance(bencoded_string, types.StringType))
+    assert (isinstance(bencoded_string, types.StringType))
 
     try:
         decoded_obj = _decode(StringIO(bencoded_string))
-        verify(decoded_obj)
+        # verify(decoded_obj)
         return decoded_obj
     except DecodeError as e:
         raise e
@@ -46,41 +44,35 @@ def bencode(decoded_obj):
     :param decoded_obj: Python object to bencode
     :return:            bencoded string
     """
-    assert(isinstance(decoded_obj, types.DictionaryType))
+    assert (isinstance(decoded_obj, types.DictionaryType))
 
     try:
-        verify(decoded_obj)
+        # verify(decoded_obj)
         return _encode(decoded_obj)
     except (EnvironmentError, EncodeError) as e:
         raise e
 
 
-@utils.decorators.log_this
-def verify(decoded_obj):
-    # type (OrderedDict) -> str
-    """
-    Verifies a decoded pythonobj of a torrent contains valid keys
-    :param decoded_obj: object to verify
-    :return: True if valid, raises DecodeError otherwise
-    """
-    min_required_keys = {"announce", "info"}
-    info_required_keys = {"name", "piece length", "pieces"}
-    single_required_keys = list(info_required_keys).append("length")
-    mult_required_keys = list(info_required_keys).append("files")
-    file_dict_required_keys = ["path", "length"]
-
-    keys_set = set(decoded_obj.keys())
-    info_keys_set = set(decoded_obj["info"].keys())
-
-    # no duplicate keys
+# @utils.decorators.log_this
+# def verify(decoded_obj):
+#    # type (OrderedDict) -> str
+#    """
+#    Verifies a decoded pythonobj of a torrent contains valid keys
+#    :param decoded_obj: object to verify
+#    :return: True if valid, raises DecodeError otherwise
+#    """
+#    min_required_keys = {"announce", "info"}
+#    info_required_keys = {"name", "piece length", "pieces"}
+#    single_required_keys = list(info_required_keys).append("length")
+#    mult_required_keys = list(info_required_keys).append("files")
+#    file_dict_required_keys = ["path", "length"]
+#
+#    keys_set = set(decoded_obj.keys())
+#    info_keys_set = set(decoded_obj["info"].keys())
+#
+#    # no duplicate keys
 #    if list(keys_set) != decoded_obj.keys():
 #        raise DecodeError("Duplicate keys in torrent.")
-
-
-
-
-
-
 
 
 @utils.decorators.log_this
@@ -245,7 +237,7 @@ def pretty_print(bdecoded_obj):
     Prints a nicely formatted representation of a decoded torrent's python object
     :param bdecoded_obj: object to print
     """
-    assert(isinstance(bdecoded_obj, types.DictionaryType))
+    assert (isinstance(bdecoded_obj, types.DictionaryType))
     try:
         pp_dict(bdecoded_obj)
     except PrintError as pe:
@@ -261,7 +253,7 @@ def pp_list(decoded_list, lvl=None):
     :param decoded_list:    the decoded list
     :param lvl:             current recursion level (used for indentation)
     """
-    assert(isinstance(decoded_list, types.ListType))
+    assert (isinstance(decoded_list, types.ListType))
 
     if lvl is None:
         lvl = 0
@@ -272,7 +264,7 @@ def pp_list(decoded_list, lvl=None):
         elif isinstance(itm, types.ListType):
             pp_list(itm, lvl)
         elif isinstance(itm, types.StringType) or isinstance(itm, types.IntType):
-            print("\t"*lvl + itm)
+            print("\t" * lvl + itm)
         else:
             raise PrintError("Unexpected value {val} in torrent.".format(val=itm))
 
@@ -286,18 +278,18 @@ def pp_dict(decoded_dict, lvl=None):
     :param decoded_dict:    dict to print
     :param lvl:             current recursion level (used for indentation)
     """
-    assert(isinstance(decoded_dict, types.DictionaryType))
+    assert (isinstance(decoded_dict, types.DictionaryType))
 
     if lvl is None:
         lvl = 0
 
     for k, v in decoded_dict.iteritems():
-        print("\t"*lvl + k)
+        print("\t" * lvl + k)
         if isinstance(v, types.DictionaryType):
-            pp_dict(v, lvl=lvl+1)
+            pp_dict(v, lvl=lvl + 1)
         elif isinstance(v, types.ListType):
-            pp_list(v, lvl=lvl+1)
+            pp_list(v, lvl=lvl + 1)
         elif isinstance(v, types.StringType) or isinstance(v, types.IntType):
-            print("\t"*(lvl+1) + str(v))
+            print("\t" * (lvl + 1) + str(v))
         else:
             raise PrintError("Unexpected value {val} in torrent.".format(val=v))

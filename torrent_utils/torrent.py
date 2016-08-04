@@ -21,13 +21,14 @@ def _pc(piece_string, length=20, start=0):
     :param length:
     :return: generator comprehension
     """
-    return (piece_string[0+i:length+i] for i in range(start, len(piece_string), length))
+    return (piece_string[0 + i:length + i] for i in range(start, len(piece_string), length))
 
 
 class FileItem(object):
     """
     An individual file within a torrent.
     """
+
     @utils.decorators.log_this
     def __init__(self, path, size):
         # type (str, int, int) -> FileItem
@@ -44,6 +45,7 @@ class Torrent(object):
     """
     Relevant metadata for a torrent file
     """
+
     @utils.decorators.log_this
     def __init__(self, announce, announce_list, files, location, name, url_list,
                  comment="", created_by=config.FULL_NAME, creation_date=int(time.time()),
@@ -130,7 +132,7 @@ class Torrent(object):
         :param torrent_file:    path to .torrent file
         :return:                Torrent representing the .torrent file
         """
-        assert(os.path.exists(torrent_file))
+        assert (os.path.exists(torrent_file))
 
         try:
             with open(torrent_file, mode='rb') as f:
@@ -214,14 +216,14 @@ class Torrent(object):
         info = OrderedDict()
         files = []
 
-        obj.setdefault("announce", self.announce)   # required key
-        if self.announce_list is not None:          # optional key
+        obj.setdefault("announce", self.announce)  # required key
+        if self.announce_list is not None:  # optional key
             obj.setdefault("announce-list", self.announce_list)
-        if self.comment:                            # optional key
+        if self.comment:  # optional key
             obj.setdefault("comment", self.comment)
-        if self.created_by:                         # optional key
+        if self.created_by:  # optional key
             obj.setdefault("created by", self.created_by)
-        if self.creation_date:                      # optional key
+        if self.creation_date:  # optional key
             obj.setdefault("creation date", self.creation_date)
 
         if len(self.files) > 1:
