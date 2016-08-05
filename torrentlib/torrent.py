@@ -14,7 +14,7 @@ from collections import OrderedDict
 import config
 import utils.decorators
 from bencode import bdecode, bencode
-from torrentlib.exceptions import CreationError, DecodeError, EncodeError
+from torrentlib.errors import CreationError, DecodeError, EncodeError
 
 
 @utils.decorators.log_this
