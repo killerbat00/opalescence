@@ -37,6 +37,9 @@ def _validate_torrent_dict(decoded_dict):
     Verifies a given decoded dictionary contains valid keys to describe a torrent we can do something with.
     :param decoded_dict:    dict representing bencoded .torrent file
     :return:                True if valid, else raises CreationError
+
+    TODO: There's a subtle bug in here where you could have some keys that are required for single files and multiple
+    files at the same time without having all of them defined for either. I think. Maybe. Probably.
     """
     min_req_keys = ["info", "announce"]
     min_info_req_keys = ["piece length", "pieces", "name"]
@@ -47,7 +50,6 @@ def _validate_torrent_dict(decoded_dict):
     dict_keys = decoded_dict.keys()
     info_keys = decoded_dict["info"].keys()
 
-    multiple_files = "files" in info_keys
 
     if not dict_keys:
         raise CreationError("Unable to verify torrent dictionary. No valid keys in dictionary.")
@@ -67,6 +69,8 @@ def _validate_torrent_dict(decoded_dict):
         if key not in info_keys:
             raise CreationError("Unable to verify torrent dictionary. \
             Required key not found in info dictionary: {required_key}".format(required_key=key))
+
+    multiple_files = "files" in info_keys
 
     if multiple_files:
         file_list = decoded_dict["info"]["files"]
@@ -205,7 +209,6 @@ class Torrent(object):
         try:
             with open(torrent_file, mode='rb') as f:
                 torrent_obj = bdecode(f.read())
-                print(torrent_obj)
         except DecodeError() as e:
             raise e
 
