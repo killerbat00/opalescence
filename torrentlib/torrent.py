@@ -1,3 +1,10 @@
+"""
+Support for representing a .torrent file as a python class and creating a Torrent class (or .torrent file) from
+a specified file or directory.
+
+author: brian houston morrow
+"""
+
 import hashlib
 import ntpath
 import os
@@ -6,8 +13,8 @@ from collections import OrderedDict
 
 import config
 import utils.decorators
-from bencoding import bdecode, bencode
-from utils.exceptions import CreationError, DecodeError, EncodeError
+from bencode import bdecode, bencode
+from torrentlib.exceptions import CreationError, DecodeError, EncodeError
 
 
 @utils.decorators.log_this

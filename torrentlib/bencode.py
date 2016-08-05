@@ -15,7 +15,7 @@ from StringIO import StringIO
 from collections import OrderedDict
 
 import utils.decorators
-from utils.exceptions import DecodeError, EncodeError, PrintError
+from torrentlib.exceptions import DecodeError, EncodeError, PrintError
 
 DICT_START = "d"
 DICT_END = "e"
