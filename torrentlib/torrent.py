@@ -24,6 +24,67 @@ def _pc(piece_string, length=20, start=0):
     return (piece_string[0 + i:length + i] for i in range(start, len(piece_string), length))
 
 
+@utils.decorators.log_this
+def _validate_torrent_dict(decoded_dict):
+    """
+    Verifies a given decoded dictionary contains valid keys to describe a torrent we can do something with.
+    :param decoded_dict:    dict representing bencoded .torrent file
+    :return:                True if valid, else raises CreationError
+    """
+    min_req_keys = ["info", "announce"]
+    min_info_req_keys = ["piece length", "pieces", "name"]
+    min_single_req_keys = list(min_info_req_keys) + ["length"]
+    min_mult_req_keys = list(min_info_req_keys) + ["files"]
+    min_files_req_keys = ["length", "path"]
+
+    dict_keys = decoded_dict.keys()
+    info_keys = decoded_dict["info"].keys()
+
+    multiple_files = "files" in info_keys
+
+    if not dict_keys:
+        raise CreationError("Unable to verify torrent dictionary. No valid keys in dictionary.")
+    if not info_keys:
+        raise CreationError("Unable to verify torrent info dictionary. No valid keys in info dictionary.")
+    if len(dict_keys) != len(set(dict_keys)):
+        raise CreationError("Unable to verify torrent dictionary. Duplicate keys in dictionary.")
+    if len(info_keys) != len(set(info_keys)):
+        raise CreationError("Unable to verify torrent info dictionary. Duplicate keys in dictionary.")
+
+    for key in min_req_keys:
+        if key not in dict_keys:
+            raise CreationError(
+                "Unable to verify torrent dictionary. Required key not found: {required_key}".format(required_key=key))
+
+    for key in min_info_req_keys:
+        if key not in info_keys:
+            raise CreationError("Unable to verify torrent dictionary. \
+            Required key not found in info dictionary: {required_key}".format(required_key=key))
+
+    if multiple_files:
+        file_list = decoded_dict["info"]["files"]
+
+        if not file_list:
+            raise CreationError("Unable to verify torrent dictionary. No file list.")
+        for f in file_list:
+            for key in f.keys():
+                if key not in min_files_req_keys:
+                    raise CreationError("Unable to verify torrent dictionary. \
+                    Required key not found in files dictionary for multiple files: {required_key}".format(
+                        required_key=key))
+        for key in min_mult_req_keys:
+            if key not in info_keys:
+                raise CreationError("Unable to verify torrent dictionary. \
+                Required key not found in info dictionary for multiple files: {required_key}".format(required_key=key))
+    else:
+        for key in min_single_req_keys:
+            if key not in info_keys:
+                raise CreationError("Required key not found in info dictionary for single file: {required_key}".format(
+                    required_key=key))
+    # we made it!
+    return True
+
+
 class FileItem(object):
     """
     An individual file within a torrent.
@@ -142,6 +203,12 @@ class Torrent(object):
             raise e
 
         if torrent_obj is not None:
+            try:
+                _validate_torrent_dict(torrent_obj)
+            except CreationError as ce:
+                prev_msg = ce.message
+                raise CreationError("Error creating torrent.\n{previous}".format(previous=prev_msg))
+
             files = []
             pieces = list(_pc(torrent_obj["info"]["pieces"]))
             announce_list = None
