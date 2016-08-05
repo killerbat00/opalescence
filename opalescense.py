@@ -2,6 +2,8 @@
 
 """
 Testing decoding and encoding a torrent file.
+
+author: brian houston morrow
 """
 import os
 
@@ -39,13 +41,19 @@ def test_torrent_to_file(torrent_obj, path):
 
 if __name__ == '__main__':
     # Decode a torrent file into a Torrent object
-    torrent_from_file = test_file_to_torrent(config.TEST_FILE)
+    # torrent_from_file = test_file_to_torrent(config.TEST_FILE)
+
+    # Deocde a torrent file used in qbittorrent with the hopes that
+    # saving it again will allow me to open it in the same program
+    # it works!
+    torrent_from_file = test_file_to_torrent(config.TEST_EXTERNAL_FILE)
+    test_torrent_to_file(torrent_from_file, config.TEST_EXTERNAL_OUTPUT)
 
     # Create a Torrent from a directory
-    torrent_from_dir = test_dir_to_torrent(config.TEST_TORRENT_DIR)
+    # torrent_from_dir = test_dir_to_torrent(config.TEST_TORRENT_DIR)
 
     # Write the two torrents to respective .torrent files
     # these should be the same save the created by, creation date,
     # and comment
-    test_torrent_to_file(torrent_from_file, config.TEST_OUTPUT_FILE)
-    test_torrent_to_file(torrent_from_dir, config.TEST_TORRENT_DIR_OUTPUT)
+    # test_torrent_to_file(torrent_from_file, config.TEST_OUTPUT_FILE)
+    # test_torrent_to_file(torrent_from_dir, config.TEST_TORRENT_DIR_OUTPUT)

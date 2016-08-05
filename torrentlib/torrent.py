@@ -50,7 +50,6 @@ def _validate_torrent_dict(decoded_dict):
     dict_keys = decoded_dict.keys()
     info_keys = decoded_dict["info"].keys()
 
-
     if not dict_keys:
         raise CreationError("Unable to verify torrent dictionary. No valid keys in dictionary.")
     if not info_keys:
@@ -69,6 +68,9 @@ def _validate_torrent_dict(decoded_dict):
         if key not in info_keys:
             raise CreationError("Unable to verify torrent dictionary. \
             Required key not found in info dictionary: {required_key}".format(required_key=key))
+
+        if len(decoded_dict["info"]["pieces"]) % 20 != 0:
+            raise CreationError("Unable to verify torrent dictionary. Pieces string is not a multiple of 20")
 
     multiple_files = "files" in info_keys
 
@@ -154,6 +156,7 @@ class Torrent(object):
         self.url_list = url_list
         self.block_size = piece_length
         self.piece_byte_length = self.piece_length / 8
+        self.info_hash = ""
 
         if not pieces:
             self._collect_pieces()
@@ -221,10 +224,26 @@ class Torrent(object):
 
             files = []
             pieces = list(_pc(torrent_obj["info"]["pieces"]))
-            announce_list = None
+            announce_list = []
+            url_list = []
+            comment = ""
+            created_by = ""
+            creation_date = 0
+            private = False
+            info_dict = OrderedDict()
+            info_dict.setdefault("info", torrent_obj["info"])
 
-            if "announce-list" in torrent_obj:
+            if "announce-list" in torrent_obj:      # optional key
                 announce_list = torrent_obj["announce-list"]
+
+            if "comment" in torrent_obj:            # optional key
+                comment = torrent_obj["comment"]
+
+            if "created by" in torrent_obj:         # optional key
+                created_by = torrent_obj["created by"]
+
+            if "creation date" in torrent_obj:      # optional key
+                creation_date = torrent_obj["creation date"]
 
             if "files" in torrent_obj["info"]:
                 for f in torrent_obj["info"]["files"]:
@@ -232,12 +251,18 @@ class Torrent(object):
             else:
                 files.append(FileItem(torrent_obj["info"]["name"], torrent_obj["info"]["length"]))
 
-            torrent = Torrent(torrent_obj["announce"], announce_list, files, torrent_file,
-                              torrent_obj["info"]["name"], torrent_obj["url-list"], comment=torrent_obj["comment"],
-                              created_by=torrent_obj["created by"], creation_date=torrent_obj["creation date"],
-                              pieces=pieces, piece_length=torrent_obj["info"]["piece length"],
-                              private=bool(torrent_obj["info"]["private"]))
+            if "private" in torrent_obj["info"]:    # optional key
+                private = bool(torrent_obj["info"]["private"])
 
+            if "url-list" in torrent_obj:           # optional key
+                url_list = torrent_obj["url-list"]
+
+            torrent = Torrent(torrent_obj["announce"], announce_list, files, torrent_file,
+                              torrent_obj["info"]["name"], url_list, comment=comment,
+                              created_by=created_by, creation_date=creation_date,
+                              pieces=pieces, piece_length=torrent_obj["info"]["piece length"],
+                              private=private)
+            torrent.info_hash = hashlib.sha1(bencode(info_dict)).digest()
             return torrent
 
     @staticmethod
@@ -321,6 +346,9 @@ class Torrent(object):
             info.setdefault("private", 1)
 
         obj.setdefault("info", info)
+        info_dict = OrderedDict()
+        info_dict.setdefault("info", info)
+        self.info_hash = hashlib.sha1(bencode(info_dict)).digest()
 
         if self.url_list:
             obj.setdefault("url-list", self.url_list)
