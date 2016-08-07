@@ -1,3 +1,10 @@
+"""
+Support for representing a .torrent file as a python class and creating a Torrent class (or .torrent file) from
+a specified file or directory.
+
+author: brian houston morrow
+"""
+
 import hashlib
 import ntpath
 import os
@@ -6,8 +13,11 @@ from collections import OrderedDict
 
 import config
 import utils.decorators
-from bencoding import bdecode, bencode
-from utils.exceptions import CreationError, DecodeError, EncodeError
+from bencode import bdecode, bencode, DecodeError, EncodeError
+
+
+class CreationError(Exception):
+    pass
 
 
 @utils.decorators.log_this
@@ -22,6 +32,75 @@ def _pc(piece_string, length=20, start=0):
     :return: generator comprehension
     """
     return (piece_string[0 + i:length + i] for i in range(start, len(piece_string), length))
+
+
+@utils.decorators.log_this
+def _validate_torrent_dict(decoded_dict):
+    """
+    Verifies a given decoded dictionary contains valid keys to describe a torrent we can do something with.
+    Currently only checks for the minimum required torrent keys for torrents describing files and directories.
+    If a dictionary contains all valid keys + extra keys, it will be validated.
+    :param decoded_dict:    dict representing bencoded .torrent file
+    :return:                True if valid, else raises CreationError
+
+    TODO: There's a subtle bug in here where you could have some keys that are required for single files and multiple
+    files at the same time without having all of them defined for either. I think. Maybe. Probably.
+    """
+    min_req_keys = ["info", "announce"]
+    min_info_req_keys = ["piece length", "pieces", "name"]
+    min_single_req_keys = list(min_info_req_keys) + ["length"]
+    min_mult_req_keys = list(min_info_req_keys) + ["files"]
+    min_files_req_keys = ["length", "path"]
+
+    dict_keys = decoded_dict.keys()
+
+    if not dict_keys:
+        raise CreationError("Unable to verify torrent dictionary. No valid keys in dictionary.")
+    if len(dict_keys) != len(set(dict_keys)):
+        raise CreationError("Unable to verify torrent dictionary. Duplicate keys in dictionary.")
+    for key in min_req_keys:
+        if key not in dict_keys:
+            raise CreationError(
+                "Unable to verify torrent dictionary. Required key not found: {required_key}".format(required_key=key))
+
+    info_keys = decoded_dict["info"].keys()
+
+    if not info_keys:
+        raise CreationError("Unable to verify torrent info dictionary. No valid keys in info dictionary.")
+    if len(info_keys) != len(set(info_keys)):
+        raise CreationError("Unable to verify torrent info dictionary. Duplicate keys in dictionary.")
+    for key in min_info_req_keys:
+        if key not in info_keys:
+            raise CreationError("Unable to verify torrent dictionary. \
+            Required key not found in info dictionary: {required_key}".format(required_key=key))
+
+        if len(decoded_dict["info"]["pieces"]) % 20 != 0:
+            raise CreationError("Unable to verify torrent dictionary. Pieces string is not a multiple of 20")
+
+    multiple_files = "files" in info_keys
+
+    if multiple_files:
+        file_list = decoded_dict["info"]["files"]
+
+        if not file_list:
+            raise CreationError("Unable to verify torrent dictionary. No file list.")
+        for f in file_list:
+            for key in f.keys():
+                if key not in min_files_req_keys:
+                    raise CreationError("Unable to verify torrent dictionary. \
+                    Required key not found in files dictionary for multiple files: {required_key}".format(
+                        required_key=key))
+        for key in min_mult_req_keys:
+            if key not in info_keys:
+                raise CreationError("Unable to verify torrent dictionary. \
+                Required key not found in info dictionary for multiple files: {required_key}".format(required_key=key))
+    else:
+        for key in min_single_req_keys:
+            if key not in info_keys:
+                raise CreationError("Required key not found in info dictionary for single file: {required_key}".format(
+                    required_key=key))
+    # we made it!
+    return True
 
 
 class FileItem(object):
@@ -49,7 +128,7 @@ class Torrent(object):
     @utils.decorators.log_this
     def __init__(self, announce, announce_list, files, location, name, url_list,
                  comment="", created_by=config.FULL_NAME, creation_date=int(time.time()),
-                 pieces=None, piece_length=16384, private=False):
+                 pieces=None, piece_length=16384, private=False, info_hash=""):
         """
         Initializes a torrent. Not typically used alone, instead, use Torrent.from_file or Torrent.from_path
         :param announce:        announce url
@@ -64,6 +143,7 @@ class Torrent(object):
         :param pieces:          optional,defaults to []
         :param piece_length:    optional,defaults to 16384 bytes; piece length in bytes
         :param private:         optional,defaults to False
+        :param info_hash:       optional,defaults to ""
         """
         if pieces is None:
             pieces = []
@@ -82,14 +162,18 @@ class Torrent(object):
         self.url_list = url_list
         self.block_size = piece_length
         self.piece_byte_length = self.piece_length / 8
+        self.info_hash = info_hash
 
         if not pieces:
             self._collect_pieces()
 
+        if not self.info_hash:
+            self._compute_info_hash()
+
     @utils.decorators.log_this
     def _collect_pieces(self):
         """
-        The real workhourse of torrent creation.
+        The real workhorse of torrent creation.
         Reads through all specified files, breaking them into piece_length chunks and storing their 160bit sha1
         digest into the pieces list
         """
@@ -122,6 +206,44 @@ class Torrent(object):
                         left_in_piece = self.piece_length - remainder_to_read
                         break
 
+    @utils.decorators.log_this
+    def _compute_info_hash(self):
+        """
+        Computes the 20-byte sha1 info hash digest of the contents of the info dictionary
+        """
+        info = OrderedDict()
+        files = []
+
+        if len(self.files) > 1:
+            for file_itm in self.files:
+                f = OrderedDict()
+                f.setdefault("length", file_itm.size)
+                f.setdefault("path", file_itm.path)
+                files.append(f)
+            info.setdefault("files", files)
+        else:
+            info.setdefault("length", self.files[0].size)
+
+        info.setdefault("name", self.name)  # required key
+        info.setdefault("piece length", self.piece_length)  # required key
+        info.setdefault("pieces", "".join(self.pieces))  # required key
+
+        if self.private:  # optional key
+            info.setdefault("private", 1)
+
+        self.info_hash = hashlib.sha1(bencode(info)).digest()
+
+    @utils.decorators.log_this
+    def total_file_size(self):
+        # type () -> int
+        """
+        :return:   total size of all the files specified by the torrent
+        """
+        size = 0
+        for f in self.files:
+            size += f.size
+        return size
+
     # => Alternate constructors
     @staticmethod
     @utils.decorators.log_this
@@ -137,17 +259,36 @@ class Torrent(object):
         try:
             with open(torrent_file, mode='rb') as f:
                 torrent_obj = bdecode(f.read())
-                print(torrent_obj)
         except DecodeError() as e:
-            raise e
+            raise CreationError(
+                "Unable to decode .torrent file: {file}\n{previous}".format(file=torrent_file, previous=e.message))
 
         if torrent_obj is not None:
+            _validate_torrent_dict(torrent_obj)
+
             files = []
             pieces = list(_pc(torrent_obj["info"]["pieces"]))
-            announce_list = None
+            announce_list = []
+            url_list = []
+            comment = ""
+            created_by = ""
+            creation_date = 0
+            private = False
+            info_dict = OrderedDict()
+            info_hash = hashlib.sha1(bencode(torrent_obj["info"])).digest()
+            info_dict.setdefault("info", torrent_obj["info"])
 
-            if "announce-list" in torrent_obj:
+            if "announce-list" in torrent_obj:  # optional key
                 announce_list = torrent_obj["announce-list"]
+
+            if "comment" in torrent_obj:  # optional key
+                comment = torrent_obj["comment"]
+
+            if "created by" in torrent_obj:  # optional key
+                created_by = torrent_obj["created by"]
+
+            if "creation date" in torrent_obj:  # optional key
+                creation_date = torrent_obj["creation date"]
 
             if "files" in torrent_obj["info"]:
                 for f in torrent_obj["info"]["files"]:
@@ -155,12 +296,17 @@ class Torrent(object):
             else:
                 files.append(FileItem(torrent_obj["info"]["name"], torrent_obj["info"]["length"]))
 
-            torrent = Torrent(torrent_obj["announce"], announce_list, files, torrent_file,
-                              torrent_obj["info"]["name"], torrent_obj["url-list"], comment=torrent_obj["comment"],
-                              created_by=torrent_obj["created by"], creation_date=torrent_obj["creation date"],
-                              pieces=pieces, piece_length=torrent_obj["info"]["piece length"],
-                              private=bool(torrent_obj["info"]["private"]))
+            if "private" in torrent_obj["info"]:  # optional key
+                private = bool(torrent_obj["info"]["private"])
 
+            if "url-list" in torrent_obj:  # optional key
+                url_list = torrent_obj["url-list"]
+
+            torrent = Torrent(torrent_obj["announce"], announce_list, files, torrent_file,
+                              torrent_obj["info"]["name"], url_list, comment=comment,
+                              created_by=created_by, creation_date=creation_date,
+                              pieces=pieces, piece_length=torrent_obj["info"]["piece length"],
+                              private=private, info_hash=info_hash)
             return torrent
 
     @staticmethod
@@ -217,7 +363,8 @@ class Torrent(object):
         files = []
 
         obj.setdefault("announce", self.announce)  # required key
-        if self.announce_list is not None:  # optional key
+
+        if self.announce_list:  # optional key
             obj.setdefault("announce-list", self.announce_list)
         if self.comment:  # optional key
             obj.setdefault("comment", self.comment)
@@ -236,21 +383,22 @@ class Torrent(object):
         else:
             info.setdefault("length", self.files[0].size)
 
-        info.setdefault("name", self.name)
-        info.setdefault("piece length", self.piece_length)
-        info.setdefault("pieces", "".join(self.pieces))
+        info.setdefault("name", self.name)  # required key
+        info.setdefault("piece length", self.piece_length)  # required key
+        info.setdefault("pieces", "".join(self.pieces))  # required key
 
-        if self.private:
+        if self.private:  # optional key
             info.setdefault("private", 1)
 
         obj.setdefault("info", info)
 
-        if self.url_list:
+        if self.url_list:  # optional key
             obj.setdefault("url-list", self.url_list)
 
         try:
+            _validate_torrent_dict(obj)
             decoded_str = bencode(obj)
             with open(save_path, mode="wb") as f:
                 f.write(decoded_str)
-        except EncodeError as e:
-            raise e
+        except (CreationError, EncodeError) as e:
+            raise CreationError("Unable to write .torrent file.\n{prev_msg}".format(prev_msg=e.message))

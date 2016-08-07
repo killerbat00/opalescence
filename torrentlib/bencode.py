@@ -1,5 +1,13 @@
 """
-Functions for bencoding a python object and decoding a bencoded string
+Provides support for decoding a bencoded string into a python OrderedDict,
+bencoding a decoded OrderedDict, and pretty printing said OrderedDict.
+
+author: brian houston morrow
+
+public:
+    bdecode()
+    bencode()
+    pretty_print()
 """
 import string
 import types
@@ -7,7 +15,6 @@ from StringIO import StringIO
 from collections import OrderedDict
 
 import utils.decorators
-from utils.exceptions import DecodeError, EncodeError, PrintError
 
 DICT_START = "d"
 DICT_END = "e"
@@ -18,6 +25,19 @@ NUM_END = "e"
 DIVIDER = ":"
 
 
+class DecodeError(Exception):
+    pass
+
+
+class EncodeError(Exception):
+    pass
+
+
+class PrintError(Exception):
+    pass
+
+
+# -- Publicly exposed methods
 @utils.decorators.log_this
 def bdecode(bencoded_string):
     # type: (str) -> OrderedDict
@@ -30,7 +50,6 @@ def bdecode(bencoded_string):
 
     try:
         decoded_obj = _decode(StringIO(bencoded_string))
-        # verify(decoded_obj)
         return decoded_obj
     except DecodeError as e:
         raise e
@@ -40,41 +59,34 @@ def bdecode(bencoded_string):
 def bencode(decoded_obj):
     # type (OrderedDict) -> str
     """
-    Bencodes a python object and returns the bencoded string.
+    Bencodes an OrderedDict and returns the bencoded string.
     :param decoded_obj: Python object to bencode
     :return:            bencoded string
     """
     assert (isinstance(decoded_obj, types.DictionaryType))
 
     try:
-        # verify(decoded_obj)
         return _encode(decoded_obj)
     except (EnvironmentError, EncodeError) as e:
         raise e
 
 
-# @utils.decorators.log_this
-# def verify(decoded_obj):
-#    # type (OrderedDict) -> str
-#    """
-#    Verifies a decoded pythonobj of a torrent contains valid keys
-#    :param decoded_obj: object to verify
-#    :return: True if valid, raises DecodeError otherwise
-#    """
-#    min_required_keys = {"announce", "info"}
-#    info_required_keys = {"name", "piece length", "pieces"}
-#    single_required_keys = list(info_required_keys).append("length")
-#    mult_required_keys = list(info_required_keys).append("files")
-#    file_dict_required_keys = ["path", "length"]
-#
-#    keys_set = set(decoded_obj.keys())
-#    info_keys_set = set(decoded_obj["info"].keys())
-#
-#    # no duplicate keys
-#    if list(keys_set) != decoded_obj.keys():
-#        raise DecodeError("Duplicate keys in torrent.")
+@utils.decorators.log_this
+def pretty_print(bdecoded_obj):
+    # type (OrderedDict, int) -> None
+    """
+    Prints a nicely formatted representation of a decoded torrent's python object
+    :param bdecoded_obj: object to print
+    """
+    assert (isinstance(bdecoded_obj, types.DictionaryType))
+    try:
+        pp_dict(bdecoded_obj)
+    except PrintError as pe:
+        raise pe
 
 
+# -- Private methods
+# --- decoding
 @utils.decorators.log_this
 def _decode(torrent_buffer):
     # type (StringIO) -> OrderedDict
@@ -146,7 +158,11 @@ def _decode_str(torrent_buffer):
     """
     torrent_buffer.seek(-1, 1)
     string_len = _parse_num(torrent_buffer, delimiter=DIVIDER)
-    return torrent_buffer.read(string_len)
+    string_val = torrent_buffer.read(string_len)
+    if len(string_val) != string_len:
+        raise DecodeError("Unable to read specified string length at {pos}.".format(pos=torrent_buffer.pos))
+
+    return string_val
 
 
 @utils.decorators.log_this
@@ -161,7 +177,7 @@ def _parse_num(torrent_buffer, delimiter):
     parsed_num = ''
     while True:
         char = torrent_buffer.read(1)
-        if char not in string.digits:
+        if char not in string.digits or char == '':
             if char != delimiter:
                 raise DecodeError("Invalid character while parsing integer.\n" +
                                   "Found {wrong} at {pos}, expected {right}".format(wrong=char,
@@ -173,11 +189,12 @@ def _parse_num(torrent_buffer, delimiter):
     return int(parsed_num)
 
 
+# --- encoding
 @utils.decorators.log_this
 def _encode(obj):
     # type (?) -> str
     """
-    Recursively bencodes a python object.
+    Recursively bencodes an OrderedDict
     :param obj:     object to decode
     :return:        bencoded string
     """
@@ -202,6 +219,9 @@ def _encode(obj):
 
     elif isinstance(obj, types.IntType):
         return _encode_int(obj)
+
+    else:
+        raise EncodeError("Unexpected object found {obj}".format(obj=obj))
 
 
 @utils.decorators.log_this
@@ -230,20 +250,7 @@ def _encode_str(string_obj):
                                        str=string_obj)
 
 
-@utils.decorators.log_this
-def pretty_print(bdecoded_obj):
-    # type (OrderedDict, int) -> None
-    """
-    Prints a nicely formatted representation of a decoded torrent's python object
-    :param bdecoded_obj: object to print
-    """
-    assert (isinstance(bdecoded_obj, types.DictionaryType))
-    try:
-        pp_dict(bdecoded_obj)
-    except PrintError as pe:
-        raise pe
-
-
+# --- pretty printing
 @utils.decorators.log_this
 def pp_list(decoded_list, lvl=None):
     # type (list, int) -> None
