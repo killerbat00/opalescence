@@ -38,8 +38,8 @@ class TrackerHttpRequest(object):
         assert (isinstance(torrent, Torrent))
 
         # required
-        self.torrent = torrent
         self.info_hash = torrent.info_hash
+        self.announce_url = torrent.announce
         self.peer_id = "-OP0020-" + str(random.randint(100000000000, 999999999999))
         self.port = port
         self.uploaded = 0
@@ -103,8 +103,20 @@ class TrackerHttpRequest(object):
         return resp
 
     @utils.decorators.log_this
-    def build_request(self):
-        pass
+    def make_request(self, event=tracker_event["started"]):
+        params = {}
+        params.setdefault("info_hash", self.info_hash)
+        params.setdefault("peer_id", self.peer_id)
+        params.setdefault("port", self.port)
+        params.setdefault("uploaded", self.uploaded)
+        params.setdefault("downloaded", self.downloaded)
+        params.setdefault("left", self.left)
+        params.setdefault("compact", self.compact)
+        params.setdefault("no_peer_id", self.no_peer_id)
+        params.setdefault("event", self.event)
+
+        r = requests.get(self.announce_url, params=params)
+        return self._decode_response(r)
 
 
 class TrackerHttpResponse(object):

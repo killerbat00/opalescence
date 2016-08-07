@@ -8,6 +8,7 @@ author: brian houston morrow
 import os
 
 import config
+from torrentlib.comm import TrackerHttpRequest, TrackerResponseError
 from torrentlib.torrent import Torrent
 
 
@@ -47,7 +48,13 @@ if __name__ == '__main__':
     # saving it again will allow me to open it in the same program
     # it works!
     torrent_from_file = test_file_to_torrent(config.TEST_EXTERNAL_FILE)
-    test_torrent_to_file(torrent_from_file, config.TEST_EXTERNAL_OUTPUT)
+    # test_torrent_to_file(torrent_from_file, config.TEST_EXTERNAL_OUTPUT)
+
+    try:
+        tracker_request = TrackerHttpRequest(torrent_from_file)
+        tracker_resp = tracker_request.make_request()
+    except TrackerResponseError as tre:
+        raise tre
 
     # Create a Torrent from a directory
     # torrent_from_dir = test_dir_to_torrent(config.TEST_TORRENT_DIR)
