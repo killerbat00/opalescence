@@ -162,7 +162,7 @@ def _parse_num(torrent_buffer, delimiter):
     parsed_num = ''
     while True:
         char = torrent_buffer.read(1)
-        if char not in string.digits:
+        if char not in string.digits or char == '':
             if char != delimiter:
                 raise DecodeError("Invalid character while parsing integer.\n" +
                                   "Found {wrong} at {pos}, expected {right}".format(wrong=char,
@@ -204,6 +204,9 @@ def _encode(obj):
 
     elif isinstance(obj, types.IntType):
         return _encode_int(obj)
+
+    else:
+        raise EncodeError("Unexpected object found {obj}".format(obj=obj))
 
 
 @utils.decorators.log_this
