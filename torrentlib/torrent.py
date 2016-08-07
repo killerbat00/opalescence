@@ -209,7 +209,7 @@ class Torrent(object):
     @utils.decorators.log_this
     def _compute_info_hash(self):
         """
-        Computes the 20-byte sha1 info hash of the contents of the info dictionary
+        Computes the 20-byte sha1 info hash digest of the contents of the info dictionary
         """
         info = OrderedDict()
         files = []

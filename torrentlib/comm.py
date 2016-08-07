@@ -6,6 +6,7 @@ author: brian houston morrow
 """
 
 import random
+import types
 
 import requests
 
@@ -67,7 +68,7 @@ class TrackerHttpRequest(object):
         # type (requests.Response) -> N
         assert (isinstance(r, requests.Response))
 
-        bencoded_resp = r.text
+        bencoded_resp = r.content
         try:
             decoded_obj = bdecode(bencoded_resp)
         except DecodeError as e:
@@ -75,32 +76,23 @@ class TrackerHttpRequest(object):
 
         if "failure reason" in decoded_obj:
             raise TrackerResponseError(
-                "Request failed.\n{failure_msg}".format(failure_msg=decoded_obj["failure reason"]))
+                "Request to {tracker_url} failed.\n{failure_msg}".format(tracker_url=self.announce_url,
+                                                                         failure_msg=decoded_obj["failure reason"]))
 
-        interval = int(decoded_obj["interval"])
+        interval = decoded_obj["interval"]
         mininterval = 0
         if "min interval" in decoded_obj:
-            mininterval = int(decoded_obj["min interval"])
+            mininterval = decoded_obj["min interval"]
 
         if "tracker id" in decoded_obj:
             self.tracker_id = decoded_obj["tracker id"]
 
-        complete = int(decoded_obj["complete"])
-        incomplete = int(decoded_obj["incomplete"])
+        complete = decoded_obj["complete"]
+        incomplete = decoded_obj["incomplete"]
         peers = decoded_obj["peers"]
 
-        resp = TrackerHttpResponse()
-        resp.interval = interval
-
-        if mininterval:
-            resp.mininterval = mininterval
-
-        resp.tracker_id = self.tracker_id
-        resp.complete = complete
-        resp.incomplete = incomplete
-        resp.peers = peers
-
-        return resp
+        return TrackerHttpResponse(interval=interval, mininterval=mininterval, tracker_id=self.tracker_id,
+                                   complete=complete, incomplete=incomplete, peers=peers)
 
     @utils.decorators.log_this
     def make_request(self, event=tracker_event["started"]):
@@ -120,19 +112,23 @@ class TrackerHttpRequest(object):
 
 
 class TrackerHttpResponse(object):
-    def __init__(self):
+    def __init__(self, interval=0, mininterval=0, tracker_id="", complete=0, incomplete=0, peers=""):
         # required
-        self.interval = 0
-        self.mininterval = 0
-        self.tracker_id = ""
-        self.complete = 0
-        self.incomplete = 0
-        self.peers = []  # list of dictionaries
+        self.interval = interval
+        self.mininterval = mininterval
+        self.tracker_id = tracker_id
+        self.complete = complete
+        self.incomplete = incomplete
+        # TODO: Figure out how to differentiate between a list of dictionaries and a string here
+        self.peers = peers  # list of dictionaries OR byte string of length % 6 = 0
 
+        if self.peers:
+            self._decode_peers()
 
-class Tracker(object):
-    pass
-
-
-class Comm(object):
-    pass
+    def _decode_peers(self):
+        if isinstance(self.peers, types.StringType):
+            pass  # decode bytestring
+        elif isinstance(self.peers, types.ListType):
+            pass  # save peer_list
+        else:
+            raise TrackerResponseError("Inavlid peer list {peer_list}".format(peer_list=self.peers))

@@ -158,7 +158,11 @@ def _decode_str(torrent_buffer):
     """
     torrent_buffer.seek(-1, 1)
     string_len = _parse_num(torrent_buffer, delimiter=DIVIDER)
-    return torrent_buffer.read(string_len)
+    string_val = torrent_buffer.read(string_len)
+    if len(string_val) != string_len:
+        raise DecodeError("Unable to read specified string length at {pos}.".format(pos=torrent_buffer.pos))
+
+    return string_val
 
 
 @utils.decorators.log_this

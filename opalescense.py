@@ -53,6 +53,7 @@ if __name__ == '__main__':
     try:
         tracker_request = TrackerHttpRequest(torrent_from_file)
         tracker_resp = tracker_request.make_request()
+        print("halt")
     except TrackerResponseError as tre:
         raise tre
 
