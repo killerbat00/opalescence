@@ -13,8 +13,11 @@ from collections import OrderedDict
 
 import config
 import utils.decorators
-from bencode import bdecode, bencode
-from torrentlib.errors import CreationError, DecodeError, EncodeError
+from bencode import bdecode, bencode, DecodeError, EncodeError
+
+
+class CreationError(Exception):
+    pass
 
 
 @utils.decorators.log_this

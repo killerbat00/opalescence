@@ -15,7 +15,6 @@ from StringIO import StringIO
 from collections import OrderedDict
 
 import utils.decorators
-from torrentlib.errors import DecodeError, EncodeError, PrintError
 
 DICT_START = "d"
 DICT_END = "e"
@@ -24,6 +23,18 @@ LIST_END = "e"
 NUM_START = "i"
 NUM_END = "e"
 DIVIDER = ":"
+
+
+class DecodeError(Exception):
+    pass
+
+
+class EncodeError(Exception):
+    pass
+
+
+class PrintError(Exception):
+    pass
 
 
 # -- Publicly exposed methods
