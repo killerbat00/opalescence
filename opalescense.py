@@ -8,8 +8,8 @@ author: brian houston morrow
 import os
 
 import config
-from torrentlib.comm import TrackerHttpRequest, TrackerResponseError
 from torrentlib.torrent import Torrent
+from torrentlib.tracker import TrackerHttpRequest, TrackerResponseError
 
 
 def test_file_to_torrent(torrent_file):
