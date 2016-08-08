@@ -12,15 +12,16 @@ import time
 from collections import OrderedDict
 
 import config
-import utils.decorators
 from bencode import bdecode, bencode, DecodeError, EncodeError
 
 
 class CreationError(Exception):
+    """
+    Raised when we encounter problems creating a torrent
+    """
     pass
 
 
-@utils.decorators.log_this
 def _pc(piece_string, length=20, start=0):
     # type (str, int) -> generator comprehension
     """
@@ -34,7 +35,6 @@ def _pc(piece_string, length=20, start=0):
     return (piece_string[0 + i:length + i] for i in range(start, len(piece_string), length))
 
 
-@utils.decorators.log_this
 def _validate_torrent_dict(decoded_dict):
     """
     Verifies a given decoded dictionary contains valid keys to describe a torrent we can do something with.
@@ -107,8 +107,6 @@ class FileItem(object):
     """
     An individual file within a torrent.
     """
-
-    @utils.decorators.log_this
     def __init__(self, path, size):
         # type (str, int, int) -> FileItem
         """
@@ -124,8 +122,6 @@ class Torrent(object):
     """
     Relevant metadata for a torrent file
     """
-
-    @utils.decorators.log_this
     def __init__(self, announce, announce_list, files, location, name, url_list,
                  comment="", created_by=config.FULL_NAME, creation_date=int(time.time()),
                  pieces=None, piece_length=16384, private=False, info_hash=""):
@@ -170,7 +166,6 @@ class Torrent(object):
         if not self.info_hash:
             self._compute_info_hash()
 
-    @utils.decorators.log_this
     def _collect_pieces(self):
         """
         The real workhorse of torrent creation.
@@ -206,7 +201,6 @@ class Torrent(object):
                         left_in_piece = self.piece_length - remainder_to_read
                         break
 
-    @utils.decorators.log_this
     def _compute_info_hash(self):
         """
         Computes the 20-byte sha1 info hash digest of the contents of the info dictionary
@@ -233,7 +227,6 @@ class Torrent(object):
 
         self.info_hash = hashlib.sha1(bencode(info)).digest()
 
-    @utils.decorators.log_this
     def total_file_size(self):
         # type () -> int
         """
@@ -246,7 +239,6 @@ class Torrent(object):
 
     # => Alternate constructors
     @staticmethod
-    @utils.decorators.log_this
     def from_file(torrent_file):
         # type (str) -> Torrent
         """
@@ -310,7 +302,6 @@ class Torrent(object):
             return torrent
 
     @staticmethod
-    @utils.decorators.log_this
     def from_path(path, announce=None, announce_list=None, comment="", piece_size=16384, private=False, url_list=None):
         """
         Creates a Torrent from a given path, gathering piece hashes from given files.
@@ -333,7 +324,7 @@ class Torrent(object):
         if ntpath.isfile(path):
             name = ntpath.basename(path)
             size = ntpath.getsize(path)
-            files.append(FileItem(name, size, 0))
+            files.append(FileItem(name, size))
         elif ntpath.isdir(path):
             name = ntpath.basename(path)
 
@@ -351,7 +342,6 @@ class Torrent(object):
         return torrent
 
     # => Output
-    @utils.decorators.log_this
     def to_file(self, save_path):
         # type (Torrent, str) -> None
         """

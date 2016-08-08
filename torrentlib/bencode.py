@@ -14,8 +14,6 @@ import types
 from StringIO import StringIO
 from collections import OrderedDict
 
-import utils.decorators
-
 DICT_START = "d"
 DICT_END = "e"
 LIST_START = "l"
@@ -38,7 +36,6 @@ class PrintError(Exception):
 
 
 # -- Publicly exposed methods
-@utils.decorators.log_this
 def bdecode(bencoded_string):
     # type: (str) -> OrderedDict
     """
@@ -55,7 +52,6 @@ def bdecode(bencoded_string):
         raise e
 
 
-@utils.decorators.log_this
 def bencode(decoded_obj):
     # type (OrderedDict) -> str
     """
@@ -71,7 +67,6 @@ def bencode(decoded_obj):
         raise e
 
 
-@utils.decorators.log_this
 def pretty_print(bdecoded_obj):
     # type (OrderedDict, int) -> None
     """
@@ -87,7 +82,6 @@ def pretty_print(bdecoded_obj):
 
 # -- Private methods
 # --- decoding
-@utils.decorators.log_this
 def _decode(torrent_buffer):
     # type (StringIO) -> OrderedDict
     """
@@ -130,7 +124,6 @@ def _decode(torrent_buffer):
         raise DecodeError("Unable to decode file.")
 
 
-@utils.decorators.log_this
 def _decode_int(torrent_buffer):
     # type (StringIO) -> int
     """
@@ -148,7 +141,6 @@ def _decode_int(torrent_buffer):
     return _parse_num(torrent_buffer, delimiter=NUM_END)
 
 
-@utils.decorators.log_this
 def _decode_str(torrent_buffer):
     # type (StringIO) -> str
     """
@@ -165,7 +157,6 @@ def _decode_str(torrent_buffer):
     return string_val
 
 
-@utils.decorators.log_this
 def _parse_num(torrent_buffer, delimiter):
     # type (StringIO, str) -> int
     """
@@ -190,7 +181,6 @@ def _parse_num(torrent_buffer, delimiter):
 
 
 # --- encoding
-@utils.decorators.log_this
 def _encode(obj):
     # type (?) -> str
     """
@@ -224,7 +214,6 @@ def _encode(obj):
         raise EncodeError("Unexpected object found {obj}".format(obj=obj))
 
 
-@utils.decorators.log_this
 def _encode_int(int_obj):
     # type (int) -> str
     """
@@ -237,7 +226,6 @@ def _encode_int(int_obj):
                                       end=NUM_END)
 
 
-@utils.decorators.log_this
 def _encode_str(string_obj):
     # type (str) -> str
     """
@@ -251,7 +239,6 @@ def _encode_str(string_obj):
 
 
 # --- pretty printing
-@utils.decorators.log_this
 def pp_list(decoded_list, lvl=None):
     # type (list, int) -> None
     """
@@ -276,7 +263,6 @@ def pp_list(decoded_list, lvl=None):
             raise PrintError("Unexpected value {val} in torrent.".format(val=itm))
 
 
-@utils.decorators.log_this
 def pp_dict(decoded_dict, lvl=None):
     # type (OrderedDict, int) -> None
     """

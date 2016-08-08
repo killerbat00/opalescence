@@ -12,7 +12,6 @@ import types
 
 import requests
 
-import utils.decorators
 from bencode import bdecode, DecodeError
 from peer import Peer
 from torrent import Torrent
@@ -80,6 +79,7 @@ class TrackerInfo(object):
         TODO: Improve this a bit - it's probably not a great idea to read from self.peers then immediately overwrite it
               after decoding.
               I'm also not confident in how the ip addresses and ports are handled.
+              peer id handling is also wrong, but not affected for the test torrent i'm using now
         """
         if isinstance(self.peers, types.StringType):
             peer_len = len(self.peers)
@@ -92,15 +92,15 @@ class TrackerInfo(object):
                 ip_bytes = struct.unpack("!L", peer_bytes[0:4])[0]
                 ip = socket.inet_ntoa(struct.pack('!L', ip_bytes))
                 port = struct.unpack("!H", peer_bytes[4:6])[0]
-                self.peer_list.append(Peer(ip, port))
+                self.peer_list.append(Peer(ip, port, self.info_hash, self.peer_id))
         # this part is untested
         elif isinstance(self.peers, types.ListType):
             for peer in self.peers:
                 assert (isinstance(peer, types.DictionaryType))
 
-                if ["ip", "port"] not in peer:
+                if ["ip", "port", "peer id"] not in peer:
                     raise TrackerCommError("Invalid peer list. Unable to decode {peer}".format(peer=peer))
-                self.peer_list.append(Peer(peer.get("ip"), peer.get("port")))
+                self.peer_list.append(Peer(peer.get("ip"), peer.get("port"), self.info_hash, self.peer_id))
         else:
             raise TrackerCommError("Invalid peer list {peer_list}".format(peer_list=self.peers))
 
@@ -141,7 +141,6 @@ class TrackerInfo(object):
         if self.event and self.event is EventEnum.started:
             self.event = None
 
-    @utils.decorators.log_this
     def make_request(self, event=EventEnum.started):
         """
         Makes a request to the tracker notifying it of our curent stats.
