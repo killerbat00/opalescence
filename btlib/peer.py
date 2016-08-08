@@ -64,7 +64,7 @@ class Peer(object):
         msg = "{pstrlen}{pstr}{reserved}{info_hash}{peer_id}".format(pstrlen=self._pstr_len_bytes, pstr=PSTR,
                                                                      reserved=self._reserved, info_hash=self.info_hash,
                                                                      peer_id=self.peer_id)
-        assert (len(msg) == self._handshake_len)
+
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((self.ip, self.port))
         while sent < self._handshake_len:
@@ -80,8 +80,11 @@ class Peer(object):
             recvd += len(chunk)
 
         handshake_resp = ''.join(chunks)
-        print(handshake_resp)
+        self._parse_msg(handshake_resp)
         print("halt")
 
     def _parse_msg(self, message):
-        pass
+        assert (len(message) == self._handshake_len)
+
+        print(message)
+        print("halt")

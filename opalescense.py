@@ -8,8 +8,8 @@ author: brian houston morrow
 import os
 
 import config
-from torrentlib.torrent import Torrent
-from torrentlib.tracker import TrackerInfo
+from btlib.torrent import Torrent
+from btlib.tracker import TrackerInfo
 
 
 def test_file_to_torrent(torrent_file):
