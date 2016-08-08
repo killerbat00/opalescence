@@ -9,7 +9,7 @@ import os
 
 import config
 from torrentlib.torrent import Torrent
-from torrentlib.tracker import TrackerHttpRequest, TrackerResponseError
+from torrentlib.tracker import TrackerInfo, TrackerCommError
 
 
 def test_file_to_torrent(torrent_file):
@@ -50,11 +50,15 @@ if __name__ == '__main__':
     torrent_from_file = test_file_to_torrent(config.TEST_EXTERNAL_FILE)
     # test_torrent_to_file(torrent_from_file, config.TEST_EXTERNAL_OUTPUT)
 
+    tracker_info = TrackerInfo(torrent_from_file)
     try:
-        tracker_request = TrackerHttpRequest(torrent_from_file)
-        tracker_resp = tracker_request.make_request()
-        print("halt")
-    except TrackerResponseError as tre:
+        # first communication with the tracker
+        print("[*] Making request to the tracker {tracker_url}".format(tracker_url=tracker_info.announce_url))
+        if tracker_info.make_request():
+            print("Success!")
+        else:
+            print("Error")
+    except TrackerCommError as tre:
         raise tre
 
     # Create a Torrent from a directory
