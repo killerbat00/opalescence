@@ -6,10 +6,10 @@ Testing decoding and encoding a torrent file.
 author: brian houston morrow
 """
 import os
+from socket import error as socketerror
 
 import config
 from btlib.torrent import Torrent
-from btlib.tracker import TrackerInfo
 
 
 def test_file_to_torrent(torrent_file):
@@ -50,13 +50,17 @@ if __name__ == '__main__':
     torrent_from_file = test_file_to_torrent(config.TEST_EXTERNAL_FILE)
     # test_torrent_to_file(torrent_from_file, config.TEST_EXTERNAL_OUTPUT)
 
-    tracker_info = TrackerInfo(torrent_from_file)
-
     # first communication with the tracker
-    print("[*] Making request to the tracker {tracker_url}".format(tracker_url=tracker_info.announce_url))
-    if tracker_info.make_request():
+    print(
+    "[*] Making request to the tracker {tracker_url}".format(tracker_url=torrent_from_file.trackers[0].announce_url))
+    if torrent_from_file.trackers[0].make_request():
         print("Success!")
-        tracker_info.peer_list[0].handshake()
+        for peer in torrent_from_file.trackers[0].peer_list:
+            try:
+                peer.handshake()
+            except socketerror:
+                continue
+        torrent_from_file.trackers[0].peer_list[0].handshake()
     else:
         print("Error")
 

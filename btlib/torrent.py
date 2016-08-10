@@ -13,13 +13,7 @@ from collections import OrderedDict
 
 import config
 from bencode import bdecode, bencode, DecodeError, EncodeError
-
-
-class CreationError(Exception):
-    """
-    Raised when we encounter problems creating a torrent
-    """
-    pass
+from tracker import TrackerInfo
 
 
 def _pc(piece_string, length=20, start=0):
@@ -103,6 +97,13 @@ def _validate_torrent_dict(decoded_dict):
     return True
 
 
+class CreationError(Exception):
+    """
+    Raised when we encounter problems creating a torrent
+    """
+    pass
+
+
 class FileItem(object):
     """
     An individual file within a torrent.
@@ -122,13 +123,13 @@ class Torrent(object):
     """
     Relevant metadata for a torrent file
     """
-    def __init__(self, announce, announce_list, files, location, name, url_list,
+
+    def __init__(self, tracker_urls, files, location, name, url_list,
                  comment="", created_by=config.FULL_NAME, creation_date=int(time.time()),
                  pieces=None, piece_length=16384, private=False, info_hash=""):
         """
         Initializes a torrent. Not typically used alone, instead, use Torrent.from_file or Torrent.from_path
-        :param announce:        announce url
-        :param announce_list:   announce urls
+        :param trackers:        list of tracker urls
         :param files:           list of files
         :param location:        output location
         :param name:            torrent's name
@@ -144,21 +145,20 @@ class Torrent(object):
         if pieces is None:
             pieces = []
 
-        self.announce = announce
-        self.announce_list = announce_list
+        self.tracker_urls = tracker_urls
         self.comment = comment
         self.created_by = created_by
         self.creation_date = creation_date
         self.files = files
-        self.location = location
+        self.save_location = location
         self.name = name
         self.piece_length = piece_length
         self.pieces = pieces
         self.private = private
         self.url_list = url_list
-        self.block_size = piece_length
-        self.piece_byte_length = self.piece_length / 8
         self.info_hash = info_hash
+        self.total_file_size = sum([f.size for f in self.files])
+        self.trackers = [TrackerInfo(x, self.info_hash, self.total_file_size) for x in self.tracker_urls]
 
         if not pieces:
             self._collect_pieces()
@@ -169,7 +169,7 @@ class Torrent(object):
     def _collect_pieces(self):
         """
         The real workhorse of torrent creation.
-        Reads through all specified files, breaking them into piece_length chunks and storing their 160bit sha1
+        Reads through all specified files, breaking them into piece_length chunks and storing their 20byte sha1
         digest into the pieces list
         """
         base_path = config.TEST_TORRENT_DIR
@@ -227,16 +227,6 @@ class Torrent(object):
 
         self.info_hash = hashlib.sha1(bencode(info)).digest()
 
-    def total_file_size(self):
-        # type () -> int
-        """
-        :return:   total size of all the files specified by the torrent
-        """
-        size = 0
-        for f in self.files:
-            size += f.size
-        return size
-
     # => Alternate constructors
     @staticmethod
     def from_file(torrent_file):
@@ -251,16 +241,17 @@ class Torrent(object):
         try:
             with open(torrent_file, mode='rb') as f:
                 torrent_obj = bdecode(f.read())
-        except DecodeError() as e:
-            raise CreationError(
-                "Unable to decode .torrent file: {file}\n{previous}".format(file=torrent_file, previous=e.message))
+        except DecodeError:
+            raise
+        #            raise CreationError(
+        #                "Unable to decode .torrent file: {file}\n{previous}".format(file=torrent_file, previous=e.message))
 
         if torrent_obj is not None:
             _validate_torrent_dict(torrent_obj)
 
             files = []
+            trackers = [torrent_obj["announce"]]
             pieces = list(_pc(torrent_obj["info"]["pieces"]))
-            announce_list = []
             url_list = []
             comment = ""
             created_by = ""
@@ -271,7 +262,7 @@ class Torrent(object):
             info_dict.setdefault("info", torrent_obj["info"])
 
             if "announce-list" in torrent_obj:  # optional key
-                announce_list = torrent_obj["announce-list"]
+                trackers += torrent_obj["announce-list"][0]
 
             if "comment" in torrent_obj:  # optional key
                 comment = torrent_obj["comment"]
@@ -294,21 +285,17 @@ class Torrent(object):
             if "url-list" in torrent_obj:  # optional key
                 url_list = torrent_obj["url-list"]
 
-            torrent = Torrent(torrent_obj["announce"], announce_list, files, torrent_file,
-                              torrent_obj["info"]["name"], url_list, comment=comment,
-                              created_by=created_by, creation_date=creation_date,
-                              pieces=pieces, piece_length=torrent_obj["info"]["piece length"],
-                              private=private, info_hash=info_hash)
-            return torrent
+            return Torrent(trackers, files, torrent_file, torrent_obj["info"]["name"], url_list, comment=comment,
+                           created_by=created_by, creation_date=creation_date, pieces=pieces,
+                           piece_length=torrent_obj["info"]["piece length"], private=private, info_hash=info_hash)
 
     @staticmethod
-    def from_path(path, announce=None, announce_list=None, comment="", piece_size=16384, private=False, url_list=None):
+    def from_path(path, trackers=None, comment="", piece_size=16384, private=False, url_list=None):
         """
         Creates a Torrent from a given path, gathering piece hashes from given files.
         Supports creating torrents from single files and multiple files.
         :param path:            path from which to create the Torrent
-        :param announce:        tracker url
-        :param announce_list:   list of tracker urls
+        :param trackers:        tracker url
         :param url_list:        list of urls
         :param private:         private torrent?
         :param comment:         torrent's comment
@@ -337,7 +324,7 @@ class Torrent(object):
         else:
             raise CreationError("Error creating torrent.")
 
-        torrent = Torrent(announce, [announce_list], files, config.TEST_TORRENT_DIR_OUTPUT, name,
+        torrent = Torrent(trackers, files, config.TEST_TORRENT_DIR_OUTPUT, name,
                           url_list, comment=comment, private=private, piece_length=piece_size)
         return torrent
 
@@ -352,10 +339,10 @@ class Torrent(object):
         info = OrderedDict()
         files = []
 
-        obj.setdefault("announce", self.announce)  # required key
+        obj.setdefault("announce", self.tracker_urls[0])  # required key
 
-        if self.announce_list:  # optional key
-            obj.setdefault("announce-list", self.announce_list)
+        if len(self.tracker_urls) > 1:  # optional key
+            obj.setdefault("announce-list", self.tracker_urls[1:])
         if self.comment:  # optional key
             obj.setdefault("comment", self.comment)
         if self.created_by:  # optional key
@@ -390,5 +377,5 @@ class Torrent(object):
             decoded_str = bencode(obj)
             with open(save_path, mode="wb") as f:
                 f.write(decoded_str)
-        except (CreationError, EncodeError) as e:
-            raise CreationError("Unable to write .torrent file.\n{prev_msg}".format(prev_msg=e.message))
+        except (CreationError, EncodeError):
+            raise

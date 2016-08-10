@@ -14,7 +14,6 @@ import requests
 
 from bencode import bdecode, DecodeError
 from peer import Peer
-from torrent import Torrent
 
 
 class TrackerCommError(Exception):
@@ -39,22 +38,15 @@ class TrackerInfo(object):
     to schedule the information to refresh
     """
 
-    def __init__(self, torrent, port=6881):
-        """
-        Represents the information we pass back and forth to the tracker while a torrent is downloading
-        :param torrent:
-        :param port:
-        """
-        assert (isinstance(torrent, Torrent))
-
+    def __init__(self, url, info_hash, total_size, port=6881):
         # required
-        self.info_hash = torrent.info_hash
-        self.announce_url = torrent.announce
+        self.info_hash = info_hash
+        self.announce_url = url
         self.peer_id = "-OP0020-" + str(random.randint(100000000000, 999999999999))
         self.port = port
         self.uploaded = 0
         self.downloaded = 0
-        self.left = torrent.total_file_size()
+        self.left = total_size
         self.compact = 0
         self.no_peer_id = 0
         self.event = EventEnum.started
