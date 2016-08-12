@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 #!/usr/bin/env python
 
 """
@@ -15,7 +16,7 @@ from btlib.torrent import Torrent
 def test_file_to_torrent(torrent_file):
     assert os.path.exists(torrent_file), "[!!!] Path does not exist %s" % torrent_file
 
-    print("[*] Creating torrent from {file}".format(file=torrent_file))
+    print(("[*] Creating torrent from {file}".format(file=torrent_file)))
     result = Torrent.from_file(torrent_file)
     print("Success!")
     return result
@@ -24,7 +25,7 @@ def test_file_to_torrent(torrent_file):
 def test_dir_to_torrent(directory):
     assert os.path.exists(directory), "[!!!] Path does not exist %s" % directory
 
-    print("[*] Creating torrent from {dir}".format(dir=directory))
+    print(("[*] Creating torrent from {dir}".format(dir=directory)))
     result = Torrent.from_path(directory, announce=config.ANNOUNCE, announce_list=config.ANNOUNCE_LIST,
                                url_list=config.URL_LIST, private=config.PRIVATE,
                                comment="This is a super awesome comment!")
@@ -35,7 +36,7 @@ def test_dir_to_torrent(directory):
 def test_torrent_to_file(torrent_obj, path):
     assert isinstance(torrent_obj, Torrent), "[!!!] Invalid torrent object"
 
-    print("[*] Writing torrent to {path}".format(path=path))
+    print(("[*] Writing torrent to {path}".format(path=path)))
     torrent_obj.to_file(path)
     print("Success!")
 
@@ -48,11 +49,12 @@ if __name__ == '__main__':
     # saving it again will allow me to open it in the same program
     # it works!
     torrent_from_file = test_file_to_torrent(config.TEST_EXTERNAL_FILE)
-    # test_torrent_to_file(torrent_from_file, config.TEST_EXTERNAL_OUTPUT)
+    test_torrent_to_file(torrent_from_file, config.TEST_EXTERNAL_OUTPUT)
 
     # first communication with the tracker
-    print(
-    "[*] Making request to the tracker {tracker_url}".format(tracker_url=torrent_from_file.trackers[0].announce_url))
+    print((
+        "[*] Making request to the tracker {tracker_url}".format(
+            tracker_url=torrent_from_file.trackers[0].announce_url)))
     if torrent_from_file.trackers[0].make_request():
         print("Success!")
         for peer in torrent_from_file.trackers[0].peer_list:

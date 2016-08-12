@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 """
 Support for basic communication with a single peer - for now
 
@@ -58,7 +60,7 @@ class Peer(object):
         return "{ip}:{port}".format(ip=self.ip, port=self.port)
 
     def handshake(self):
-        print("[*] Initiating handshake with peer {ip}:{port}".format(ip=self.ip, port=self.port))
+        print(("[*] Initiating handshake with peer {ip}:{port}".format(ip=self.ip, port=self.port)))
         chunks = []
         recvd = 0
         sent = 0
@@ -73,7 +75,7 @@ class Peer(object):
             if i_sent == 0:
                 raise RuntimeError("socket connection broken")
             sent += i_sent
-        print("[*] Sent message".format(message=msg))
+        print(("[*] Sent message".format(message=msg)))
         while recvd < self._handshake_len:
             chunk = s.recv(self._handshake_len)
             if chunk == '':
@@ -82,7 +84,7 @@ class Peer(object):
             recvd += len(chunk)
 
         handshake_resp = ''.join(chunks)
-        print("[*] Received message".format(message=handshake_resp))
+        print(("[*] Received message".format(message=handshake_resp)))
         self._parse_msg(handshake_resp)
         print("halt")
 

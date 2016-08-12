@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 """
 Support for representing a .torrent file as a python class and creating a Torrent class (or .torrent file) from
 a specified file or directory.
@@ -5,6 +7,7 @@ a specified file or directory.
 author: brian houston morrow
 """
 
+import codecs
 import hashlib
 import ntpath
 import os
@@ -12,12 +15,11 @@ import time
 from collections import OrderedDict
 
 import config
-from bencode import bdecode, bencode, DecodeError, EncodeError
-from tracker import TrackerInfo
+from .bencode import bdecode, bencode, DecodeError, EncodeError
+from .tracker import TrackerInfo
 
 
-def _pc(piece_string, length=20, start=0):
-    # type (str, int) -> generator comprehension
+def _pc(piece_string: bytes, length: int = 20, start: int = 0):
     """
     pieces a string into pieces of specified length.
     by default pieces into 20byte (160 bit) pieces
@@ -29,7 +31,7 @@ def _pc(piece_string, length=20, start=0):
     return (piece_string[0 + i:length + i] for i in range(start, len(piece_string), length))
 
 
-def _validate_torrent_dict(decoded_dict):
+def _validate_torrent_dict(decoded_dict: dict) -> bool:
     """
     Verifies a given decoded dictionary contains valid keys to describe a torrent we can do something with.
     Currently only checks for the minimum required torrent keys for torrents describing files and directories.
@@ -46,7 +48,7 @@ def _validate_torrent_dict(decoded_dict):
     min_mult_req_keys = list(min_info_req_keys) + ["files"]
     min_files_req_keys = ["length", "path"]
 
-    dict_keys = decoded_dict.keys()
+    dict_keys = list(decoded_dict.keys())
 
     if not dict_keys:
         raise CreationError("Unable to verify torrent dictionary. No valid keys in dictionary.")
@@ -57,7 +59,7 @@ def _validate_torrent_dict(decoded_dict):
             raise CreationError(
                 "Unable to verify torrent dictionary. Required key not found: {required_key}".format(required_key=key))
 
-    info_keys = decoded_dict["info"].keys()
+    info_keys = list(decoded_dict["info"].keys())
 
     if not info_keys:
         raise CreationError("Unable to verify torrent info dictionary. No valid keys in info dictionary.")
@@ -79,7 +81,7 @@ def _validate_torrent_dict(decoded_dict):
         if not file_list:
             raise CreationError("Unable to verify torrent dictionary. No file list.")
         for f in file_list:
-            for key in f.keys():
+            for key in list(f.keys()):
                 if key not in min_files_req_keys:
                     raise CreationError("Unable to verify torrent dictionary. \
                     Required key not found in files dictionary for multiple files: {required_key}".format(
@@ -108,8 +110,8 @@ class FileItem(object):
     """
     An individual file within a torrent.
     """
-    def __init__(self, path, size):
-        # type (str, int, int) -> FileItem
+
+    def __init__(self, path: str, size: int):
         """
         Initializes a new FileItem
         :param path:    file path
@@ -211,19 +213,19 @@ class Torrent(object):
         if len(self.files) > 1:
             for file_itm in self.files:
                 f = OrderedDict()
-                f.setdefault("length", file_itm.size)
-                f.setdefault("path", file_itm.path)
+                f.setdefault(b"length", file_itm.size)
+                f.setdefault(b"path", file_itm.path)
                 files.append(f)
-            info.setdefault("files", files)
+            info.setdefault(b"files", files)
         else:
-            info.setdefault("length", self.files[0].size)
+            info.setdefault(b"length", self.files[0].size)
 
-        info.setdefault("name", self.name)  # required key
-        info.setdefault("piece length", self.piece_length)  # required key
-        info.setdefault("pieces", "".join(self.pieces))  # required key
+        info.setdefault(b"name", self.name)  # required key
+        info.setdefault(b"piece length", self.piece_length)  # required key
+        info.setdefault(b"pieces", "".join(self.pieces))  # required key
 
         if self.private:  # optional key
-            info.setdefault("private", 1)
+            info.setdefault(b"private", 1)
 
         self.info_hash = hashlib.sha1(bencode(info)).digest()
 
@@ -239,12 +241,10 @@ class Torrent(object):
         assert (os.path.exists(torrent_file))
 
         try:
-            with open(torrent_file, mode='rb') as f:
+            with codecs.open(torrent_file, mode='rb') as f:
                 torrent_obj = bdecode(f.read())
         except DecodeError:
             raise
-        #            raise CreationError(
-        #                "Unable to decode .torrent file: {file}\n{previous}".format(file=torrent_file, previous=e.message))
 
         if torrent_obj is not None:
             _validate_torrent_dict(torrent_obj)
@@ -258,7 +258,8 @@ class Torrent(object):
             creation_date = 0
             private = False
             info_dict = OrderedDict()
-            info_hash = hashlib.sha1(bencode(torrent_obj["info"])).digest()
+            info_str = bencode(torrent_obj["info"])
+            info_hash = hashlib.sha1(info_str.encode("ISO-8859-1")).digest()
             info_dict.setdefault("info", torrent_obj["info"])
 
             if "announce-list" in torrent_obj:  # optional key
@@ -342,7 +343,7 @@ class Torrent(object):
         obj.setdefault("announce", self.tracker_urls[0])  # required key
 
         if len(self.tracker_urls) > 1:  # optional key
-            obj.setdefault("announce-list", self.tracker_urls[1:])
+            obj.setdefault("announce-list", [self.tracker_urls[1:]])
         if self.comment:  # optional key
             obj.setdefault("comment", self.comment)
         if self.created_by:  # optional key
@@ -374,8 +375,8 @@ class Torrent(object):
 
         try:
             _validate_torrent_dict(obj)
-            decoded_str = bencode(obj)
+            encoded_bytes = bencode(obj)
             with open(save_path, mode="wb") as f:
-                f.write(decoded_str)
+                f.write(encoded_bytes.encode("ISO-8859-1"))
         except (CreationError, EncodeError):
             raise

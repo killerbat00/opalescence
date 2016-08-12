@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 """
 Support for communication with an external tracker.
 B A S I C
@@ -8,12 +10,11 @@ author: brian houston morrow
 import random
 import socket
 import struct
-import types
 
 import requests
 
-from bencode import bdecode, DecodeError
-from peer import Peer
+from .bencode import bdecode, DecodeError
+from .peer import Peer
 
 
 class TrackerCommError(Exception):
@@ -73,7 +74,7 @@ class TrackerInfo(object):
               I'm also not confident in how the ip addresses and ports are handled.
               peer id handling is also wrong, but not affected for the test torrent i'm using now
         """
-        if isinstance(self.peers, types.StringType):
+        if isinstance(self.peers, bytes):
             peer_len = len(self.peers)
             if peer_len % 6 != 0:
                 raise TrackerCommError(
@@ -86,9 +87,9 @@ class TrackerInfo(object):
                 port = struct.unpack("!H", peer_bytes[4:6])[0]
                 self.peer_list.append(Peer(ip, port, self.info_hash, self.peer_id))
         # this part is untested
-        elif isinstance(self.peers, types.ListType):
+        elif isinstance(self.peers, list):
             for peer in self.peers:
-                assert (isinstance(peer, types.DictionaryType))
+                assert (isinstance(peer, dict))
 
                 if ["ip", "port", "peer id"] not in peer:
                     raise TrackerCommError("Invalid peer list. Unable to decode {peer}".format(peer=peer))
