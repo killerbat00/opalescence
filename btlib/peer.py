@@ -24,20 +24,6 @@ class Messages(object):
     not_interested = struct.pack("!i", 1) + struct.pack("!b", 3)
 
 
-def byte_to_int(int_bytes):
-    """
-    Converts a 4-byte big-endian networked value to a long
-    :param int_bytes:   4-bytes representing integer
-    :return:            decoded integer
-    """
-    assert (len(int_bytes) == 4)
-    return struct.unpack("!L", int_bytes)[0]
-
-
-def int_to_byte(integer):
-    return struct.pack("!L", integer)
-
-
 class Peer(object):
     """
     Represents a peer and provides methods for communicating with said peer.
@@ -46,7 +32,7 @@ class Peer(object):
     _handshake_len = 68
     _pstr_len_bytes = struct.pack("!B", PSTRLEN)
 
-    def __init__(self, ip, port, info_hash, peer_id):
+    def __init__(self, ip: int, port: int, info_hash: str, peer_id):
         self.ip = ip
         self.port = port
         self.info_hash = info_hash
@@ -66,7 +52,7 @@ class Peer(object):
         sent = 0
         msg = "{pstrlen}{pstr}{reserved}{info_hash}{peer_id}".format(pstrlen=self._pstr_len_bytes, pstr=PSTR,
                                                                      reserved=self._reserved, info_hash=self.info_hash,
-                                                                     peer_id=self.peer_id)
+                                                                     peer_id=self.peer_id).encode("utf-8")
 
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((self.ip, self.port))

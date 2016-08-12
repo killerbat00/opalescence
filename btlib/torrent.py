@@ -19,7 +19,29 @@ from .bencode import bdecode, bencode, DecodeError, EncodeError, pretty_print
 from .tracker import TrackerInfo
 
 
-def _pc(piece_string: bytes, length: int = 20, start: int = 0):
+class CreationError(Exception):
+    """
+    Raised when we encounter problems creating a torrent
+    """
+    pass
+
+
+class FileItem(object):
+    """
+    An individual file within a torrent.
+    """
+
+    def __init__(self, path: str, size: int):
+        """
+        Initializes a new FileItem
+        :param path:    file path
+        :param size:    file size
+        """
+        self.path = path
+        self.size = int(size)
+
+
+def _pc(piece_string: bytes, *, length: int = 20, start: int = 0):
     """
     pieces a string into pieces of specified length.
     by default pieces into 20byte (160 bit) pieces
@@ -99,34 +121,12 @@ def _validate_torrent_dict(decoded_dict: dict) -> bool:
     return True
 
 
-class CreationError(Exception):
-    """
-    Raised when we encounter problems creating a torrent
-    """
-    pass
-
-
-class FileItem(object):
-    """
-    An individual file within a torrent.
-    """
-
-    def __init__(self, path: str, size: int):
-        """
-        Initializes a new FileItem
-        :param path:    file path
-        :param size:    file size
-        """
-        self.path = path
-        self.size = int(size)
-
-
 class Torrent(object):
     """
     Relevant metadata for a torrent file
     """
 
-    def __init__(self, tracker_urls: list, files: list, name: str, url_list: list = None, location: str = "",
+    def __init__(self, tracker_urls: list, files: list, name: str, *, url_list: list = None, location: str = "",
                  comment: str = "", created_by: str = config.FULL_NAME, creation_date: int = int(time.time()),
                  pieces: list = None, piece_length: int = 16384, private: bool = False, info_hash: str = ""):
         """
@@ -160,13 +160,14 @@ class Torrent(object):
         self.url_list = url_list
         self.info_hash = info_hash
         self.total_file_size = sum([f.size for f in self.files])
-        self.trackers = [TrackerInfo(x, self.info_hash, self.total_file_size) for x in self.tracker_urls]
 
         if not pieces:
             self._collect_pieces()
 
         if not self.info_hash:
             self._compute_info_hash()
+
+        self.trackers = [TrackerInfo(x, self.info_hash, self.total_file_size) for x in self.tracker_urls]
 
     def __str__(self):
         obj = self._to_obj()
@@ -349,7 +350,8 @@ class Torrent(object):
         return torrent
 
     @staticmethod
-    def from_path(path: str, trackers: list = None, comment: str = "", piece_size: int = 16384, private: bool = False,
+    def from_path(path: str, *, trackers: list = None, comment: str = "", piece_size: int = 16384,
+                  private: bool = False,
                   url_list: list = None):
         """
         Creates a Torrent from a given path, gathering piece hashes from given files.

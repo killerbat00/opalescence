@@ -39,7 +39,7 @@ class TrackerInfo(object):
     to schedule the information to refresh
     """
 
-    def __init__(self, url, info_hash, total_size, port=6881):
+    def __init__(self, url: str, info_hash: str, total_size: int, port: int = 6881):
         # required
         self.info_hash = info_hash
         self.announce_url = url
@@ -66,7 +66,7 @@ class TrackerInfo(object):
         self.leechers = 0
         self.peers = ""  # list of dictionaries OR byte string of length % 6 = 0
 
-    def _decode_peers(self):
+    def _decode_peers(self) -> None:
         """
         Decodes the peer list from a list of OrderedDict or a string of bytes into a list of ip:port
         TODO: Improve this a bit - it's probably not a great idea to read from self.peers then immediately overwrite it
@@ -74,7 +74,7 @@ class TrackerInfo(object):
               I'm also not confident in how the ip addresses and ports are handled.
               peer id handling is also wrong, but not affected for the test torrent i'm using now
         """
-        if isinstance(self.peers, bytes):
+        if isinstance(self.peers, str):
             peer_len = len(self.peers)
             if peer_len % 6 != 0:
                 raise TrackerCommError(
@@ -82,9 +82,9 @@ class TrackerInfo(object):
 
             for i in range(0, peer_len - 1, 6):
                 peer_bytes = self.peers[i:i + 6]
-                ip_bytes = struct.unpack("!L", peer_bytes[0:4])[0]
+                ip_bytes = struct.unpack("!L", peer_bytes[0:4].encode("ISO-8859-1"))[0]
                 ip = socket.inet_ntoa(struct.pack('!L', ip_bytes))
-                port = struct.unpack("!H", peer_bytes[4:6])[0]
+                port = struct.unpack("!H", peer_bytes[4:6].encode("ISO-8859-1"))[0]
                 self.peer_list.append(Peer(ip, port, self.info_hash, self.peer_id))
         # this part is untested
         elif isinstance(self.peers, list):
@@ -97,7 +97,7 @@ class TrackerInfo(object):
         else:
             raise TrackerCommError("Invalid peer list {peer_list}".format(peer_list=self.peers))
 
-    def _decode_response(self, r):
+    def _decode_response(self, r: requests.Response) -> None:
         """
         Decodes the content of a requests.Response response to the tracker
         :param r:   requests.Response to the request we made to the tracker
