@@ -52,7 +52,7 @@ class Peer(object):
         sent = 0
         msg = "{pstrlen}{pstr}{reserved}{info_hash}{peer_id}".format(pstrlen=self._pstr_len_bytes, pstr=PSTR,
                                                                      reserved=self._reserved, info_hash=self.info_hash,
-                                                                     peer_id=self.peer_id).encode("utf-8")
+                                                                     peer_id=self.peer_id).encode("ISO-8859-1")
 
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((self.ip, self.port))
@@ -61,7 +61,7 @@ class Peer(object):
             if i_sent == 0:
                 raise RuntimeError("socket connection broken")
             sent += i_sent
-        print(("[*] Sent message".format(message=msg)))
+        print(("[*] Sent message".format(message=msg.decode("ISO-8859-1"))))
         while recvd < self._handshake_len:
             chunk = s.recv(self._handshake_len)
             if chunk == '':
@@ -69,7 +69,7 @@ class Peer(object):
             chunks.append(chunk)
             recvd += len(chunk)
 
-        handshake_resp = ''.join(chunks)
+        handshake_resp = b"".join(chunks).decode("ISO-8859-1")
         print(("[*] Received message".format(message=handshake_resp)))
         self._parse_msg(handshake_resp)
         print("halt")
