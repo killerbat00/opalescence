@@ -64,13 +64,13 @@ def bencode(decoded_obj: OrderedDict) -> str:
         raise e
 
 
-def pretty_print(bdecoded_obj: OrderedDict) -> None:
+def pretty_print(bdecoded_obj: OrderedDict) -> str:
     """
     Prints a nicely formatted representation of a decoded torrent's python object
     :param bdecoded_obj: object to print
     """
     try:
-        pp_dict(bdecoded_obj)
+        return pp_dict(bdecoded_obj)
     except PrintError as pe:
         raise pe
 
@@ -87,16 +87,14 @@ def _decode(torrent_buffer: BytesIO) -> [dict, list, str, int]:
 
     if not char:
         return
-
     if char not in VALID_CHARS:
         raise DecodeError("Unable to decode file.")
-
     if char == DICT_END:
         return
     elif char == NUM_START:
-        return _decode_int(torrent_buffer)
+        return __decode_int(torrent_buffer)
     elif char in DIGITS:
-        return _decode_str(torrent_buffer)
+        return __decode_str(torrent_buffer)
     elif char == DICT_START:
         decoded_dict = OrderedDict()
         keys = []
@@ -120,7 +118,7 @@ def _decode(torrent_buffer: BytesIO) -> [dict, list, str, int]:
         return decoded_list
 
 
-def _decode_int(torrent_buffer: BytesIO) -> int:
+def __decode_int(torrent_buffer: BytesIO) -> int:
     """
     decodes a bencoded integer from a StringIO buffer.
     :param torrent_buffer:  StringIO object being parsed
@@ -132,17 +130,17 @@ def _decode_int(torrent_buffer: BytesIO) -> int:
         raise DecodeError("Error while parsing integer.\n" +
                           "Found {wrong}, expected {right}.".format(wrong=char,
                                                                     right=NUM_START))
-    return _parse_num(torrent_buffer, delimiter=NUM_END)
+    return __parse_num(torrent_buffer, delimiter=NUM_END)
 
 
-def _decode_str(torrent_buffer: BytesIO) -> str:
+def __decode_str(torrent_buffer: BytesIO) -> str:
     """
     decodes a bencoded string from a StringIO buffer.
     :param torrent_buffer:  StringIO object being parsed
     :return:                decoded string
     """
     torrent_buffer.seek(-1, 1)
-    string_len = _parse_num(torrent_buffer, delimiter=DIVIDER)
+    string_len = __parse_num(torrent_buffer, delimiter=DIVIDER)
     string_val = torrent_buffer.read(string_len).decode('ISO-8859-1')
     if len(string_val) != string_len:
         raise DecodeError("Unable to read specified string length {length}".format(length=string_len))
@@ -150,7 +148,7 @@ def _decode_str(torrent_buffer: BytesIO) -> str:
     return string_val
 
 
-def _parse_num(torrent_buffer: BytesIO, delimiter: bytes) -> int:
+def __parse_num(torrent_buffer: BytesIO, delimiter: bytes) -> int:
     """
     parses an bencoded integer up to specified delimiter from a StringIO buffer.
     :param torrent_buffer:     StringIO object being parsed
@@ -184,25 +182,17 @@ def _encode(obj: Any) -> str:
             contents += _encode_str(k)
             contents += _encode(v)
         contents += DICT_END.decode("ISO-8859-1")
-        a = contents
         return contents
-
     elif isinstance(obj, list):
         contents = LIST_START.decode("ISO-8859-1")
         for item in obj:
             contents += _encode(item)
         contents += LIST_END.decode("ISO-8859-1")
-        a = contents
         return contents
-
     elif isinstance(obj, str):
-        a = _encode_str(obj)
         return _encode_str(obj)
-
     elif isinstance(obj, int):
-        a = _encode_int(obj)
         return _encode_int(obj)
-
     else:
         raise EncodeError("Unexpected object found {obj}".format(obj=obj))
 
@@ -238,19 +228,21 @@ def pp_list(decoded_list: list, lvl: int = 0) -> None:
     :param lvl:             current recursion level (used for indentation)
     """
     assert (isinstance(decoded_list, list))
+    str_ = ""
 
     for itm in decoded_list:
         if isinstance(itm, dict):
-            pp_dict(itm, lvl)
+            str_ += pp_dict(itm, lvl)
         elif isinstance(itm, list):
-            pp_list(itm, lvl)
-        elif isinstance(itm, bytes) or isinstance(itm, int):
-            print("{pad}{val}".format(pad="\t" * lvl, val=itm))
+            str_ += pp_list(itm, lvl)
+        elif isinstance(itm, str) or isinstance(itm, int):
+            str_ += "{pad}{val}".format(pad="\t" * lvl, val=itm)
         else:
             raise PrintError("Unexpected value {val} in torrent.".format(val=itm))
+    return str_
 
 
-def pp_dict(decoded_dict: dict, lvl: int = 0) -> None:
+def pp_dict(decoded_dict: dict, lvl: int = 0) -> str:
     """
     Recursively prints keys and values from an OrderedDict representing a torrent
     mutually recursive with pp_list
@@ -258,14 +250,16 @@ def pp_dict(decoded_dict: dict, lvl: int = 0) -> None:
     :param lvl:             current recursion level (used for indentation)
     """
     assert (isinstance(decoded_dict, dict))
+    str_ = ""
 
     for k, v in decoded_dict.items():
-        print(("\t" * lvl + k))
+        str_ += "{pad}{val}\n".format(pad="\t" * lvl, val=k)
         if isinstance(v, dict):
-            pp_dict(v, lvl=lvl + 1)
+            str_ += pp_dict(v, lvl=lvl + 1)
         elif isinstance(v, list):
-            pp_list(v, lvl=lvl + 1)
-        elif isinstance(v, bytes) or isinstance(v, int):
-            print("{pad}{val}".format(pad="\t" * (lvl + 1), val=v))
+            str_ += pp_list(v, lvl=lvl + 1)
+        elif isinstance(v, str) or isinstance(v, int):
+            str_ += "{pad}{val}\n".format(pad="\t" * (lvl + 1), val=v)
         else:
             raise PrintError("Unexpected value {val} in torrent.".format(val=v))
+    return str_

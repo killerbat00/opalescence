@@ -26,7 +26,7 @@ def test_dir_to_torrent(directory):
     assert os.path.exists(directory), "[!!!] Path does not exist %s" % directory
 
     print(("[*] Creating torrent from {dir}".format(dir=directory)))
-    result = Torrent.from_path(directory, announce=config.ANNOUNCE, announce_list=config.ANNOUNCE_LIST,
+    result = Torrent.from_path(directory, trackers=[config.ANNOUNCE] + config.ANNOUNCE_LIST,
                                url_list=config.URL_LIST, private=config.PRIVATE,
                                comment="This is a super awesome comment!")
     print("Success!")
