@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-#!/usr/bin/env python
+# !/usr/bin/env python
 
 """
 Testing decoding and encoding a torrent file.
@@ -66,11 +66,11 @@ if __name__ == '__main__':
     else:
         print("Error")
 
-    # Create a Torrent from a directory
-    # torrent_from_dir = test_dir_to_torrent(config.TEST_TORRENT_DIR)
+        # Create a Torrent from a directory
+        # torrent_from_dir = test_dir_to_torrent(config.TEST_TORRENT_DIR)
 
-    # Write the two torrents to respective .torrent files
-    # these should be the same save the created by, creation date,
-    # and comment
-    # test_torrent_to_file(torrent_from_file, config.TEST_OUTPUT_FILE)
-    # test_torrent_to_file(torrent_from_dir, config.TEST_TORRENT_DIR_OUTPUT)
+        # Write the two torrents to respective .torrent files
+        # these should be the same save the created by, creation date,
+        # and comment
+        # test_torrent_to_file(torrent_from_file, config.TEST_OUTPUT_FILE)
+        # test_torrent_to_file(torrent_from_dir, config.TEST_TORRENT_DIR_OUTPUT)
