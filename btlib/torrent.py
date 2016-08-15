@@ -353,14 +353,14 @@ class Torrent(object):
     # => Output
     def to_file(self, save_path: str) -> None:
         """
-        converts a Torrent instance to a dictionary representing the metainfo file, bencodes the dictionary and writes the file.
+        converts a Torrent instance to a dictionary representing the metainfo file,
+        bencodes the dictionary to a bytestring and writes the file.
         :param save_path:   path to save the torrent
         """
-        obj = self._to_obj()
-
         try:
-            encoded_bytes = bencode(obj)
-            with open(save_path, mode="wb") as f:
-                f.write(encoded_bytes.encode("ISO-8859-1"))
+            encoded_bytes = bencode(self._to_obj())
         except (CreationError, EncodeError):
             raise
+        else:
+            with open(save_path, mode="wb") as f:
+                f.write(encoded_bytes.encode("ISO-8859-1"))
