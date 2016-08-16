@@ -13,7 +13,7 @@ import sys
 import time
 from collections import OrderedDict
 
-import config
+import default
 from .bencode import bdecode, bencode, pretty_print, DecodeError, EncodeError, PrintError
 from .tracker import TrackerInfo
 
@@ -109,8 +109,9 @@ class Torrent(object):
     Relevant metadata for a torrent file
     """
     def __init__(self, tracker_urls: list, files: list, name: str, *, url_list: list = None, location: str = "",
-                 comment: str = "", created_by: str = config.FULL_NAME, creation_date: int = int(time.time()),
-                 pieces: list = None, piece_length: int = 16384, private: bool = False, info_hash: str = ""):
+                 comment: str = "", created_by: str = default.FULL_NAME, creation_date: int = int(time.time()),
+                 pieces: list = None, piece_length: int = 16384, private: bool = False, info_hash: str = "",
+                 base_location: str = ""):
         """
         Initializes a torrent. Not typically used alone, instead, use Torrent.from_file or Torrent.from_path
         :param tracker_urls:    list of tracker urls
@@ -125,6 +126,7 @@ class Torrent(object):
         :param piece_length:    optional,defaults to 16384 bytes; piece length in bytes
         :param private:         optional,defaults to False
         :param info_hash:       optional,defaults to ""
+        :param base_location:   optional,defaults to ""
         """
         if pieces is None:
             pieces = []
@@ -145,6 +147,7 @@ class Torrent(object):
         self.url_list = url_list
         self.info_hash = info_hash
         self.total_file_size = sum([f.size for f in self.files])
+        self.base_location = base_location
 
         if not pieces:
             self._collect_pieces()
@@ -172,7 +175,10 @@ class Torrent(object):
         Reads through all specified files, breaking them into piece_length chunks and storing their 20byte sha1
         digest into the pieces list
         """
-        base_path = config.TEST_TORRENT_DIR
+        if not self.base_location:
+            raise CreationError("Unable to create torrent. No base path specified for torrent. This is a programmer error.")
+
+        base_path = self.base_location
         left_in_piece = 0
         next_pc = ""
 
@@ -298,13 +304,11 @@ class Torrent(object):
         try:
             with open(torrent_file, mode='rb') as f:
                 torrent_obj = bdecode(f.read())
-        except IOError:
-            tb = sys.exc_info()[2]
-            raise CreationError("{file} does not exist.".format(file=torrent_file)).with_traceback(tb)
+        except IOError as ioerr:
+            raise CreationError("{file} does not exist.".format(file=torrent_file)) from ioerr
         except DecodeError as e:
-            tb = sys.exc_info()[2]
             raise CreationError("Unable to decode file {file}.\n" +
-                                "{prev_msg}".format(file=torrent_file, prev_msg=e)).with_traceback(tb)
+                                "{prev_msg}".format(file=torrent_file, prev_msg=e)) from e
         else:
             if torrent_obj is None:
                 raise CreationError("Unable to create Torrent from empty file {file}.".format(file=torrent_file))
@@ -312,17 +316,17 @@ class Torrent(object):
             return torrent
 
     @staticmethod
-    def from_path(path: str, *, trackers: list = None, comment: str = "",
+    def from_path(path: str, trackers: list, *, comment: str = "",
                   piece_size: int = 16384, private: bool = False, url_list: list = None):
         """
         Creates a Torrent from a given path, gathering piece hashes from given files.
         Supports creating torrents from single files and multiple files.
         :param path:            path from which to create the Torrent
         :param trackers:        tracker url
-        :param url_list:        list of urls
-        :param private:         private torrent?
         :param comment:         torrent's comment
         :param piece_size:      piece size - default 16384
+        :param private:         private torrent?
+        :param url_list:        list of urls
         :return:    Torrent object
         """
         files = []
@@ -332,6 +336,7 @@ class Torrent(object):
 
         # gather files
         if os.path.isfile(path):
+            base_path = os.path.dirname(path)
             name = os.path.basename(path)
             size = os.path.getsize(path)
             files.append(FileItem(name, size))
@@ -348,7 +353,7 @@ class Torrent(object):
             raise CreationError("Error creating torrent.")
 
         return Torrent(trackers, files, name, url_list=url_list, location=name, comment=comment,
-                       private=private, piece_length=piece_size)
+                       private=private, piece_length=piece_size, base_location=base_path)
 
     # => Output
     def to_file(self, save_path: str) -> None:
@@ -359,8 +364,7 @@ class Torrent(object):
         """
         try:
             encoded_bytes = bencode(self._to_obj())
-        except (CreationError, EncodeError):
-            raise
-        else:
             with open(save_path, mode="wb") as f:
                 f.write(encoded_bytes.encode("ISO-8859-1"))
+        except (CreationError, EncodeError, IOError) as exc:
+            raise CreationError("Unable to write torrent to file {path}.".format(path=save_path)) from exc
