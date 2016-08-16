@@ -7,9 +7,10 @@ Testing decoding and encoding a torrent file.
 author: brian houston morrow
 """
 import argparse
+import logging
 import os
+import sys
 
-import default
 from btlib.torrent import Torrent, CreationError
 
 
@@ -126,14 +127,35 @@ def init_argparsers() -> argparse.ArgumentParser:
     add_create_parser(subparsers)
 
     # Other commands
-
     return parser
 
 
-if __name__ == '__main__':
+def init_logging():
+    """
+    Configures the root logger for the application
+    :return:
+    """
+    sh = logging.StreamHandler(stream=sys.stdout)
+    f = logging.Formatter(fmt="%(asctime)s: [%(levelname)s] %(message)s", datefmt="%m/%d/%Y %H:%M:%S", style="{")
+
+    sh.setFormatter(f)
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    root.addHandler(sh)
+
+
+def main():
+    """
+    Main entry-point into Opalescence.
+    """
+    init_logging()
     argparser = init_argparsers()
     args = argparser.parse_args()
     args.func(args)
+
+
+if __name__ == '__main__':
+    main()
 
 
 

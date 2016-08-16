@@ -8,14 +8,16 @@ author: brian houston morrow
 """
 
 import hashlib
+import logging
 import os
-import sys
 import time
 from collections import OrderedDict
 
 import default
-from .bencode import bdecode, bencode, pretty_print, DecodeError, EncodeError, PrintError
+from .bencode import bdecode, bencode, pretty_print, DecodeError, EncodeError
 from .tracker import TrackerInfo
+
+logger = logging.getLogger()
 
 
 class CreationError(Exception):
@@ -39,9 +41,9 @@ def _pc(piece_string: bytes, *, length: int = 20, start: int = 0):
     pieces a bytestring into pieces of specified length.
     by default pieces into 20byte (160 bit) pieces
     typically used to piece the hashlist contained within the torrent info's pieces key
-    :param piece_string:  string to piece
-    :param length:        piece length
-    :return:              generator expression yielding pieces of specified length
+    :param piece_string: string to piece
+    :param length:       piece length
+    :return:             generator expression yielding pieces of specified length
     """
     return (piece_string[0 + i:length + i] for i in range(start, len(piece_string), length))
 
@@ -51,8 +53,9 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
     Verifies a given decoded dictionary contains valid keys to describe a torrent we can do something with.
     Currently only checks for the minimum required torrent keys for torrents describing files and directories.
     If a dictionary contains all valid keys + extra keys, it will be validated.
-    :param decoded_dict:    dict representing bencoded .torrent file
-    :return:                True if valid, else raises CreationError
+    :param decoded_dict: dict representing bencoded .torrent file
+    :return: True if valid
+    :raises: CreationError
     """
     min_req_keys = ["info", "announce"]
     min_info_req_keys = ["piece length", "pieces", "name"]
@@ -61,27 +64,34 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
     dict_keys = list(decoded_dict.keys())
 
     if not dict_keys:
-        raise CreationError("Unable to verify torrent dictionary. No valid keys in dictionary.")
+        logger.error("Unable to verify torrent dictionary. No valid keys in dictionary.")
+        raise CreationError
     if len(dict_keys) != len(set(dict_keys)):
-        raise CreationError("Unable to verify torrent dictionary. Duplicate keys in dictionary.")
+        logger.error("Unable to verify torrent dictionary. Duplicate keys in dictionary.")
+        raise CreationError
     for key in min_req_keys:
         if key not in dict_keys:
-            raise CreationError(
+            logger.error(
                 "Unable to verify torrent dictionary. Required key not found: {required_key}".format(required_key=key))
+            raise CreationError
 
     info_keys = list(decoded_dict["info"].keys())
 
     if not info_keys:
-        raise CreationError("Unable to verify torrent info dictionary. No valid keys in info dictionary.")
+        logger.error("Unable to verify torrent info dictionary. No valid keys in info dictionary.")
+        raise CreationError
     if len(info_keys) != len(set(info_keys)):
-        raise CreationError("Unable to verify torrent info dictionary. Duplicate keys in dictionary.")
+        logger.error("Unable to verify torrent info dictionary. Duplicate keys in dictionary.")
+        raise CreationError
     for key in min_info_req_keys:
         if key not in info_keys:
-            raise CreationError("Unable to verify torrent dictionary. \
+            logger.error("Unable to verify torrent dictionary. \
             Required key not found in info dictionary: {required_key}".format(required_key=key))
+            raise CreationError
 
         if len(decoded_dict["info"]["pieces"]) % 20 != 0:
-            raise CreationError("Unable to verify pieces bytestring. Length not a multiple of 20 bytes")
+            logger.error("Unable to verify pieces bytestring. Length not a multiple of 20 bytes")
+            raise CreationError
 
     multiple_files = "files" in info_keys
 
@@ -89,24 +99,27 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
         file_list = decoded_dict["info"]["files"]
 
         if not file_list:
-            raise CreationError("Unable to verify torrent dictionary. No file list.")
+            logger.error("Unable to verify torrent dictionary. No file list.")
+            raise CreationError
         for f in file_list:
             for key in min_files_req_keys:
                 if key not in f.keys():
-                    raise CreationError("Unable to verify torrent dictionary. \
+                    logger.error("Unable to verify torrent dictionary. \
                     Required key not found in files dictionary for multiple files: {required_key}".format(
                         required_key=key))
+                    raise CreationError
     else:
         if "length" not in info_keys:
-            raise CreationError("Required key not found in info dictionary for single file: {required_key}".format(
+            logger.error("Required key not found in info dictionary for single file: {required_key}".format(
                 required_key="length"))
+            raise CreationError
     # we made it!
     return True
 
 
 class Torrent(object):
     """
-    Relevant metadata for a torrent file
+    Relevant metadata for a torrent
     """
     def __init__(self, tracker_urls: list, files: list, name: str, *, url_list: list = None, location: str = "",
                  comment: str = "", created_by: str = default.FULL_NAME, creation_date: int = int(time.time()),
@@ -114,19 +127,20 @@ class Torrent(object):
                  base_location: str = ""):
         """
         Initializes a torrent. Not typically used alone, instead, use Torrent.from_file or Torrent.from_path
-        :param tracker_urls:    list of tracker urls
-        :param files:           list of files
-        :param name:            torrent's name
-        :param url_list:        optional,defaults to None
-        :param location:        optional,defaults to ""
-        :param comment:         optional,defaults to ""
-        :param created_by:      optional,defaults to opalescense
-        :param creation_date:   optional,defaults to time of instantiation
-        :param pieces:          optional,defaults to None
-        :param piece_length:    optional,defaults to 16384 bytes; piece length in bytes
-        :param private:         optional,defaults to False
-        :param info_hash:       optional,defaults to ""
-        :param base_location:   optional,defaults to ""
+        :param tracker_urls:  list of tracker urls
+        :param files:         list of files
+        :param name:          torrent's name
+        :param url_list:      optional,defaults to None
+        :param location:      optional,defaults to ""
+        :param comment:       optional,defaults to ""
+        :param created_by:    optional,defaults to opalescense
+        :param creation_date: optional,defaults to time of instantiation
+        :param pieces:        optional,defaults to None
+        :param piece_length:  optional,defaults to 16384 bytes; piece length in bytes
+        :param private:       optional,defaults to False
+        :param info_hash:     optional,defaults to ""
+        :param base_location: optional,defaults to ""
+        :raises:              CreationError
         """
         if pieces is None:
             pieces = []
@@ -162,21 +176,18 @@ class Torrent(object):
         Returns a pretty-printed string representing the torrent
         :return:    pretty-printed string
         """
-        try:
-            obj = pretty_print(self._to_obj())
-        except PrintError as pe:
-            return "Unable to create string representation.\n{prev_msg}".format(prev_msg=pe)
-        else:
-            return obj
+        return pretty_print(self._to_obj())
 
-    def _collect_pieces(self) -> None:
+    def _collect_pieces(self):
         """
         The real workhorse of torrent creation.
         Reads through all specified files, breaking them into piece_length chunks and storing their 20byte sha1
         digest into the pieces list
+        :raises: CreationError
         """
         if not self.base_location:
-            raise CreationError("Unable to create torrent. No base path specified for torrent. This is a programmer error.")
+            logger.error("Unable to create torrent. No base path specified. This is a programmer error.")
+            raise CreationError
 
         base_path = self.base_location
         left_in_piece = 0
@@ -207,9 +218,10 @@ class Torrent(object):
                         left_in_piece = self.piece_length - remainder_to_read
                         break
 
-    def _compute_info_hash(self) -> None:
+    def _compute_info_hash(self):
         """
         Computes the 20-byte sha1 info hash digest of the contents of the info dictionary
+        :raises: EncodeError
         """
         obj = self._to_obj()
         info_str = bencode(obj["info"])
@@ -219,6 +231,7 @@ class Torrent(object):
         """
         converts a Torrent class instance to its equivalent python object for easier bencoding.
         :return: OrderedDict representing a torrent's metainfo
+        :raises: CreationError
         """
         obj = OrderedDict()
         info = OrderedDict()
@@ -266,6 +279,7 @@ class Torrent(object):
         Creates a Torrent class from a metainfo dictionary created from a bencoded .torrent file
         :param obj: bdecoded metainfo dictionary
         :return:    Torrent instance
+        :raises:    CreationError
         """
         _validate_torrent_dict(obj)
 
@@ -279,41 +293,44 @@ class Torrent(object):
         private = bool(obj["info"].get("private", False))
         info_dict = OrderedDict()
         info_dict.setdefault("info", obj["info"])
+        info_hash = hashlib.sha1(obj["info"]).digest()
 
         if "announce-list" in obj:  # optional key
             trackers += obj["announce-list"][0]
 
         if "files" in obj["info"]:
-            for f in obj["info"]["files"]:
-                files.append(FileItem(f["path"], f["length"]))
+            files += [FileItem(f["path"], f["length"]) for f in obj["info"]["files"]]
         else:
-            files.append(FileItem(obj["info"]["name"], obj["info"]["length"]))
+            files += FileItem(obj["info"]["name"], obj["info"]["length"])
 
         return Torrent(trackers, files, obj["info"]["name"], url_list=url_list, comment=comment,
                        created_by=created_by, creation_date=creation_date, pieces=pieces,
-                       piece_length=obj["info"]["piece length"], private=private)
+                       piece_length=obj["info"]["piece length"], private=private, info_hash=info_hash)
 
-    # => Alternate constructors
     @staticmethod
     def from_file(torrent_file: str):
         """
         Creates a torrent object from a torrent file
-        :param torrent_file:    path to .torrent file
-        :return:                Torrent representing the .torrent file
+        :param torrent_file: path to .torrent file
+        :return:             Torrent representing the .torrent file
+        :raises:             CreationError
         """
         try:
             with open(torrent_file, mode='rb') as f:
                 torrent_obj = bdecode(f.read())
-        except IOError as ioerr:
-            raise CreationError("{file} does not exist.".format(file=torrent_file)) from ioerr
-        except DecodeError as e:
-            raise CreationError("Unable to decode file {file}.\n" +
-                                "{prev_msg}".format(file=torrent_file, prev_msg=e)) from e
-        else:
+
             if torrent_obj is None:
-                raise CreationError("Unable to create Torrent from empty file {file}.".format(file=torrent_file))
+                logger.error("Unable to create Torrent from empty file {file}.".format(file=torrent_file))
+                raise CreationError
+
             torrent = Torrent._from_obj(torrent_obj)
             return torrent
+        except IOError as ioerr:
+            logger.error("{file} does not exist.".format(file=torrent_file))
+            raise CreationError from ioerr
+        except (DecodeError, EncodeError) as e:
+            logger.error("Unable to bdecode or bencode during creation {file}".format(file=torrent_file))
+            raise CreationError from e
 
     @staticmethod
     def from_path(path: str, trackers: list, *, comment: str = "",
@@ -321,18 +338,20 @@ class Torrent(object):
         """
         Creates a Torrent from a given path, gathering piece hashes from given files.
         Supports creating torrents from single files and multiple files.
-        :param path:            path from which to create the Torrent
-        :param trackers:        tracker url
-        :param comment:         torrent's comment
-        :param piece_size:      piece size - default 16384
-        :param private:         private torrent?
-        :param url_list:        list of urls
-        :return:    Torrent object
+        :param path:       path from which to create the Torrent
+        :param trackers:   tracker url
+        :param comment:    torrent's comment
+        :param piece_size: piece size - default 16384
+        :param private:    private torrent?
+        :param url_list:   list of urls
+        :return:           Torrent object
+        :raises:           CreationError
         """
         files = []
 
         if not os.path.exists(path):
-            raise CreationError("Path does not exist {path}".format(path=path))
+            logger.error("Path does not exist {path}".format(path=path))
+            raise CreationError
 
         # gather files
         if os.path.isfile(path):
@@ -341,6 +360,7 @@ class Torrent(object):
             size = os.path.getsize(path)
             files.append(FileItem(name, size))
         elif os.path.isdir(path):
+            base_path = os.path.dirname(path)
             name = os.path.basename(path)
 
             # os.listdir returns paths in arbitrary order - possible danger here
@@ -350,12 +370,12 @@ class Torrent(object):
                 fi.path = [fi.path]
                 files.append(fi)
         else:
-            raise CreationError("Error creating torrent.")
+            logger.error("Error creating torrent. Invalid files.")
+            raise CreationError
 
         return Torrent(trackers, files, name, url_list=url_list, location=name, comment=comment,
                        private=private, piece_length=piece_size, base_location=base_path)
 
-    # => Output
     def to_file(self, save_path: str) -> None:
         """
         converts a Torrent instance to a dictionary representing the metainfo file,
