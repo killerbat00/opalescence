@@ -50,6 +50,7 @@ def bdecode(bencoded_data: bytes) -> OrderedDict:
     :return:              decoded torrent info as a python object
     :raises:              DecodeError
     """
+    logger.info("bdecoding some bytes")
     return _decode(BytesIO(bencoded_data))
 
 
@@ -60,6 +61,7 @@ def bencode(decoded_data: OrderedDict) -> str:
     :return:             bencoded string
     :raises:             EncodeError
     """
+    logger.info("bencoding an OrderedDict")
     return _encode(decoded_data)
 
 
@@ -68,6 +70,7 @@ def pretty_print(bdecoded_obj: OrderedDict) -> str:
     Prints a nicely formatted representation of a decoded torrent's python object
     :param bdecoded_obj: object to print
     """
+    logger.info("pretty printing OrderedDict")
     return pp_dict(bdecoded_obj)
 
 
@@ -174,9 +177,9 @@ def _parse_num(data_buffer: BytesIO, delimiter: bytes) -> int:
 def _encode(obj: [dict, list, str, int]) -> str:
     """
     Recursively bencodes an OrderedDict
-    :param obj:     object to decode
-    :return:        bencoded string
-    :raises:        EncodeError
+    :param obj: object to decode
+    :return:    bencoded string
+    :raises:    EncodeError
     """
     if isinstance(obj, dict):
         contents = DICT_START.decode("ISO-8859-1")
@@ -228,7 +231,7 @@ def pp_list(decoded_list: list, lvl: int = 0) -> str:
     mutually recursive with pp_dict
     :param decoded_list: the decoded list
     :param lvl:          current recursion level (used for indentation)
-    :return:            pretty-printed list
+    :return:             pretty-printed list
     """
     str_ = ""
     for itm in decoded_list:
@@ -247,12 +250,12 @@ def pp_dict(decoded_dict: OrderedDict, lvl: int = 0) -> str:
     mutually recursive with pp_list
     :param decoded_dict: dict to print
     :param lvl:          current recursion level (used for indentation)
-    :return:            pretty-printed dictionary
+    :return:             pretty-printed dictionary
     """
     str_ = ""
     for k, v in decoded_dict.items():
         str_ += "{pad}{val}\n".format(pad="\t" * lvl, val=k)
-        if isinstance(v, dict):
+        if isinstance(v, OrderedDict):
             str_ += pp_dict(v, lvl=lvl + 1)
         elif isinstance(v, list):
             str_ += pp_list(v, lvl=lvl + 1)

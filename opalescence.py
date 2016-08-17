@@ -13,6 +13,8 @@ import sys
 
 from btlib.torrent import Torrent, CreationError
 
+logger = logging.getLogger()
+
 
 def test_file_to_torrent(torrent_file):
     assert os.path.exists(torrent_file), "[!!!] Path does not exist %s" % torrent_file
@@ -61,14 +63,16 @@ def _validate_trackers(trackers: list) -> list:
 def create_torrent(create_args):
     """
     Creates a torrent from the arguments specified on the command line.
-    :param create_args:     Namespace argument returned by the call to ArgumentParser.parse_args
+    :param create_args: Namespace argument returned by the call to ArgumentParser.parse_args
     """
     src = create_args.source
     dest = create_args.destination
     err_prolog = "[!] Unable to create .torrent metainfo file."
 
     if not os.path.exists(src):
-        print("{prolog} {path} does not exist".format(prolog=err_prolog, path=create_args.source))
+        str = "{prolog} {path} does not exist".format(prolog=err_prolog, path=create_args.source)
+        print(str)
+        logger.info(str)
         return
 
     trackers = _validate_trackers(create_args.trackers)
@@ -127,21 +131,22 @@ def init_argparsers() -> argparse.ArgumentParser:
     add_create_parser(subparsers)
 
     # Other commands
+    logger.info("Initialized arguments.")
     return parser
 
 
 def init_logging():
     """
     Configures the root logger for the application
-    :return:
     """
     sh = logging.StreamHandler(stream=sys.stdout)
-    f = logging.Formatter(fmt="%(asctime)s: [%(levelname)s] %(message)s", datefmt="%m/%d/%Y %H:%M:%S", style="{")
+    f = logging.Formatter(fmt="{asctime}: [{levelname}] {message}", datefmt="%m/%d/%Y %H:%M:%S", style="{")
 
     sh.setFormatter(f)
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
     root.addHandler(sh)
+    root.info("Initialized logging")
 
 
 def main():
