@@ -16,7 +16,7 @@ from collections import OrderedDict
 from .bencode import bdecode, bencode, pretty_print, DecodeError, EncodeError
 from .tracker import TrackerInfo
 
-logger = logging.getLogger()
+logger = logging.getLogger('opalescence.' + __name__.split('.')[0])
 
 
 class CreationError(Exception):
@@ -59,6 +59,8 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
     min_req_keys = ["info", "announce"]
     min_info_req_keys = ["piece length", "pieces", "name"]
     min_files_req_keys = ["length", "path"]
+
+    logger.debug("Validating torrent metainfo dictionary {d}".format(d=decoded_dict))
 
     dict_keys = list(decoded_dict.keys())
 
@@ -112,6 +114,7 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
             logger.error("Required key not found in info dictionary for single file: {required_key}".format(
                 required_key="length"))
             raise CreationError
+
     # we made it!
     return True
 
@@ -168,7 +171,8 @@ class Torrent(object):
         Returns a pretty-printed string representing the torrent
         :return:    pretty-printed string
         """
-        return pretty_print(self._to_obj())
+        return "<Torrent object: {name} : {info_hash}>{obj}".format(name=self.name, info_hash=self.info_hash,
+                                                                    obj=pretty_print(self._to_obj()))
 
     def _collect_pieces(self):
         """
@@ -313,11 +317,13 @@ class Torrent(object):
                 logger.error("Unable to create Torrent instance from empty file {file}.".format(file=torrent_file))
                 raise CreationError
 
-            logger.info("Creating Torrent instance from {file}".format(file=torrent_file))
-
-            return cls._from_obj(torrent_obj, location=os.path.dirname(torrent_file))
+            logger.debug("Creating Torrent instance from file {file}".format(file=torrent_file))
+            torrent = cls._from_obj(torrent_obj, location=os.path.dirname(torrent_file))
+            logger.debug(
+                "Created Torrent instance from {file} {torrent}".format(file=torrent_file, torrent=torrent.info_hash))
+            return torrent
         except IOError as ioerr:
-            logger.error("{file} does not exist.".format(file=torrent_file))
+            logger.error("Unable to create Torrent instance. {file} does not exist.".format(file=torrent_file))
             raise CreationError from ioerr
         except (DecodeError, EncodeError) as e:
             logger.error("Unable to bdecode or bencode during creation {file}".format(file=torrent_file))
@@ -360,11 +366,14 @@ class Torrent(object):
                 fi.path = [fi.path]
                 files.append(fi)
         else:
-            logger.error("Error creating torrent. Invalid files.")
+            logger.error("Error creating Torrent instance. Invalid file keys in metainfo dictionary.")
             raise CreationError
 
-        logger.info("Creating torrent from {path}".format(path=path))
-        return cls(trackers, files, name, location=base_path, comment=comment, private=private, piece_length=piece_size)
+        logger.debug("Creating Torrent instance from path {path}".format(path=path))
+        torrent = cls(trackers, files, name, location=base_path, comment=comment, private=private,
+                      piece_length=piece_size)
+        logger.debug("Created Torrent instance from path {path} {torrent}".format(path=path, torrent=torrent.info_hash))
+        return torrent
 
     def to_file(self, save_path: str) -> None:
         """
@@ -376,7 +385,10 @@ class Torrent(object):
         try:
             encoded_bytes = bencode(self._to_obj())
             with open(save_path, mode="wb") as f:
+                logger.debug("Writing bencoded torrent metainfo dictionary file to {path}".format(path=save_path))
                 f.write(encoded_bytes.encode("ISO-8859-1"))
         except (CreationError, EncodeError, IOError) as exc:
             logger.error("Unable to write torrent to file {path}.".format(path=save_path))
             raise CreationError from exc
+        else:
+            logger.debug("Wrote bencoded torrent metainfo dictionary file to {path}".format(path=save_path))

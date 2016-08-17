@@ -26,7 +26,7 @@ DIVIDER = b':'
 DIGITS = [b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9']
 VALID_CHARS = [DICT_START, DICT_END, LIST_START, NUM_START, DIVIDER] + DIGITS
 
-logger = logging.getLogger()
+logger = logging.getLogger('opalescence.' + __name__.split('.')[0])
 
 
 class DecodeError(Exception):
@@ -50,7 +50,7 @@ def bdecode(bencoded_data: bytes) -> OrderedDict:
     :return:              decoded torrent info as a python object
     :raises:              DecodeError
     """
-    logger.info("bdecoding some bytes")
+    logger.debug("bdecoding bytes")
     return _decode(BytesIO(bencoded_data))
 
 
@@ -61,7 +61,7 @@ def bencode(decoded_data: OrderedDict) -> str:
     :return:             bencoded string
     :raises:             EncodeError
     """
-    logger.info("bencoding an OrderedDict")
+    logger.debug("bencoding OrderedDict {d}".format(d=decoded_data))
     return _encode(decoded_data)
 
 
@@ -70,7 +70,7 @@ def pretty_print(bdecoded_obj: OrderedDict) -> str:
     Prints a nicely formatted representation of a decoded torrent's python object
     :param bdecoded_obj: object to print
     """
-    logger.info("pretty printing OrderedDict")
+    logger.debug("Pretty printing OrderedDict {d}".format(d=bdecoded_obj))
     return pp_dict(bdecoded_obj)
 
 

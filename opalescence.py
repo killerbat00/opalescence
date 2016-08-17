@@ -11,26 +11,28 @@ import logging
 import os
 import sys
 
+import default
 from btlib.torrent import Torrent, CreationError
 
-logger = logging.getLogger()
+logger = logging.getLogger('opalescence')
 
 
-def test_file_to_torrent(torrent_file):
-    assert os.path.exists(torrent_file), "[!!!] Path does not exist %s" % torrent_file
+def test_file_to_torrent(torrent_file: str) -> Torrent:
+    try:
+        result = Torrent.from_file(torrent_file)
+    except CreationError as e:
+        logger.info("test_file_to_torrent from file {f} failed.".format(f=torrent_file))
+        raise CreationError from e
+    else:
+        return result
 
-    print(("[*] Creating torrent from {file}".format(file=torrent_file)))
-    result = Torrent.from_file(torrent_file)
-    print("Success!")
-    return result
 
-
-def test_torrent_to_file(torrent_obj, path):
-    assert isinstance(torrent_obj, Torrent), "[!!!] Invalid torrent object"
-
-    print(("[*] Writing torrent to {path}".format(path=path)))
-    torrent_obj.to_file(path)
-    print("Success!")
+def test_torrent_to_file(torrent_obj: Torrent, path: str):
+    try:
+        torrent_obj.to_file(path)
+    except CreationError as e:
+        logger.info("test_torrent_to_file from obj failed.")
+        raise CreationError from e
 
 
 def _validate_trackers(trackers: list) -> list:
@@ -106,16 +108,33 @@ def add_create_parser(subparser) -> None:
     Creates the argument parser necessary for the creation command
     :param subparser:   subparser obtained from ArgumentParser().add_subparsers
     """
-    create_parser = subparser.add_parser("create", help="create a .torrent file")
-    create_parser.add_argument("-s", "--source", required=True, help="source file or directory")
-    create_parser.add_argument("-d", "--destination", required=True, help=".torrent destination")
-    create_parser.add_argument("-t", "--trackers", required=True, nargs="*",
+    create_parser = subparser.add_parser("create",
+                                         help="create a .torrent file")
+    create_parser.add_argument("-s", "--source",
+                               required=True,
+                               help="source file or directory")
+    create_parser.add_argument("-d", "--destination",
+                               required=True,
+                               help=".torrent destination")
+    create_parser.add_argument("-t", "--trackers",
+                               required=True,
+                               nargs="*",
                                help="space delimited list of URLs for this torrent's trackers. \
                                Invalid URLs and duplicate trackers will be ignored.\nAt least 1 tracker is required.")
-    create_parser.add_argument("-c", "--comment", required=False, type=str, help="Torrent's comment", default="")
-    create_parser.add_argument("-p", "--private", required=False, action="store_true", help="Private torrent")
-    create_parser.add_argument("-pc", "--piecesize", required=False, type=int,
-                               help="Torrent's piece size.", default=16384)
+    create_parser.add_argument("-c", "--comment",
+                               required=False,
+                               type=str,
+                               help="Torrent's comment",
+                               default="")
+    create_parser.add_argument("-p", "--private",
+                               required=False,
+                               action="store_true",
+                               help="Private torrent")
+    create_parser.add_argument("-pc", "--piecesize",
+                               required=False,
+                               type=int,
+                               help="Torrent's piece size.",
+                               default=16384)
     create_parser.set_defaults(func=create_torrent)
 
 
@@ -125,13 +144,14 @@ def init_argparsers() -> argparse.ArgumentParser:
     :return:    ArgumentParser
     """
     parser = argparse.ArgumentParser()
+    logger.info("Initialized argument parser.")
     subparsers = parser.add_subparsers(title="Available commands",
                                        description="Opalescence currently supports the following commands.")
     # Creation
     add_create_parser(subparsers)
 
     # Other commands
-    logger.info("Initialized arguments.")
+    logger.info("Initialized argument subparsers.")
     return parser
 
 
@@ -140,13 +160,13 @@ def init_logging():
     Configures the root logger for the application
     """
     sh = logging.StreamHandler(stream=sys.stdout)
-    f = logging.Formatter(fmt="{asctime}: [{levelname}] {message}", datefmt="%m/%d/%Y %H:%M:%S", style="{")
+    f = logging.Formatter(fmt="{asctime} : {name} : [{levelname}] {message}", datefmt="%m/%d/%Y %H:%M:%S", style="{")
 
     sh.setFormatter(f)
-    root = logging.getLogger()
+    root = logging.getLogger("opalescence")
     root.setLevel(logging.DEBUG)
     root.addHandler(sh)
-    root.info("Initialized logging")
+    root.info("Initialized logging.")
 
 
 def main():
@@ -154,48 +174,22 @@ def main():
     Main entry-point into Opalescence.
     """
     init_logging()
-    argparser = init_argparsers()
-    args = argparser.parse_args()
-    args.func(args)
+    # argparser = init_argparsers()
+    # args = argparser.parse_args()
+    # args.func(args)
 
 
 if __name__ == '__main__':
     main()
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     # Decode a torrent file into a Torrent object
-    # torrent_from_file = test_file_to_torrent(config.TEST_FILE)
+    torrent_from_file = test_file_to_torrent(default.TEST_FILE)
 
     # Deocde a torrent file used in qbittorrent with the hopes that
     # saving it again will allow me to open it in the same program
     # it works!
-#    torrent_from_file = test_file_to_torrent(config.TEST_EXTERNAL_FILE)
-#    test_torrent_to_file(torrent_from_file, config.TEST_EXTERNAL_OUTPUT)
+    torrent_from_file = test_file_to_torrent(default.TEST_EXTERNAL_FILE)
+    test_torrent_to_file(torrent_from_file, default.TEST_EXTERNAL_OUTPUT)
 #
 #    # first communication with the tracker
 #    print((

@@ -12,13 +12,14 @@ Currently, it's a glorified torrent creation machine.
 - [x] more effective torrent dictionary verification
 - [ ] get rid of dependency on weird config.py file
 - [ ] better tests
+- [ ] better logging
 
 
 ### add functionality for:
-- [ ] specifying path/dir from which to create .torrent from cli
-- [ ] specifying path to which to save .torrent
-- [ ] specifying .torrent name
-- [ ] specifying optional .torrent options (piece_size, etc)
+- [x] specifying path/dir from which to create .torrent from cli
+- [x] specifying path to which to save .torrent
+- [x] specifying .torrent name
+- [x] specifying optional .torrent options (piece_size, etc)
 
 
 #### far in the future functionality:
