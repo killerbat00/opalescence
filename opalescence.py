@@ -6,22 +6,26 @@ Testing decoding and encoding a torrent file.
 
 author: brian houston morrow
 """
-import argparse
-import logging
-import os
-import sys
-
+import applib.args
+import applib.logging
 import default
 from btlib.torrent import Torrent, CreationError
 
-logger = logging.getLogger('opalescence')
+
+def test_path_to_torrent(path: str) -> Torrent:
+    trackers = ["www.google.com", "www.google.com", "www.brianmorrow.net"]
+    try:
+        result = Torrent.from_path(path, trackers, comment="this is a comment! huzzah!")
+    except CreationError as e:
+        raise CreationError from e
+    else:
+        return result
 
 
 def test_file_to_torrent(torrent_file: str) -> Torrent:
     try:
         result = Torrent.from_file(torrent_file)
     except CreationError as e:
-        logger.info("test_file_to_torrent from file {f} failed.".format(f=torrent_file))
         raise CreationError from e
     else:
         return result
@@ -31,142 +35,15 @@ def test_torrent_to_file(torrent_obj: Torrent, path: str):
     try:
         torrent_obj.to_file(path)
     except CreationError as e:
-        logger.info("test_torrent_to_file from obj failed.")
         raise CreationError from e
-
-
-def _validate_trackers(trackers: list) -> list:
-    """
-    Used to validate  we have at least 1 valid tracker from the trackers specified when creating a torrent.
-    To validate:
-        - Invalidly formatted URls are ignored
-        - Duplicate trackers are ignored
-    If the list of valid trackers contains at least 1, returns a list of those trackers, [] otherwise
-    :param trackers:    List of trackers provided in cli args
-    :return:            List of valid trackers, [] if no valid trackers found
-    """
-    import validators.url
-    import collections
-
-    valid = []
-    for x in trackers:
-        if not validators.url(x):
-            print("[?] Invalid url {url}".format(url=x))
-            continue
-        valid.append(x)
-
-    dupes = [url for url, count in collections.Counter(valid).items() if count > 1]
-    if len(dupes) > 1:
-        pass
-
-    return trackers
-
-
-def create_torrent(create_args):
-    """
-    Creates a torrent from the arguments specified on the command line.
-    :param create_args: Namespace argument returned by the call to ArgumentParser.parse_args
-    """
-    src = create_args.source
-    dest = create_args.destination
-    err_prolog = "[!] Unable to create .torrent metainfo file."
-
-    if not os.path.exists(src):
-        str = "{prolog} {path} does not exist".format(prolog=err_prolog, path=create_args.source)
-        print(str)
-        logger.info(str)
-        return
-
-    trackers = _validate_trackers(create_args.trackers)
-    if not trackers:
-        print("{prolog} No valid trackers found.".format(prolog=err_prolog))
-        return
-
-    comment = create_args.comment
-    private = create_args.private
-    piece_size = create_args.piecesize
-
-    try:
-        print("[*] Creating .torrent metainfo file from {dir}\n" +
-              "[**] Using trackers {trackers}".format(dir=create_args.source, trackers=trackers))
-
-        torrent = Torrent.from_path(src, trackers=trackers, comment=comment, private=private, piece_size=piece_size)
-
-        print("[*] Writing .torrent metainfo file to {dest}".format(dest=dest))
-
-        torrent.to_file(dest)
-    except CreationError as exc:
-        print("{prolog} {dir}".format(prolog=err_prolog, dir=src))
-        print("[!!] {info}".format(info=exc.__traceback__))
-    else:
-        print("[*] Success! {name} created from {source}, written to {dest}".format(name=torrent.name, source=create_args.source,
-                                                                                    dest=create_args.destination))
-
-
-def add_create_parser(subparser) -> None:
-    """
-    Creates the argument parser necessary for the creation command
-    :param subparser:   subparser obtained from ArgumentParser().add_subparsers
-    """
-    create_parser = subparser.add_parser("create",
-                                         help="create a .torrent file")
-    create_parser.add_argument("-s", "--source",
-                               required=True,
-                               help="source file or directory")
-    create_parser.add_argument("-d", "--destination",
-                               required=True,
-                               help=".torrent destination")
-    create_parser.add_argument("-t", "--trackers",
-                               required=True,
-                               nargs="*",
-                               help="space delimited list of URLs for this torrent's trackers. \
-                               Invalid URLs and duplicate trackers will be ignored.\nAt least 1 tracker is required.")
-    create_parser.add_argument("-c", "--comment",
-                               required=False,
-                               type=str,
-                               help="Torrent's comment",
-                               default="")
-    create_parser.add_argument("-p", "--private",
-                               required=False,
-                               action="store_true",
-                               help="Private torrent")
-    create_parser.add_argument("-pc", "--piecesize",
-                               required=False,
-                               type=int,
-                               help="Torrent's piece size.",
-                               default=16384)
-    create_parser.set_defaults(func=create_torrent)
-
-
-def init_argparsers() -> argparse.ArgumentParser:
-    """
-    Initializes the root argument parser and all relevant subparsers for supported commands.
-    :return:    ArgumentParser
-    """
-    parser = argparse.ArgumentParser()
-    logger.info("Initialized argument parser.")
-    subparsers = parser.add_subparsers(title="Available commands",
-                                       description="Opalescence currently supports the following commands.")
-    # Creation
-    add_create_parser(subparsers)
-
-    # Other commands
-    logger.info("Initialized argument subparsers.")
-    return parser
 
 
 def init_logging():
     """
     Configures the root logger for the application
     """
-    sh = logging.StreamHandler(stream=sys.stdout)
-    f = logging.Formatter(fmt="{asctime} : {name} : [{levelname}] {message}", datefmt="%m/%d/%Y %H:%M:%S", style="{")
-
-    sh.setFormatter(f)
-    root = logging.getLogger("opalescence")
-    root.setLevel(logging.DEBUG)
-    root.addHandler(sh)
-    root.info("Initialized logging.")
+    logger = applib.logging.get_logger("opalescence")
+    logger.info("Initialized logging.")
 
 
 def main():
@@ -174,22 +51,28 @@ def main():
     Main entry-point into Opalescence.
     """
     init_logging()
-    # argparser = init_argparsers()
-    # args = argparser.parse_args()
-    # args.func(args)
+
+
+#    argparser = applib.args.init_argparsers()
+#    args = argparser.parse_args()
+#    args.func(args)
 
 
 if __name__ == '__main__':
     main()
 
-    # Decode a torrent file into a Torrent object
-    torrent_from_file = test_file_to_torrent(default.TEST_FILE)
-
     # Deocde a torrent file used in qbittorrent with the hopes that
     # saving it again will allow me to open it in the same program
-    # it works!
     torrent_from_file = test_file_to_torrent(default.TEST_EXTERNAL_FILE)
     test_torrent_to_file(torrent_from_file, default.TEST_EXTERNAL_OUTPUT)
+
+    # Create a torrent from a directory and compare its info hash to one created
+    # by qbittorrent for the same directory
+    my_torrent_from_dir = test_path_to_torrent(default.TEST_TORRENT_DIR)
+    q_torrent_from_dir = test_file_to_torrent(default.TEST_FILE)
+    test_torrent_to_file(my_torrent_from_dir, default.TEST_OUTPUT_FILE)
+    assert (my_torrent_from_dir.info_hash == q_torrent_from_dir.info_hash)
+
 #
 #    # first communication with the tracker
 #    print((
@@ -205,12 +88,3 @@ if __name__ == '__main__':
 #        torrent_from_file.trackers[0].peer_list[0].handshake()
 #    else:
 #        print("Error")
-
-        # Create a Torrent from a directory
-        # torrent_from_dir = test_dir_to_torrent(config.TEST_TORRENT_DIR)
-
-        # Write the two torrents to respective .torrent files
-        # these should be the same save the created by, creation date,
-        # and comment
-        # test_torrent_to_file(torrent_from_file, config.TEST_OUTPUT_FILE)
-        # test_torrent_to_file(torrent_from_dir, config.TEST_TORRENT_DIR_OUTPUT)

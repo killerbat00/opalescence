@@ -31,6 +31,7 @@ class FileItem(object):
     An individual file within a torrent.
     """
     def __init__(self, path: str, size: int):
+        assert (len(path) > 0)
         self.path = path
         self.size = int(size)
 
@@ -125,7 +126,7 @@ class Torrent(object):
     """
     def __init__(self, tracker_urls: list, files: list, name: str, location: str, *, comment: str = "",
                  created_by: str = "Opalescence", creation_date: int = int(time.time()), pieces: list = None,
-                 piece_length: int = 16384, private: bool = False, info_hash: str = "", base_location: str = ""):
+                 piece_length: int = 16384, private: bool = False, info_hash: str = ""):
         """
         Initializes a torrent. Not typically used alone, instead, use Torrent.from_file or Torrent.from_path
         :param tracker_urls:  list of tracker urls
@@ -148,15 +149,14 @@ class Torrent(object):
         self.comment = comment
         self.created_by = created_by
         self.creation_date = creation_date
+        self.base_location = location
         self.files = files
-        self.save_location = location
         self.name = name
         self.piece_length = piece_length
         self.pieces = pieces
         self.private = private
         self.info_hash = info_hash
         self.total_file_size = sum([f.size for f in self.files])
-        self.base_location = base_location
 
         if not pieces:
             self._collect_pieces()
@@ -187,7 +187,7 @@ class Torrent(object):
 
         base_path = self.base_location
         left_in_piece = 0
-        next_pc = ""
+        next_pc = b""
 
         # how can I make this better? it'd be nice to have a generator that
         # abstracts away the file handling and just gives me the
@@ -197,14 +197,14 @@ class Torrent(object):
                 current_pos = 0
                 if left_in_piece > 0:
                     next_pc += f.read(left_in_piece)
-                    self.pieces.append(hashlib.sha1(next_pc).digest())
+                    self.pieces.append(hashlib.sha1(next_pc).digest().decode("ISO-8859-1"))
                     current_pos = left_in_piece
-                    next_pc = ""
+                    next_pc = b""
                     left_in_piece = 0
 
                 while True:
                     if current_pos + self.piece_length <= file_itm.size:
-                        self.pieces.append(hashlib.sha1(f.read(self.piece_length)).digest())
+                        self.pieces.append(hashlib.sha1(f.read(self.piece_length)).digest().decode("ISO-8859-1"))
                         current_pos += self.piece_length
                     else:
                         remainder_to_read = file_itm.size - current_pos
@@ -356,7 +356,7 @@ class Torrent(object):
             size = os.path.getsize(path)
             files.append(FileItem(name, size))
         elif os.path.isdir(path):
-            base_path = os.path.dirname(path)
+            base_path = path
             name = os.path.basename(path)
 
             # os.listdir returns paths in arbitrary order - possible danger here
