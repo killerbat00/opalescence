@@ -51,7 +51,13 @@ def bdecode(bencoded_data: bytes) -> OrderedDict:
     :raises:              DecodeError
     """
     logger.debug("bdecoding bytes")
-    return _decode(BytesIO(bencoded_data))
+    try:
+        bencoded_bytes = BytesIO(bencoded_data)
+    except TypeError as te:
+        logger.error("Cannot decode, invalid type of {type}".format(type=type(bencoded_data)))
+        raise DecodeError from te
+    else:
+        return _decode(bencoded_bytes)
 
 
 def bencode(decoded_data: OrderedDict) -> str:
@@ -162,15 +168,20 @@ def _parse_num(data_buffer: BytesIO, delimiter: bytes) -> int:
     parsed_num = bytes()
     while True:
         char = data_buffer.read(1)
-        if char not in DIGITS or char == '':
+        if char not in DIGITS + [b"-"] or char == '':
             if char != delimiter:
-                logger.error("Invalid character while parsing integer.\
-                               Found {wrong}, expected {right}".format(wrong=char, right=delimiter))
+                logger.error(
+                    "Invalid character while parsing integer. Found {wrong}, expected {right}".format(wrong=char,
+                                                                                                      right=delimiter))
                 raise DecodeError
             else:
                 break
         parsed_num += char
-    return int(parsed_num.decode('ISO-8859-1'))
+    num_str = parsed_num.decode("ISO-8859-1")
+    if len(num_str) > 1 and num_str[0] == '0':
+        logger.error("Leading zeros are not allowed for integer keys")
+        raise DecodeError
+    return int(num_str)
 
 
 # --- encoding
