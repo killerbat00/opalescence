@@ -26,18 +26,20 @@ class TestDecoding(TestCase):
 
     def test__decode_int(self):
         from btlib.bencode import _decode_int
-        no_delim = BytesIO(bytes(b"14"))
-        uneven_delim = BytesIO(bytes(b"i14"))
-        uneven_delim2 = BytesIO(bytes(b"14e"))
-        leading_zero = BytesIO(bytes(b"i01e"))
-        neg_zero = BytesIO(bytes(b"i-0e"))
+        no_delim = bytes(b"14")
+        uneven_delim = bytes(b"i14")
+        uneven_delim2 = bytes(b"14e")
+        leading_zero = bytes(b"i01e")
+        neg_zero = bytes(b"i-0e")
+        neg_nonzero = bytes(b"i-12e")
 
         bad_data = [no_delim, uneven_delim, uneven_delim2, leading_zero, neg_zero]
+        good_data = [neg_nonzero]
 
         for b in bad_data:
             with self.subTest(b=b):
                 with self.assertRaises(DecodeError):
-                    _decode_int(b)
+                    _decode_int(BytesIO(b))
 
     def test_bdecode(self):
         self.fail()

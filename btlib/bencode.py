@@ -178,8 +178,8 @@ def _parse_num(data_buffer: BytesIO, delimiter: bytes) -> int:
                 break
         parsed_num += char
     num_str = parsed_num.decode("ISO-8859-1")
-    if len(num_str) > 1 and num_str[0] == '0':
-        logger.error("Leading zeros are not allowed for integer keys")
+    if len(num_str) > 1 and (num_str[:2] == '-0' or num_str[0] == '0'):
+        logger.error("Leading or negative zeros are not allowed for integer keys")
         raise DecodeError
     return int(num_str)
 
