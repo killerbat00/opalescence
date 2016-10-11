@@ -13,9 +13,8 @@ from btlib.torrent import Torrent, CreationError
 
 
 def test_path_to_torrent(path: str) -> Torrent:
-    trackers = ["www.google.com", "www.google.com", "www.brianmorrow.net"]
     try:
-        result = Torrent.from_path(path, trackers, comment="this is a comment! huzzah!")
+        result = Torrent.from_path(path, default.ANNOUNCE_LIST, comment="this is a comment! huzzah!")
     except CreationError as e:
         raise CreationError from e
     else:
@@ -62,16 +61,16 @@ if __name__ == '__main__':
     main()
 
     # Deocde a torrent file used in qbittorrent with the hopes that
-    # saving it again will allow me to open it in the same program
+    # saving it again will alloASw me to open it in the same program
     torrent_from_file = test_file_to_torrent(default.TEST_EXTERNAL_FILE)
     test_torrent_to_file(torrent_from_file, default.TEST_EXTERNAL_OUTPUT)
 
     # Create a torrent from a directory and compare its info hash to one created
     # by qbittorrent for the same directory
     my_torrent_from_dir = test_path_to_torrent(default.TEST_TORRENT_DIR)
-    q_torrent_from_dir = test_file_to_torrent(default.TEST_FILE)
-    test_torrent_to_file(my_torrent_from_dir, default.TEST_OUTPUT_FILE)
-    assert (my_torrent_from_dir.info_hash == q_torrent_from_dir.info_hash)
+    q_torrent_from_dir = test_file_to_torrent(default.TEST_EXTERNAL_FILE)
+    test_torrent_to_file(my_torrent_from_dir, default.TEST_EXTERNAL_OUTPUT)
+    assert (my_torrent_from_dir == q_torrent_from_dir)
 
 #
 #    # first communication with the tracker

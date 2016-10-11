@@ -236,7 +236,7 @@ class Torrent(object):
         obj.setdefault("announce", self.tracker_urls[0])  # required key
 
         if len(self.tracker_urls) > 1:  # optional key
-            obj.setdefault("announce-list", [self.tracker_urls[1:]])
+            obj.setdefault("announce-list", [self.tracker_urls[0:]])
         if self.comment:  # optional key
             obj.setdefault("comment", self.comment)
         if self.created_by:  # optional key
@@ -392,3 +392,82 @@ class Torrent(object):
             raise CreationError from exc
         else:
             logger.debug("Wrote bencoded torrent metainfo dictionary file to {path}".format(path=save_path))
+
+    def __eq__(self, other):
+        assert (isinstance(other, Torrent))
+        errs = []
+
+        # check trackers
+        if self.trackers and other.trackers:
+            if len(self.trackers) != len(other.trackers):
+                errs.append("Different amount of trackers")
+                return False
+            for x, v in zip(self.trackers, other.trackers):
+                if x.announce_url != v.announce_url:
+                    errs.append("Tracker URLs not equal")
+                    return False
+        else:
+            errs.append("Invalid list of trackers")
+            return False
+
+        # check pieces
+        if self.pieces and other.pieces:
+            if len(self.pieces) != len(other.pieces):
+                errs.append("Different piece array lengths")
+                return False
+            for x, v in zip(self.pieces, other.pieces):
+                if x != v:
+                    errs.append("Piece mismatch")
+                    return False
+        else:
+            errs.append("Invalid list of pieces")
+            return False
+
+        # check comment STRICT
+        # check created_by STRICT
+        # check creation_date STRICT
+        # check base_location STRICT
+        # check url_list STRICT
+
+        # check files
+        if self.files and other.files:
+            if len(self.files) != len(other.files):
+                errs.append("Different file array lengths")
+                return False
+            for x, v in zip(self.files, other.files):
+                if x.path != v.path:
+                    errs.append("Different file paths")
+                    return False
+                if x.size != v.size:
+                    errs.append("Different file sizes)")
+                    return False
+        else:
+            errs.append("Invalid file lists")
+            return False
+
+        # check name
+        if self.name != other.name:
+            errs.append("Different names")
+            return False
+
+        # check piece_length
+        if self.piece_length != other.piece_length:
+            errs.append("Different piece lengths")
+            return False
+
+        # check private
+        if self.private != other.private:
+            errs.append("Different privacy values")
+            return False
+
+        # check info_hash
+        if self.info_hash != other.info_hash:
+            errs.append("Different info hashes")
+            return False
+
+        # check total_file_size
+        if self.total_file_size != other.total_file_size:
+            errs.append("Different total file sizes")
+            return False
+
+        return True
