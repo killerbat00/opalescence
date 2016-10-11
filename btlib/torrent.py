@@ -16,7 +16,7 @@ from collections import OrderedDict
 from .bencode import bdecode, bencode, pretty_print, DecodeError, EncodeError
 from .tracker import TrackerInfo
 
-logger = logging.getLogger('opalescence.' + __name__.split('.')[0])
+logger = logging.getLogger('opalescence.' + __name__)
 
 
 class CreationError(Exception):
@@ -173,6 +173,99 @@ class Torrent(object):
         """
         return "<Torrent object: {name} : {info_hash}>{obj}".format(name=self.name, info_hash=self.info_hash,
                                                                     obj=pretty_print(self._to_obj()))
+
+    def __eq__(self, other):
+        """
+        Loosely compares two torrent objects for equality.
+        Compares:
+            trackers
+            pieces
+            files
+            name
+            piece_length
+            private
+            info_hash
+            total_file_size
+        :param other: Torrent to compare to
+        :return:    True if equal, False otherwise
+        """
+        assert (isinstance(other, Torrent))
+        errs = []
+
+        # check trackers
+        if self.trackers and other.trackers:
+            if len(self.trackers) != len(other.trackers):
+                errs.append("Different amount of trackers")
+                return False
+            for x, v in zip(self.trackers, other.trackers):
+                if x.announce_url != v.announce_url:
+                    errs.append("Tracker URLs not equal")
+                    return False
+        else:
+            errs.append("Invalid list of trackers")
+            return False
+
+        # check pieces
+        if self.pieces and other.pieces:
+            if len(self.pieces) != len(other.pieces):
+                errs.append("Different piece array lengths")
+                return False
+            for x, v in zip(self.pieces, other.pieces):
+                if x != v:
+                    errs.append("Piece mismatch")
+                    return False
+        else:
+            errs.append("Invalid list of pieces")
+            return False
+
+        # check comment STRICT
+        # check created_by STRICT
+        # check creation_date STRICT
+        # check base_location STRICT
+        # check url_list STRICT
+
+        # check files
+        if self.files and other.files:
+            if len(self.files) != len(other.files):
+                errs.append("Different file array lengths")
+                return False
+            for x, v in zip(self.files, other.files):
+                if x.path != v.path:
+                    errs.append("Different file paths")
+                    return False
+                if x.size != v.size:
+                    errs.append("Different file sizes)")
+                    return False
+        else:
+            errs.append("Invalid file lists")
+            return False
+
+        # check name
+        if self.name != other.name:
+            errs.append("Different names")
+            return False
+
+        # check piece_length
+        if self.piece_length != other.piece_length:
+            errs.append("Different piece lengths")
+            return False
+
+        # check private
+        if self.private != other.private:
+            errs.append("Different privacy values")
+            return False
+
+        # check info_hash
+        if self.info_hash != other.info_hash:
+            errs.append("Different info hashes")
+            return False
+
+        # check total_file_size
+        if self.total_file_size != other.total_file_size:
+            errs.append("Different total file sizes")
+            return False
+
+        return True
 
     def _collect_pieces(self):
         """
@@ -393,81 +486,3 @@ class Torrent(object):
         else:
             logger.debug("Wrote bencoded torrent metainfo dictionary file to {path}".format(path=save_path))
 
-    def __eq__(self, other):
-        assert (isinstance(other, Torrent))
-        errs = []
-
-        # check trackers
-        if self.trackers and other.trackers:
-            if len(self.trackers) != len(other.trackers):
-                errs.append("Different amount of trackers")
-                return False
-            for x, v in zip(self.trackers, other.trackers):
-                if x.announce_url != v.announce_url:
-                    errs.append("Tracker URLs not equal")
-                    return False
-        else:
-            errs.append("Invalid list of trackers")
-            return False
-
-        # check pieces
-        if self.pieces and other.pieces:
-            if len(self.pieces) != len(other.pieces):
-                errs.append("Different piece array lengths")
-                return False
-            for x, v in zip(self.pieces, other.pieces):
-                if x != v:
-                    errs.append("Piece mismatch")
-                    return False
-        else:
-            errs.append("Invalid list of pieces")
-            return False
-
-        # check comment STRICT
-        # check created_by STRICT
-        # check creation_date STRICT
-        # check base_location STRICT
-        # check url_list STRICT
-
-        # check files
-        if self.files and other.files:
-            if len(self.files) != len(other.files):
-                errs.append("Different file array lengths")
-                return False
-            for x, v in zip(self.files, other.files):
-                if x.path != v.path:
-                    errs.append("Different file paths")
-                    return False
-                if x.size != v.size:
-                    errs.append("Different file sizes)")
-                    return False
-        else:
-            errs.append("Invalid file lists")
-            return False
-
-        # check name
-        if self.name != other.name:
-            errs.append("Different names")
-            return False
-
-        # check piece_length
-        if self.piece_length != other.piece_length:
-            errs.append("Different piece lengths")
-            return False
-
-        # check private
-        if self.private != other.private:
-            errs.append("Different privacy values")
-            return False
-
-        # check info_hash
-        if self.info_hash != other.info_hash:
-            errs.append("Different info hashes")
-            return False
-
-        # check total_file_size
-        if self.total_file_size != other.total_file_size:
-            errs.append("Different total file sizes")
-            return False
-
-        return True

@@ -9,11 +9,14 @@ author: brian houston morrow
 TODO: connections to multiple peers
 """
 
+import logging
 import socket
 import struct
 
 PSTR = "BitTorrent protocol"
 PSTRLEN = 19
+
+logger = logging.getLogger('opalescence.' + __name__)
 
 
 class Messages(object):
@@ -45,7 +48,7 @@ class Peer(object):
     def __str__(self):
         return "{ip}:{port}".format(ip=self.ip, port=self.port)
 
-    def handshake(self):
+    def basic_comm(self):
         print(("[*] Initiating handshake with peer {ip}:{port}".format(ip=self.ip, port=self.port)))
         chunks = []
         recvd = 0
@@ -55,7 +58,7 @@ class Peer(object):
                                                                      peer_id=self.peer_id).encode("ISO-8859-1")
 
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect((self.ip, self.port))
+        s.connect((self.ip, int(self.port)))
         while sent < self._handshake_len:
             i_sent = s.send(msg[sent:])
             if i_sent == 0:
@@ -73,6 +76,7 @@ class Peer(object):
         print(("[*] Received message".format(message=handshake_resp)))
         self._parse_msg(handshake_resp)
         print("halt")
+        return
 
     def _parse_msg(self, message):
         assert (len(message) == self._handshake_len)

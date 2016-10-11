@@ -6,9 +6,12 @@ Testing decoding and encoding a torrent file.
 
 author: brian houston morrow
 """
+import asyncio
+
 import applib.args
 import applib.logging
 import default
+from btlib.manager import Manager
 from btlib.torrent import Torrent, CreationError
 
 
@@ -52,6 +55,16 @@ def main():
     init_logging()
 
 
+async def doit():
+    my_torrent_from_dir = test_path_to_torrent(default.TEST_TORRENT_DIR)
+    q_torrent_from_dir = test_file_to_torrent(default.TEST_EXTERNAL_FILE)
+    test_torrent_to_file(my_torrent_from_dir, default.TEST_EXTERNAL_OUTPUT)
+    assert (my_torrent_from_dir == q_torrent_from_dir)
+
+    star_trek = test_file_to_torrent(default.STAR_TREK)
+    mgr = Manager([star_trek])
+    return await mgr.start_download()
+
 #    argparser = applib.args.init_argparsers()
 #    args = argparser.parse_args()
 #    args.func(args)
@@ -59,18 +72,18 @@ def main():
 
 if __name__ == '__main__':
     main()
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(doit())
+    loop.close()
+
 
     # Deocde a torrent file used in qbittorrent with the hopes that
     # saving it again will alloASw me to open it in the same program
-    torrent_from_file = test_file_to_torrent(default.TEST_EXTERNAL_FILE)
-    test_torrent_to_file(torrent_from_file, default.TEST_EXTERNAL_OUTPUT)
+#    torrent_from_file = test_file_to_torrent(default.TEST_EXTERNAL_FILE)
+#    test_torrent_to_file(torrent_from_file, default.TEST_EXTERNAL_OUTPUT)
 
     # Create a torrent from a directory and compare its info hash to one created
     # by qbittorrent for the same directory
-    my_torrent_from_dir = test_path_to_torrent(default.TEST_TORRENT_DIR)
-    q_torrent_from_dir = test_file_to_torrent(default.TEST_EXTERNAL_FILE)
-    test_torrent_to_file(my_torrent_from_dir, default.TEST_EXTERNAL_OUTPUT)
-    assert (my_torrent_from_dir == q_torrent_from_dir)
 
 #
 #    # first communication with the tracker

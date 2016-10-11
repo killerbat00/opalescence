@@ -26,7 +26,7 @@ DIVIDER = b':'
 DIGITS = [b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9']
 VALID_CHARS = [DICT_START, DICT_END, LIST_START, NUM_START, DIVIDER] + DIGITS
 
-logger = logging.getLogger('opalescence.' + __name__.split('.')[0])
+logger = logging.getLogger('opalescence.' + __name__)
 
 
 class DecodeError(Exception):

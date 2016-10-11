@@ -11,7 +11,7 @@ import os
 
 from btlib.torrent import Torrent, CreationError
 
-logger = logging.getLogger("opalescence." + __name__.split('.')[0])
+logger = logging.getLogger("opalescence." + __name__)
 
 
 def init_argparsers() -> argparse.ArgumentParser:

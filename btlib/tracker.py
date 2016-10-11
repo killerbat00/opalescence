@@ -7,6 +7,7 @@ B A S I C
 author: brian houston morrow
 """
 
+import logging
 import random
 import socket
 import struct
@@ -16,8 +17,10 @@ import requests
 from .bencode import bdecode, DecodeError
 from .peer import Peer
 
+logger = logging.getLogger('opalescense.' + __name__)
 
-class TrackerCommError(Exception):
+
+class TrackerError(Exception):
     """
     Raised when we encounter an error while communicating with the tracker.
     """
@@ -51,16 +54,16 @@ class TrackerInfo(object):
         self.compact = 0
         self.no_peer_id = 0
         self.event = EventEnum.started
-        self.peer_list = []
+        self.peer_list = set()
 
         # optional
         self.tracker_id = ""
         self.ip = None
-        self.numwant = 50  # Default to asking for 30 peers
+        self.numwant = 10  # Default to asking for 10 peers
         self.key = None
 
         # response
-        self.interval = 0
+        self.interval = 2
         self.mininterval = 0
         self.seeders = 0
         self.leechers = 0
@@ -74,28 +77,40 @@ class TrackerInfo(object):
               I'm also not confident in how the ip addresses and ports are handled.
               peer id handling is also wrong, but not affected for the test torrent i'm using now
         """
+        peers = []
+
+        logger.debug("Decoding peer list received from: {url}".format(url=self.announce_url))
+
+        # bytestring response from tracker
         if isinstance(self.peers, str):
             peer_len = len(self.peers)
             if peer_len % 6 != 0:
-                raise TrackerCommError(
-                    "Invalid peer list. Length {length} should be a multiple of 6.".format(length=peer_len))
+                logger.debug("Invalid peer list. Length {length} should be a multiple of 6.".format(length=peer_len))
+                raise TrackerError
 
             for i in range(0, peer_len - 1, 6):
                 peer_bytes = self.peers[i:i + 6]
                 ip_bytes = struct.unpack("!L", peer_bytes[0:4].encode("ISO-8859-1"))[0]
                 ip = socket.inet_ntoa(struct.pack('!L', ip_bytes))
                 port = struct.unpack("!H", peer_bytes[4:6].encode("ISO-8859-1"))[0]
-                self.peer_list.append(Peer(ip, port, self.info_hash, self.peer_id))
-        # this part is untested
-        elif isinstance(self.peers, list):
-            for peer in self.peers:
-                assert (isinstance(peer, dict))
+                peers.append(str(ip) + ":" + str(port))
 
-                if ["ip", "port", "peer id"] not in peer:
-                    raise TrackerCommError("Invalid peer list. Unable to decode {peer}".format(peer=peer))
-                self.peer_list.append(Peer(peer.get("ip"), peer.get("port"), self.info_hash, self.peer_id))
+        # this part is untested - dictionary response
+        # elif isinstance(self.peers, list):
+        #    for peer in self.peers:
+        #        assert (isinstance(peer, dict))
+
+        #        if ["ip", "port", "peer id"] not in peer:
+        #            raise TrackerError("Invalid peer list. Unable to decode {peer}".format(peer=peer))
+        #        peers.append([peer.get("ip"), peer.get("port")])
+        #        self.peer_list.add(Peer(peer.get("ip"), peer.get("port"), self.info_hash, self.peer_id))
         else:
-            raise TrackerCommError("Invalid peer list {peer_list}".format(peer_list=self.peers))
+            logger.debug("Invalid peer list {peer_list}".format(peer_list=self.peers))
+            raise TrackerError
+
+        peers = set(peers)
+        self.peer_list = [Peer(x.split(":")[0], x.split(":")[1], self.info_hash, self.peer_id) for x in peers]
+        logger.debug("Successfully decoded peer list.")
 
     def _decode_response(self, r: requests.Response) -> None:
         """
@@ -106,16 +121,20 @@ class TrackerInfo(object):
         # type (requests.Response) -> None
         assert (isinstance(r, requests.Response))
 
+        logger.debug("Debugging tracker response from: {url}".format(url=self.announce_url))
+
         bencoded_resp = r.content
         try:
             decoded_obj = bdecode(bencoded_resp)
         except DecodeError as e:
-            raise TrackerCommError("Unable to decode tracker response.\n{prev_msg}".format(prev_msg=e.message))
+            logger.debug("Unable to decode tracker response.\n{prev_msg}".format(prev_msg=e))
+            raise TrackerError from e
 
         if "failure reason" in decoded_obj:
-            raise TrackerCommError(
-                "Request to {tracker_url} failed.\n{failure_msg}".format(tracker_url=self.announce_url,
-                                                                         failure_msg=decoded_obj["failure reason"]))
+            logger.debug("Request to {tracker_url} failed.\n{failure_msg}".format(tracker_url=self.announce_url,
+                                                                                  failure_msg=decoded_obj[
+                                                                                      "failure reason"]))
+            raise TrackerError
 
         self.interval = decoded_obj["interval"]
         if "min interval" in decoded_obj:
@@ -134,9 +153,11 @@ class TrackerInfo(object):
         if self.event and self.event is EventEnum.started:
             self.event = None
 
-    def make_request(self, event=EventEnum.started):
+        logger.debug("successfully decoded response from: {url}".format(url=self.announce_url))
+
+    async def make_request(self, event=EventEnum.started):
         """
-        Makes a request to the tracker notifying it of our curent stats.
+        Makes a request to the tracker notifying it of our current stats.
         :param event:   optional,defaults to Started - One of Started, Stopped, Completed
                         to let the tracker know our current status
         :return:        True if response was received and Info updated, else False
@@ -156,8 +177,16 @@ class TrackerInfo(object):
         params.setdefault("event", self.event)
         params.setdefault("numwant", self.numwant)
 
+        logger.debug("Making request to tracker: {url}".format(url=self.announce_url))
         r = requests.get(self.announce_url, params=params)
         if r.status_code == 200:
-            self._decode_response(r)
-            return True
-        return False
+            logger.debug("Request successful.")
+            try:
+                self._decode_response(r)
+
+            except TrackerError as te:
+                logger.debug("Unable to decode tracker response.")
+                raise TrackerError from te
+        else:
+            logger.debug("Request unsuccessful.")
+            raise TrackerError
