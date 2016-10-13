@@ -6,6 +6,7 @@ Manages torrent communication with trackers and peers
 author: brian houston morrow
 """
 import asyncio
+import functools
 import logging
 
 from btlib.torrent import Torrent
@@ -39,7 +40,13 @@ class _ManagedTorrent(Torrent):
 
     def start_trackers(self):
         for t in self.trackers:
-            asyncio.ensure_future(t.tracker_comm(self.got_peers))
+            asyncio.get_event_loop().call_soon(functools.partial(t.start, self.got_peers))
+
+    def stop_trackers(self):
+        x = 0
+        for t in self.trackers:
+            x += 1
+            asyncio.get_event_loop().call_later(x * 3, t.stop)
 
 
 class Manager(object):
@@ -49,6 +56,7 @@ class Manager(object):
     def start_download(self):
         torrent = self.torrent_list[0]
         torrent.start_trackers()
+        torrent.stop_trackers()
         # if not request:
         #    return False
         # try:

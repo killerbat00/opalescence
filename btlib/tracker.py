@@ -19,6 +19,7 @@ from .bencode import bdecode, DecodeError
 from .peer import Peer
 
 logger = logging.getLogger('opalescence.' + __name__)
+loop = asyncio.get_event_loop()
 
 
 class TrackerError(Exception):
@@ -56,6 +57,7 @@ class TrackerInfo(object):
         self.no_peer_id = 0
         self.event = EventEnum.started
         self.peer_list = set()
+        self.task = None
 
         # optional
         self.tracker_id = ""
@@ -157,15 +159,12 @@ class TrackerInfo(object):
     async def make_request(self, event=EventEnum.started):
         """
         Makes a request to the tracker notifying it of our current stats.
-        :param client:  aiohttp client session
         :param event:   optional,defaults to Started - One of Started, Stopped, Completed
                         to let the tracker know our current status
         :return:        True if response was received and Info updated, else False
         """
         if event != self.event:
             self.event = event
-
-        loop = asyncio.get_event_loop()
 
         params = {}
         params.setdefault("info_hash", self.info_hash)
@@ -176,7 +175,8 @@ class TrackerInfo(object):
         params.setdefault("left", self.left)
         params.setdefault("compact", self.compact)
         params.setdefault("no_peer_id", self.no_peer_id)
-        params.setdefault("event", self.event)
+        if self.event:
+            params.setdefault("event", self.event)
         params.setdefault("numwant", self.numwant)
 
         logger.debug("Making request to tracker: {url}".format(url=self.announce_url))
@@ -193,11 +193,22 @@ class TrackerInfo(object):
                     logger.debug("Request unsuccessful.")
                     raise TrackerError
 
-    async def tracker_comm(self, cb):
-        await asyncio.ensure_future(self.make_request())
-        try:
-            task = cb(self.peer_list)
-        except:
-            pass
-        await asyncio.sleep(self.mininterval)
-        asyncio.ensure_future(self.tracker_comm(cb))
+    async def ping(self, cb, event=None):
+        await asyncio.ensure_future(self.make_request(event))
+
+        if event == EventEnum.stopped:
+            self.task.cancel()
+            return
+
+        cb(self.peer_list)
+        await asyncio.sleep(2.0)
+        self.task = asyncio.ensure_future(self.ping(cb))
+
+    def start(self, cb):
+        event = EventEnum.started
+        self.task = asyncio.ensure_future(self.ping(cb, event))
+
+    def stop(self):
+        event = EventEnum.stopped
+        a = lambda x: x
+        asyncio.ensure_future(self.ping(a, event))

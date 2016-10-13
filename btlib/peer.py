@@ -10,9 +10,10 @@ TODO: connections to multiple peers
 """
 
 import asyncio
+import binascii
 import logging
-import socket
 import struct
+from io import BytesIO
 
 PSTR = "BitTorrent protocol"
 PSTRLEN = 19
@@ -36,7 +37,7 @@ class Peer(object):
     _handshake_len = 68
     _pstr_len_bytes = struct.pack("!B", PSTRLEN)
 
-    def __init__(self, ip: int, port: int, info_hash: str, peer_id):
+    def __init__(self, ip: int, port: int, info_hash: str, peer_id, ):
         self.ip = ip
         self.port = port
         self.info_hash = info_hash
@@ -50,7 +51,7 @@ class Peer(object):
         return "{ip}:{port}".format(ip=self.ip, port=self.port)
 
     async def basic_comm(self):
-        logger.debug("Initiating handshake with peer {ip}:{port}".format(ip=self.ip, port=self.port))
+        logger.debug("Initiating handshake with peer {peer}".format(peer=self))
         msg = "{pstrlen}{pstr}{reserved}{info_hash}{peer_id}".format(pstrlen=self._pstr_len_bytes, pstr=PSTR,
                                                                      reserved=self._reserved, info_hash=self.info_hash,
                                                                      peer_id=self.peer_id).encode("ISO-8859-1")
@@ -58,37 +59,41 @@ class Peer(object):
         loop = asyncio.get_event_loop()
         try:
             reader, writer = await asyncio.open_connection(host=self.ip, port=self.port, loop=loop)
-        except OSError as oe:
+        except OSError:
             logger.debug("Unable to open connection to {peer}".format(peer=self))
-            raise socket.error from oe
+            return
 
         try:
             writer.write(msg)
             await writer.drain()
-            # why is msg blank here when returning from await?
             logger.debug("[*] Sent message {message}".format(message=msg.decode("ISO-8859-1")))
-            e = reader.exception()
-            if e:
-                raise socket.error from e
+
         except:
             logger.debug("Error writing to {peer}".format(peer=self))
-            raise socket.error
-
+            return
         try:
             chunks = await reader.read()
-            if chunks == 0:
+            if not chunks:
                 logger.debug("No data received")
-                raise socket.error
+                return
         except:
             logger.debug("Error reading from {peer}".format(peer=self))
-            raise socket.error
+            return
 
-        handshake_resp = chunks.decode("ISO-8859-1")
-        logger.debug("[*] Received message {message}".format(message=handshake_resp))
+        print(chunks)
+        self._parse_msg(chunks)
+        logger.debug("[*] Received message {message}".format(message=chunks.decode("ISO-8859-1")))
+
+    def _parse_msg(self, message: bytes):
+        message = BytesIO(message)
+        print(binascii.hexlify(message))
+        msg_len = int.from_bytes(message.read(1), byteorder='big')
+        other_pstrlen = int.from_bytes(message.read(1), byteorder='big')
+        other_pstr = message.read(other_pstrlen)
+        other_reserved = message.read(8)
+        other_infohash = message.read(20)
+        other_peerid = message.read(20)
+        a = message.read()
+        a = other_pstr.decode("ISO-8859-1")
+        print("hmm")
         return
-
-    def _parse_msg(self, message):
-        # assert (len(message) == self._handshake_len)
-
-        print(message)
-        print("halt")

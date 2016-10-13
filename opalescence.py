@@ -59,16 +59,11 @@ def main():
         args.func(args)
     else:
         loop = asyncio.get_event_loop()
-        asyncio.ensure_future(doit())
+        loop.call_soon(doit)
         loop.run_forever()
 
 
-async def doit():
-    # my_torrent_from_dir = test_path_to_torrent(default.TEST_TORRENT_DIR)
-    # q_torrent_from_dir = test_file_to_torrent(default.TEST_EXTERNAL_FILE)
-    # assert (my_torrent_from_dir == q_torrent_from_dir)
-
-    # star_trek = test_file_to_torrent(default.STAR_TREK)
+def doit():
     mgr = Manager([default.STAR_TREK])
     return mgr.start_download()
 
