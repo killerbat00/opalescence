@@ -413,7 +413,8 @@ class Torrent(object):
             logger.debug("Creating Torrent instance from file {file}".format(file=torrent_file))
             torrent = cls._from_obj(torrent_obj, location=os.path.dirname(torrent_file))
             logger.debug(
-                "Created Torrent instance from {file} {torrent}".format(file=torrent_file, torrent=torrent.info_hash))
+                "Created Torrent instance from {file} Info hash={torrent}".format(file=torrent_file,
+                                                                                  torrent=torrent.info_hash))
             return torrent
         except IOError as ioerr:
             logger.error("Unable to create Torrent instance. {file} does not exist.".format(file=torrent_file))

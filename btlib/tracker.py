@@ -7,17 +7,18 @@ B A S I C
 author: brian houston morrow
 """
 
+import asyncio
 import logging
 import random
 import socket
 import struct
 
-import requests
+import aiohttp
 
 from .bencode import bdecode, DecodeError
 from .peer import Peer
 
-logger = logging.getLogger('opalescense.' + __name__)
+logger = logging.getLogger('opalescence.' + __name__)
 
 
 class TrackerError(Exception):
@@ -110,20 +111,20 @@ class TrackerInfo(object):
 
         peers = set(peers)
         self.peer_list = [Peer(x.split(":")[0], x.split(":")[1], self.info_hash, self.peer_id) for x in peers]
-        logger.debug("Successfully decoded peer list.")
+        return self.peer_list
 
-    def _decode_response(self, r: requests.Response) -> None:
+    async def _decode_response(self, r: aiohttp.ClientResponse) -> None:
         """
         Decodes the content of a requests.Response response to the tracker
         :param r:   requests.Response to the request we made to the tracker
         :return:    TrackerHttpResponse object, raises TrackerResponseError if anything goes wrong
         """
         # type (requests.Response) -> None
-        assert (isinstance(r, requests.Response))
+        assert (isinstance(r, aiohttp.ClientResponse))
 
         logger.debug("Debugging tracker response from: {url}".format(url=self.announce_url))
 
-        bencoded_resp = r.content
+        bencoded_resp = await r.read()
         try:
             decoded_obj = bdecode(bencoded_resp)
         except DecodeError as e:
@@ -153,17 +154,18 @@ class TrackerInfo(object):
         if self.event and self.event is EventEnum.started:
             self.event = None
 
-        logger.debug("successfully decoded response from: {url}".format(url=self.announce_url))
-
     async def make_request(self, event=EventEnum.started):
         """
         Makes a request to the tracker notifying it of our current stats.
+        :param client:  aiohttp client session
         :param event:   optional,defaults to Started - One of Started, Stopped, Completed
                         to let the tracker know our current status
         :return:        True if response was received and Info updated, else False
         """
         if event != self.event:
             self.event = event
+
+        loop = asyncio.get_event_loop()
 
         params = {}
         params.setdefault("info_hash", self.info_hash)
@@ -178,15 +180,21 @@ class TrackerInfo(object):
         params.setdefault("numwant", self.numwant)
 
         logger.debug("Making request to tracker: {url}".format(url=self.announce_url))
-        r = requests.get(self.announce_url, params=params)
-        if r.status_code == 200:
-            logger.debug("Request successful.")
-            try:
-                self._decode_response(r)
+        async with aiohttp.ClientSession(loop=loop) as client:
+            async with client.get(self.announce_url, params=params) as r:
+                if r.status == 200:
+                    logger.debug("Request successful to: {url}".format(url=self.announce_url))
+                    try:
+                        return await self._decode_response(r)
+                    except TrackerError as te:
+                        logger.debug("Unable to decode tracker response.")
+                        raise TrackerError from te
+                else:
+                    logger.debug("Request unsuccessful.")
+                    raise TrackerError
 
-            except TrackerError as te:
-                logger.debug("Unable to decode tracker response.")
-                raise TrackerError from te
-        else:
-            logger.debug("Request unsuccessful.")
-            raise TrackerError
+    async def tracker_comm(self, cb):
+        await asyncio.ensure_future(self.make_request())
+        cb(self.peer_list)
+        await asyncio.sleep()
+        asyncio.ensure_future(self.tracker_comm(cb))
