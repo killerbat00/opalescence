@@ -70,7 +70,7 @@ async def doit():
 
     # star_trek = test_file_to_torrent(default.STAR_TREK)
     mgr = Manager([default.STAR_TREK])
-    mgr.start_download()
+    return mgr.start_download()
 
 
 if __name__ == '__main__':

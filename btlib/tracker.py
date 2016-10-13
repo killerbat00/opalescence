@@ -139,7 +139,7 @@ class TrackerInfo(object):
 
         self.interval = decoded_obj["interval"]
         if "min interval" in decoded_obj:
-            self.mininterval = decoded_obj["min interval"]
+            self.mininterval = float(decoded_obj["min interval"])
 
         if "tracker id" in decoded_obj:
             self.tracker_id = decoded_obj["tracker id"]
@@ -185,7 +185,7 @@ class TrackerInfo(object):
                 if r.status == 200:
                     logger.debug("Request successful to: {url}".format(url=self.announce_url))
                     try:
-                        return await self._decode_response(r)
+                        await self._decode_response(r)
                     except TrackerError as te:
                         logger.debug("Unable to decode tracker response.")
                         raise TrackerError from te
@@ -195,6 +195,9 @@ class TrackerInfo(object):
 
     async def tracker_comm(self, cb):
         await asyncio.ensure_future(self.make_request())
-        cb(self.peer_list)
-        await asyncio.sleep()
+        try:
+            task = cb(self.peer_list)
+        except:
+            pass
+        await asyncio.sleep(self.mininterval)
         asyncio.ensure_future(self.tracker_comm(cb))
