@@ -15,7 +15,7 @@ TEST_EXTERNAL_OUTPUT = "\\".join([root, "test_torrents", "op_qtbittorrent.torren
 STAR_TREK = "\\".join([root, "test_torrents", "star_trek.torrent"])
 
 NAME = "opalescence"
-VERSION = "0.1"
+VERSION = "0.2"
 FULL_NAME = " ".join([NAME, "v"+VERSION])
 
 ANNOUNCE = "www.google.com"

@@ -12,6 +12,8 @@ Currently, it's a glorified bencoder and torrent creation machine. (with tests!)
 - [x] better logging
 - [ ] get rid of dependency on weird config.py file
 - [ ] better tests
+- [ ] better event/async model
+- [ ] better peer comm
 
 
 ### add functionality for:
@@ -23,5 +25,5 @@ Currently, it's a glorified bencoder and torrent creation machine. (with tests!)
 
 #### far in the future functionality:
 - [ ] diffing between Torrents?
-- [ ] tracker comm
+- [x] tracker comm
 - [ ] ui?
