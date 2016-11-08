@@ -17,14 +17,11 @@ from collections import OrderedDict
 from io import BytesIO
 
 DICT_START = b'd'
-DICT_END = b'e'
+TOKEN_END = b'e'
 LIST_START = b'l'
-LIST_END = b'e'
 NUM_START = b'i'
-NUM_END = b'e'
 DIVIDER = b':'
-DIGITS = [b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9']
-VALID_CHARS = [DICT_START, DICT_END, LIST_START, NUM_START, DIVIDER] + DIGITS
+DIGITS = b'0123456789-'
 
 logger = logging.getLogger('opalescence.' + __name__)
 
@@ -71,16 +68,7 @@ def bencode(decoded_data: OrderedDict) -> bytes:
     return _encode(decoded_data)
 
 
-def pretty_print(bdecoded_obj: OrderedDict) -> str:
-    """
-    Prints a nicely formatted representation of a decoded torrent's python object
-    :param bdecoded_obj: object to print
-    """
-    logger.debug("Pretty printing OrderedDict {d}".format(d=bdecoded_obj))
-    return pp_dict(bdecoded_obj)
-
-
-def _decode(data_buffer: BytesIO) -> [OrderedDict, list, str, int]:
+def _decode(data_buffer: BytesIO) -> [OrderedDict, list, bytes, int]:
     """
     Recursively decodes a BytesIO buffer of bencoded data
     :param data_buffer: BytesIO buffer of bencoded data to decode
@@ -91,7 +79,7 @@ def _decode(data_buffer: BytesIO) -> [OrderedDict, list, str, int]:
 
     if not char:
         return
-    if char == DICT_END:
+    if char == TOKEN_END:
         return
     elif char == NUM_START:
         return _decode_int(data_buffer)
@@ -137,7 +125,7 @@ def _decode_int(data_buffer: BytesIO) -> int:
         logger.error(
             "Error while parsing integer. Found {wrong}, expected {right}.".format(wrong=char, right=NUM_START))
         raise DecodeError
-    return _parse_num(data_buffer, delimiter=NUM_END)
+    return _parse_num(data_buffer, delimiter=TOKEN_END)
 
 
 def _decode_str(data_buffer: BytesIO) -> bytes:
@@ -168,7 +156,7 @@ def _parse_num(data_buffer: BytesIO, delimiter: bytes) -> int:
     parsed_num = bytes()
     while True:
         char = data_buffer.read(1)
-        if char not in DIGITS + [b"-"] or char == '':
+        if char not in DIGITS or char == '':
             if char != delimiter:
                 logger.error(
                     "Invalid character while parsing integer. Found {wrong}, expected {right}".format(wrong=char,
@@ -178,7 +166,7 @@ def _parse_num(data_buffer: BytesIO, delimiter: bytes) -> int:
                 break
         parsed_num += char
     num_str = parsed_num.decode("utf-8")
-    if len(num_str) > 1 and (num_str[:2] == '-0' or num_str[0] == '0'):
+    if (len(num_str) > 1 and num_str[:2] == '-0') or num_str[0] == '0':
         logger.error("Leading or negative zeros are not allowed for integer keys")
         raise DecodeError
     return int(num_str)
@@ -197,16 +185,14 @@ def _encode(obj: [dict, bytes, list, str, int]) -> bytes:
         for k, v in obj.items():
             contents += _encode_bytes(k)
             contents += _encode(v)
-        contents += DICT_END
+        contents += TOKEN_END
         return contents
     elif isinstance(obj, list):
         contents = bytearray('l', 'utf-8')
         for item in obj:
             contents += _encode(item)
-        contents += LIST_END
+        contents += TOKEN_END
         return contents
-    elif isinstance(obj, str):
-        return _encode_str(obj)
     elif isinstance(obj, int):
         return _encode_int(obj)
     elif isinstance(obj, bytes):
@@ -231,52 +217,3 @@ def _encode_int(int_obj: int) -> bytes:
     :return:        bencoded string of the specified integer
     """
     return str.encode('i' + str(int_obj) + 'e')
-
-
-def _encode_str(string_obj: str) -> str:
-    """
-    bencode a string
-    :param string_obj: string to bencode
-    :return:           bencoded string of the specified string
-    """
-    res = str(len(string_obj)) + ':' + string_obj
-    return str.encode(res)
-
-
-def pp_list(decoded_list: list, lvl: int = 0) -> str:
-    """
-    Recursively prints items in a list inside a torrent object
-    mutually recursive with pp_dict
-    :param decoded_list: the decoded list
-    :param lvl:          current recursion level (used for indentation)
-    :return:             pretty-printed list
-    """
-    str_ = ""
-    for itm in decoded_list:
-        if isinstance(itm, OrderedDict):
-            str_ += pp_dict(itm, lvl)
-        elif isinstance(itm, list):
-            str_ += pp_list(itm, lvl)
-        elif isinstance(itm, str) or isinstance(itm, int):
-            str_ += "{pad}{val}".format(pad="\t" * lvl, val=itm)
-    return str_
-
-
-def pp_dict(decoded_dict: OrderedDict, lvl: int = 0) -> str:
-    """
-    Recursively prints keys and values from an OrderedDict representing a torrent
-    mutually recursive with pp_list
-    :param decoded_dict: dict to print
-    :param lvl:          current recursion level (used for indentation)
-    :return:             pretty-printed dictionary
-    """
-    str_ = ""
-    for k, v in decoded_dict.items():
-        str_ += "{pad}{val}\n".format(pad="\t" * lvl, val=k)
-        if isinstance(v, OrderedDict):
-            str_ += pp_dict(v, lvl=lvl + 1)
-        elif isinstance(v, list):
-            str_ += pp_list(v, lvl=lvl + 1)
-        elif isinstance(v, str) or isinstance(v, int):
-            str_ += "{pad}{val}\n".format(pad="\t" * (lvl + 1), val=v)
-    return str_
