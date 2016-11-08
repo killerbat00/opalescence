@@ -60,7 +60,7 @@ def bdecode(bencoded_data: bytes) -> OrderedDict:
         return _decode(bencoded_bytes)
 
 
-def bencode(decoded_data: OrderedDict) -> str:
+def bencode(decoded_data: OrderedDict) -> bytes:
     """
     Bencodes an OrderedDict and returns the bencoded string.
     :param decoded_data: python object to bencode
@@ -140,7 +140,7 @@ def _decode_int(data_buffer: BytesIO) -> int:
     return _parse_num(data_buffer, delimiter=NUM_END)
 
 
-def _decode_str(data_buffer: BytesIO) -> str:
+def _decode_str(data_buffer: BytesIO) -> bytes:
     """
     decodes a bencoded string from a BytesIO buffer.
     :param data_buffer: BytesIO object being parsed
@@ -149,7 +149,7 @@ def _decode_str(data_buffer: BytesIO) -> str:
     """
     data_buffer.seek(-1, 1)
     string_len = _parse_num(data_buffer, delimiter=DIVIDER)
-    string_val = data_buffer.read(string_len).decode('ISO-8859-1')
+    string_val = data_buffer.read(string_len)
 
     if len(string_val) != string_len:
         logger.error("Unable to read specified string length {length}".format(length=string_len))
@@ -177,7 +177,7 @@ def _parse_num(data_buffer: BytesIO, delimiter: bytes) -> int:
             else:
                 break
         parsed_num += char
-    num_str = parsed_num.decode("ISO-8859-1")
+    num_str = parsed_num.decode("utf-8")
     if len(num_str) > 1 and (num_str[:2] == '-0' or num_str[0] == '0'):
         logger.error("Leading or negative zeros are not allowed for integer keys")
         raise DecodeError
@@ -185,7 +185,7 @@ def _parse_num(data_buffer: BytesIO, delimiter: bytes) -> int:
 
 
 # --- encoding
-def _encode(obj: [dict, list, str, int]) -> str:
+def _encode(obj: [dict, bytes, list, str, int]) -> bytes:
     """
     Recursively bencodes an OrderedDict
     :param obj: object to decode
@@ -193,36 +193,44 @@ def _encode(obj: [dict, list, str, int]) -> str:
     :raises:    EncodeError
     """
     if isinstance(obj, dict):
-        contents = DICT_START.decode("ISO-8859-1")
+        contents = bytearray('d', 'utf-8')
         for k, v in obj.items():
-            contents += _encode_str(k)
+            contents += _encode_bytes(k)
             contents += _encode(v)
-        contents += DICT_END.decode("ISO-8859-1")
+        contents += DICT_END
         return contents
     elif isinstance(obj, list):
-        contents = LIST_START.decode("ISO-8859-1")
+        contents = bytearray('l', 'utf-8')
         for item in obj:
             contents += _encode(item)
-        contents += LIST_END.decode("ISO-8859-1")
+        contents += LIST_END
         return contents
     elif isinstance(obj, str):
         return _encode_str(obj)
     elif isinstance(obj, int):
         return _encode_int(obj)
+    elif isinstance(obj, bytes):
+        return _encode_bytes(obj)
     else:
         logger.error("Unexpected object found {obj}".format(obj=obj))
         raise EncodeError
 
 
-def _encode_int(int_obj: int) -> str:
+def _encode_bytes(b: bytes) -> bytes:
+    result = bytearray()
+    result += str.encode(str(len(b)))
+    result += b':'
+    result += b
+    return result
+
+
+def _encode_int(int_obj: int) -> bytes:
     """
     bencodes an integer.
     :param int_obj: integer to bencode
     :return:        bencoded string of the specified integer
     """
-    return "{start}{num}{end}".format(start=NUM_START.decode("ISO-8859-1"),
-                                      num=int_obj,
-                                      end=NUM_END.decode("ISO-8859-1"))
+    return str.encode('i' + str(int_obj) + 'e')
 
 
 def _encode_str(string_obj: str) -> str:
@@ -231,9 +239,8 @@ def _encode_str(string_obj: str) -> str:
     :param string_obj: string to bencode
     :return:           bencoded string of the specified string
     """
-    return "{length}{div}{str}".format(length=len(string_obj),
-                                       div=DIVIDER.decode("ISO-8859-1"),
-                                       str=string_obj)
+    res = str(len(string_obj)) + ':' + string_obj
+    return str.encode(res)
 
 
 def pp_list(decoded_list: list, lvl: int = 0) -> str:
