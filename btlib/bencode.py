@@ -203,6 +203,11 @@ def _encode(obj: [dict, bytes, list, str, int]) -> bytes:
 
 
 def _encode_bytes(b: bytes) -> bytes:
+    """
+    bencodes a stream of bytes
+    :param b: bytes to bencode
+    :return:  bencoded bytes
+    """
     result = bytearray()
     result += str.encode(str(len(b)))
     result += b':'
@@ -215,6 +220,7 @@ def _encode_int(int_obj: int) -> bytes:
     bencodes an integer.
     :param int_obj: integer to bencode
     :return:        bencoded string of the specified integer
+    :raises:        EncodeError
     """
     if not isinstance(int_obj, int):
         logger.error("Unexpected type {type}. Expected int.".format(type=type(int_obj)))
