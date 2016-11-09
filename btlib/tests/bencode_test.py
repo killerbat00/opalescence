@@ -8,7 +8,7 @@ author: brian houston morrow
 from io import BytesIO
 from unittest import TestCase
 
-from btlib.bencode import DecodeError
+from btlib.bencode import DecodeError, EncodeError
 
 
 class TestDecoding(TestCase):
@@ -18,14 +18,14 @@ class TestDecoding(TestCase):
         self.assertEquals(res, None)
 
     def test_bdecode_types(self):
-        from btlib.bencode import bdecode, DecodeError
+        from btlib.bencode import bdecode
         bad_types = [list, str, dict, int, tuple, set]
         for t in bad_types:
             with self.subTest(t=t):
                 with self.assertRaises(DecodeError):
                     bdecode(t())
 
-    def test__decode_int(self):
+    def test_decode_int(self):
         from btlib.bencode import _decode_int
         no_delim = bytes(b"14")
         wrong_delim = bytes(b"i14b")
@@ -48,7 +48,7 @@ class TestDecoding(TestCase):
             with self.subTest(k=k):
                 self.assertEquals(_decode_int(BytesIO(v)), k)
 
-    def test__decode_str(self):
+    def test_decode_str(self):
         from btlib.bencode import _decode_str
         bad_fmt = b"A:aaaaaaaa"
         wrong_delim = b"4-asdf"
@@ -66,15 +66,31 @@ class TestDecoding(TestCase):
 
         for b in good_data:
             with self.subTest(b=b):
-                self.assertEquals(_decode_str(BytesIO(b)), b[3:].decode('ISO-8859-1'))
-
-    def test__parse_num(self):
-        pass
-
-    def test_bdecode(self):
-        self.fail()
+                self.assertEquals(_decode_str(BytesIO(b)), b[3:])
 
 
 class TestEncoding(TestCase):
-    def test_encoding(self):
+    def test_encode(self):
+        from btlib.bencode import bencode
+        with self.assertRaises(EncodeError):
+            bencode(set([1]))
+
+    def test_encode_bytes(self):
         pass
+
+    def test_encode_int(self):
+        from btlib.bencode import _encode_int
+        bad_data = [b'123', "123", str]
+        good_data = [0, -1, 99999999]
+        pass_data = [b'i0e', b'i-1e', b'i99999999e']
+
+        for b in bad_data:
+            with self.subTest(b=b):
+                with self.assertRaises(EncodeError):
+                    _encode_int(b)
+
+        for i, b in enumerate(good_data):
+            with self.subTest(b=b):
+                res = _encode_int(b)
+                self.assertEquals(isinstance(res, bytes), True)
+                self.assertEquals(res, pass_data[i])

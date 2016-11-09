@@ -156,7 +156,7 @@ def _parse_num(data_buffer: BytesIO, delimiter: bytes) -> int:
     parsed_num = bytes()
     while True:
         char = data_buffer.read(1)
-        if char not in DIGITS or char == '':
+        if char not in DIGITS or char == b'':
             if char != delimiter:
                 logger.error(
                     "Invalid character while parsing integer. Found {wrong}, expected {right}".format(wrong=char,
@@ -166,7 +166,7 @@ def _parse_num(data_buffer: BytesIO, delimiter: bytes) -> int:
                 break
         parsed_num += char
     num_str = parsed_num.decode("utf-8")
-    if (len(num_str) > 1 and num_str[:2] == '-0') or num_str[0] == '0':
+    if len(num_str) > 1 and (num_str[:2] == '-0' or num_str[0] == '0'):
         logger.error("Leading or negative zeros are not allowed for integer keys")
         raise DecodeError
     return int(num_str)
@@ -216,4 +216,7 @@ def _encode_int(int_obj: int) -> bytes:
     :param int_obj: integer to bencode
     :return:        bencoded string of the specified integer
     """
+    if not isinstance(int_obj, int):
+        logger.error("Unexpected type {type}. Expected int.".format(type=type(int_obj)))
+        raise EncodeError
     return str.encode('i' + str(int_obj) + 'e')
