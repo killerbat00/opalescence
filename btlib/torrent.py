@@ -153,17 +153,35 @@ class Torrent:
 
     @property
     def total_file_size(self) -> int:
+        """
+        total file size of all files in the torrent
+        :return: sum of the size of all files
+        """
         return sum([f.size for f in self.files])
 
     @property
     def pieces(self) -> list:
+        """
+        splits the piece bytestring into 20 byte components
+        :return: a list of 20 byte long hashes for each piece
+        """
         return list(_pc(self.meta_info[b'info'][b'pieces]']))
 
     @property
     def announce(self) -> str:
+        """
+        the tracker's announce URL
+        TODO: multiple trackers (announe-list)
+        :return: tracker's announce URL
+        """
         return self.meta_info[b'announce'].decode('utf-8')
 
     def to_file(self, save_path: str):
+        """
+        writes the torrent metainfo to a file
+        :param save_path: path to which to save the .torrent file
+        :raises:          CreationError
+        """
         try:
             encoded_bytes = bencode(self.meta_info)
             with open(save_path, mode="wb") as f:
@@ -176,6 +194,9 @@ class Torrent:
             logger.debug("Success")
 
     def _collect_files(self):
+        """
+        gathers the files from the metainfo, creating FileItem objects from them
+        """
         if b'files' in self.meta_info[b'info']:
             self.files += [FileItem(f[b'path'], f[b'length']) for f in self.meta_info[b'info'][b'files']]
         else:
