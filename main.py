@@ -9,6 +9,7 @@ import argparse
 import logging
 import logging.config
 import os
+import unittest
 
 
 def create_logger():
@@ -49,6 +50,7 @@ def main():
         args.func(args)
     except AttributeError:
         logging.debug("Program invoked with no arguments")
+        argparser.print_help()
 
 
 def run_tests(_) -> None:
@@ -56,8 +58,6 @@ def run_tests(_) -> None:
     Runs the test suite found in the tests/ directory
     :param _: unused
     """
-    import unittest
-
     logging.debug("Running the test suite")
 
     loader = unittest.defaultTestLoader
@@ -69,16 +69,3 @@ def run_tests(_) -> None:
 if __name__ == '__main__':
     main()
     logging.shutdown()
-
-    ## first communication with the tracker
-    # print((
-    #    "[*] Making request to the tracker {tracker_url}".format(
-    #        tracker_url=torrent_from_file.trackers[0].announce_url)))
-    # if torrent_from_file.trackers[0].make_request():
-    #    for peer in torrent_from_file.trackers[0].peer_list:
-    #        try:
-    #            peer.handshake()
-    #        except:
-    #            continue
-    # else:
-    #   print("Error")

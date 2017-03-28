@@ -2,9 +2,8 @@
 
 """
 Tests functionality related to bencoding and becoding bytes.
-
-author: brian houston morrow
 """
+
 from io import BytesIO
 from unittest import TestCase
 
@@ -12,16 +11,68 @@ from tests.context import btlib
 
 
 class TestDecoding(TestCase):
+    """
+    Test class for opalescence.btlib.bencode
+    """
+
     def test_bdecode_empty_bytes(self):
+        """
+        Test whether we can decode empty bytes.
+        Expected behavior is to get None back from bdecode
+        """
         res = btlib.bencode.bdecode(bytes())
         self.assertEquals(res, None)
 
-    def test_bdecode_types(self):
-        bad_types = [list, str, dict, int, tuple, set]
+    def test_bdecode_wrong_types(self):
+        """
+        Test that we can only decode a bytes-like object.
+        Each type of object in bad_types must have len > 0 or bencode will return None
+        """
+        bad_types = [[1, 2], "string", {"1": "a"}, (1, 2), {1, 2, 3}]
         for t in bad_types:
             with self.subTest(t=t):
                 with self.assertRaises(btlib.bencode.DecodeError):
-                    btlib.bencode.bdecode(t())
+                    btlib.bencode.bdecode(t)
+
+    def test__decode_empty_buffer(self):
+        """
+        Test that we get None back if an empty buffer makes it to _decode.
+        Typically this would be called through bdecode which would realize it's receiving an empty
+        object as the data argument and return None
+        """
+        empty_buf = BytesIO(bytes())
+        res = btlib.bencode._decode(empty_buf)
+        self.assertEquals(res, None)
+
+    def test__decode_recursion_limit(self):
+        """
+        Test that we get a BencodeRecursionError if we try to recursively decode an object that is too large
+        """
+        btlib.bencode.RECURSION_LIMIT = 5  # set to some low value so test run quickly
+        buffer = BytesIO(b"d3:one3:one3:one3:one3:one3:one3:one3:onee")
+        with self.assertRaises(btlib.bencode.BencodeRecursionError):
+            btlib.bencode._decode(buffer)
+
+    def test__decode_empty_list(self):
+        self.fail()
+
+    def test__decode_nested_list(self):
+        self.fail()
+
+    def test__decode_malformed_list(self):
+        self.fail()
+
+    def test__decode_empty_dict(self):
+        self.fail()
+
+    def test__decode_nested_dict(self):
+        self.fail()
+
+    def test__decode_malformed_dict(self):
+        self.fail()
+
+    def test__decode_invalid_char(self):
+        self.fail()
 
     def test__decode_int(self):
         no_delim = bytes(b"14")
@@ -65,9 +116,6 @@ class TestDecoding(TestCase):
                 self.assertEquals(btlib.bencode._decode_str(BytesIO(b)), b[3:].decode('ISO-8859-1'))
 
     def test__parse_num(self):
-        pass
-
-    def test_bdecode(self):
         pass
 
 
