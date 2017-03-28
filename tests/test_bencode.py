@@ -8,7 +8,7 @@ author: brian houston morrow
 from io import BytesIO
 from unittest import TestCase
 
-from .context import btlib
+from tests.context import btlib
 
 
 class TestDecoding(TestCase):
