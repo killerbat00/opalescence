@@ -2,41 +2,13 @@
 # -*- coding: utf-8 -*-
 
 """
-Testing decoding and encoding a torrent file.
+Opalescence is a simple torrent client.
 """
 
 import argparse
 import logging
 import logging.config
 import os
-
-from opalescence.btlib.torrent import Torrent, CreationError
-
-
-def test_path_to_torrent(path: str) -> Torrent:
-    trackers = ["www.google.com", "www.google.com", "www.brianmorrow.net"]
-    try:
-        result = Torrent.from_path(path, trackers, comment="this is a comment! huzzah!")
-    except CreationError as e:
-        raise CreationError from e
-    else:
-        return result
-
-
-def test_file_to_torrent(torrent_file: str) -> Torrent:
-    try:
-        result = Torrent.from_file(torrent_file)
-    except CreationError as e:
-        raise CreationError from e
-    else:
-        return result
-
-
-def test_torrent_to_file(torrent_obj: Torrent, path: str):
-    try:
-        torrent_obj.to_file(path)
-    except CreationError as e:
-        raise CreationError from e
 
 
 def create_logger():
@@ -95,17 +67,6 @@ def run_tests(_) -> None:
 if __name__ == '__main__':
     main()
     logging.shutdown()
-
-    # Deocde a torrent file used in qbittorrent with the hopes that
-    # saving it again will allow me to open it in the same program
-    # torrent_from_file = test_file_to_torrent(default.TEST_EXTERNAL_FILE)
-    # test_torrent_to_file(torrent_from_file, default.TEST_EXTERNAL_OUTPUT)
-
-    # Create a torrent from a directory and compare its info hash to one created
-    # by qbittorrent for the same directory
-    # my_torrent_from_dir = test_path_to_torrent(default.TEST_TORRENT_DIR)
-    # q_torrent_from_dir = test_file_to_torrent(default.TEST_FILE)
-    #test_torrent_to_file(my_torrent_from_dir, default.TEST_OUTPUT_FILE)
 
     ## first communication with the tracker
     # print((
