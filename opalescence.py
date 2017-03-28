@@ -1,15 +1,14 @@
-# -*- coding: utf-8 -*-
 # !/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 """
 Testing decoding and encoding a torrent file.
-
-author: brian houston morrow
 """
-import applib.args
-import applib.logging
-import default
+
 from btlib.torrent import Torrent, CreationError
+
+import default
+import opalescence.applib.logging
 
 
 def test_path_to_torrent(path: str) -> Torrent:
@@ -42,7 +41,7 @@ def init_logging():
     """
     Configures the root logger for the application
     """
-    logger = applib.logging.get_logger("opalescence")
+    logger = opalescence.applib.logging.get_logger("opalescence")
     logger.info("Initialized logging.")
 
 
@@ -71,20 +70,16 @@ if __name__ == '__main__':
     my_torrent_from_dir = test_path_to_torrent(default.TEST_TORRENT_DIR)
     q_torrent_from_dir = test_file_to_torrent(default.TEST_FILE)
     test_torrent_to_file(my_torrent_from_dir, default.TEST_OUTPUT_FILE)
-    assert (my_torrent_from_dir.info_hash == q_torrent_from_dir.info_hash)
 
-#
-#    # first communication with the tracker
-#    print((
-#        "[*] Making request to the tracker {tracker_url}".format(
-#            tracker_url=torrent_from_file.trackers[0].announce_url)))
-#    if torrent_from_file.trackers[0].make_request():
-#        print("Success!")
-#        for peer in torrent_from_file.trackers[0].peer_list:
-#            try:
-#                peer.handshake()
-#            except socketerror:
-#                continue
-#        torrent_from_file.trackers[0].peer_list[0].handshake()
-#    else:
-#        print("Error")
+    # first communication with the tracker
+    print((
+        "[*] Making request to the tracker {tracker_url}".format(
+            tracker_url=torrent_from_file.trackers[0].announce_url)))
+    if torrent_from_file.trackers[0].make_request():
+        for peer in torrent_from_file.trackers[0].peer_list:
+            try:
+                peer.handshake()
+            except:
+                continue
+    else:
+        print("Error")
