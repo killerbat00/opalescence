@@ -1,12 +1,51 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
+import os
 from unittest import TestCase
 
 from tests.context import btlib
 
 
-class Creation(TestCase):
+class TransmissionCommand:
+    def __init__(self):
+        self.prog_root = """C:\Program Files (x86)\Transmission"""
+        self.prog_name = "transmission-create.exe"
+        self.program = os.path.join(self.prog_root, self.prog_name)
+
+
+class BasicCreation(TestCase):
+    def setUp(self):
+        pass
+
+    def test_obj_creation_from_external_file(self):
+        """
+        Test that we can create a torrent metainfo object from a .torrent file created with an external program.
+        Currently, this uses a torrent file created by Transmission
+        """
+        # check for transmission torrent file
+        # if missing
+        #   check for test data directory
+        #       create if missing
+        #   use transmission to generate torrent file
+        # generate btlib.torrent.Torrent object from transmission file
+        # ensure btlib.torent.CreationError isn't thrown
+        self.fail()
+
+    def test_obj_creation_from_dir(self):
+        """
+        Test that we can create a torrent metainfo object from a directory of test data.
+        This directory of test data should be the same used when creating a .torrent file with an external program.
+        """
+        # check for my test torrent file
+        # create from directory if missing
+        # check for transmission torrent file
+        # if missing
+        #   generate
+        # generate btlib.torrent.Torrent object from transmission file
+        #
+        # compare my torrent file object to transmission file's
+        self.fail()
+
     def test_decode_recode_decode_compare(self):
         """
         Decodes a torrent file created using qbittorrent, reencodes that file to a .torrent,

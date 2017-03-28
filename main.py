@@ -14,7 +14,7 @@ import os
 def create_logger():
     """
     Creates and configures the root logger
-    :return: root logger
+    Configuration is pulled from config/logging.ini
     """
     full_path = os.path.realpath(__file__)
     dirname = os.path.dirname(full_path)
@@ -23,13 +23,26 @@ def create_logger():
     logging.info("Initialized logging")
 
 
+def create_argparser() -> argparse.ArgumentParser:
+    """
+    Initializes the root argument parser and all relevant subparsers for supported commands.
+    :return:    argparse.ArgumentParser instance
+    """
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers()
+    test_parser = subparsers.add_parser("test", help="Run the test suite")
+    test_parser.set_defaults(func=run_tests)
+
+    return parser
+
+
 def main():
     """
     Main entry-point into Opalescence.
     """
     create_logger()
     logging.info("Initializing argument parser and subparsers")
-    argparser = init_argparsers()
+    argparser = create_argparser()
 
     try:
         args = argparser.parse_args()
@@ -38,22 +51,11 @@ def main():
         logging.debug("Program invoked with no arguments")
 
 
-def init_argparsers() -> argparse.ArgumentParser:
-    """
-    Initializes the root argument parser and all relevant subparsers for supported commands.
-    :return:    ArgumentParser
-    """
-    parser = argparse.ArgumentParser()
-
-    subparsers = parser.add_subparsers()
-
-    test_parser = subparsers.add_parser("test", help="Run the test suite")
-    test_parser.set_defaults(func=run_tests)
-
-    return parser
-
-
 def run_tests(_) -> None:
+    """
+    Runs the test suite found in the tests/ directory
+    :param _: unused
+    """
     import unittest
 
     logging.debug("Running the test suite")
