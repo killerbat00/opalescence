@@ -6,13 +6,16 @@ from setuptools import setup
 with open("README.md") as readme_file:
     readme = readme_file.read()
 
+with open("VERSION") as version_file:
+    version = version_file.read()
+
 requirements = [
     "requests"
 ]
 
 setup(
     name="opalescence",
-    version="0.1.1",
+    version=version,
     description="Torrent client offering basic functionality.",
     long_description=readme,
     author="brian houston morrow",
