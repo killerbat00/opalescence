@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from . import btlib
+from .btlib import *
 
 __author__ = """Brian Houston Morrow"""
 ___email___ = "bhm@brianmorrow.net"
