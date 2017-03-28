@@ -54,6 +54,11 @@ class EncodeError(Exception):
     pass
 
 
+def _reset_recursion_counters():
+    global CURRENT_ITER
+    CURRENT_ITER = 0
+
+
 def bdecode(bencoded_data: bytes) -> Union[OrderedDict, None]:
     """
     Decodes a bencoded bytestring, returning an OrderedDict.
@@ -76,14 +81,18 @@ def bdecode(bencoded_data: bytes) -> Union[OrderedDict, None]:
         return _decode(bencoded_bytes)
 
 
-def bencode(decoded_data: OrderedDict) -> str:
+def bencode(decoded_data: OrderedDict) -> Union[str, None]:
     """
     Bencodes an OrderedDict and returns the bencoded string.
     :param decoded_data: python object to bencode
-    :return:             bencoded string
+    :return:             bencoded string or None if empty data received
     :raises:             EncodeError
     """
     logger.debug(f"bencoding OrderedDict {decoded_data}")
+
+    if len(decoded_data) == 0:
+        return None
+
     return _encode(decoded_data)
 
 
@@ -100,6 +109,7 @@ def _decode(data_buffer: BytesIO) -> Union[OrderedDict, list, str, int]:
 
     if CURRENT_ITER > RECURSION_LIMIT:
         logger.error(f"Recursion limit of {RECURSION_LIMIT} reached.")
+        _reset_recursion_counters()
         raise BencodeRecursionError
     else:
         CURRENT_ITER += 1
@@ -109,6 +119,7 @@ def _decode(data_buffer: BytesIO) -> Union[OrderedDict, list, str, int]:
     if not char:
         return
     if char == DICT_END:
+        # mismatched end delimiters are ignored -> d3:num3:valee = {"num", "val"}
         return
     elif char == NUM_START:
         return _decode_int(data_buffer)
@@ -123,7 +134,11 @@ def _decode(data_buffer: BytesIO) -> Union[OrderedDict, list, str, int]:
                 break
             val = _decode(data_buffer)
             keys.append(key)
-            decoded_dict.setdefault(key, val)
+            try:
+                decoded_dict.setdefault(key, val)
+            except TypeError:
+                logger.error("Tried to set an ordered dictionary as a key. Dictionaries cannot be keys")
+                raise DecodeError
         if keys != sorted(keys):
             logger.error("Unable to decode bencoded dictionary. Keys are not sorted.")
             raise DecodeError
@@ -160,13 +175,19 @@ def _decode_int(data_buffer: BytesIO) -> int:
 def _decode_str(data_buffer: BytesIO) -> str:
     """
     decodes a bencoded string from a BytesIO buffer.
+    empty strings are allowed if there is the proper number of empty characters to read.
     :param data_buffer: BytesIO object being parsed
     :return:            decoded string
     :raises:            DecodeError
     """
     data_buffer.seek(-1, 1)
     string_len = _parse_num(data_buffer, delimiter=DIVIDER)
-    string_val = data_buffer.read(string_len).decode('ISO-8859-1')
+
+    try:
+        string_val = data_buffer.read(string_len).decode('ISO-8859-1')
+    except:
+        logger.error(f"Unable to read specified string length {string_len}")
+        raise DecodeError
 
     if len(string_val) != string_len:
         logger.error(f"Unable to read specified string length {string_len}")
@@ -194,10 +215,15 @@ def _parse_num(data_buffer: BytesIO, delimiter: bytes) -> int:
             else:
                 break
         parsed_num += char
-    num_str = parsed_num.decode("ISO-8859-1")
-    if len(num_str) > 1 and (num_str[:2] == '-0' or num_str[0] == '0'):
+
+    num_str = parsed_num.decode("UTF-8")
+    if len(num_str) == 0:
+        logger.error("Empty strings are not allowed for integer keys")
+        raise DecodeError
+    elif num_str[:2] == '-0' or num_str[0] == '0':
         logger.error("Leading or negative zeros are not allowed for integer keys")
         raise DecodeError
+
     return int(num_str)
 
 
