@@ -12,7 +12,7 @@ import logging
 import os
 import time
 from collections import OrderedDict
-from typing import NamedTuple, List
+from typing import NamedTuple, List, Union
 
 from .bencode import Decoder, Encoder, DecodeError, EncodeError
 from .tracker import TrackerInfo
@@ -148,6 +148,8 @@ class Torrent:
             info = Encoder().bencode(self.meta_info[b"info"]).encode()
             self.info_hash = hashlib.sha1(info).digest()
 
+        self._gather_files()
+
     @classmethod
     def create_from_path(cls, *args):
         """
@@ -163,10 +165,14 @@ class Torrent:
         """
         Gathers the files located in the torrent
         """
-        pass
+        if b"files" in self.meta_info[b"info"]:
+            self.files += [FileItem(f[b"path"].decode("UTF-8"), f[b"length"]) for f in
+                           self.meta_info[b"info"][b"files"]]
+        else:
+            self.files += FileItem(self.meta_info[b"info"][b"name"].decode("UTF-8"), self.meta_info[b"info"][b"length"])
 
     @property
-    def announce_list(self, limit=1) -> List[str]:
+    def announce_urls(self) -> List[str]:
         """
         The announce URL of the tracker including the announce-list if it's a key in the metainof dictionary
         :return: a list of accounce URLs for the tracker
@@ -175,6 +181,53 @@ class Torrent:
         if b"announce-list" in self.meta_info:
             urls += self.meta_info.get[b"announce-list"][0]
         return urls
+
+    @property
+    def comment(self) -> Union[str, None]:
+        """
+        :return: the torrent's comment
+        """
+        if b"comment" in self.meta_info:
+            return self.meta_info[b"comment"]
+        return
+
+    @property
+    def created_by(self) -> Union[str, None]:
+        """
+        :return: the torrent's creation program
+        """
+        if b"created by" in self.meta_info:
+            return self.meta_info[b"created_by"]
+        return
+
+    @property
+    def private(self) -> bool:
+        """
+        :return: True if the torrent is private, False otherwise
+        """
+        return bool(self.meta_info[b"info"].get(b"private", False))
+
+    @property
+    def pieces(self) -> List[bytes]:
+        """
+        Splits up the bytestring representing the piece SHA1 hashes into 20 byte slice and return a list
+        :return: List of the piece bytes
+        """
+        return list(_pc(self.meta_info[b"info"][b"pieces"]))
+
+    @property
+    def piece_length(self) -> int:
+        """
+        :return: Length in bytes for each piece
+        """
+        return self.meta_info[b"info"][b"piece length"]
+
+    @property
+    def total_size(self) -> int:
+        """
+        :return: the total size of the file(s) in the torrent metainfo
+        """
+        return sum([f.size for f in self.files])
 
     def __str__(self):
         """
@@ -185,8 +238,7 @@ class Torrent:
         return "<Torrent object: {name} : {info_hash}>{".format(name=self.name, info_hash=self.info_hash)
 
 
-
-class Torrent(object):
+class OldTorrent:
     """
     Relevant metadata for a torrent
     """
