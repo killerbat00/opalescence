@@ -1,11 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+"""
+Tests functionality related to opalescence's representation of torrent metainfo files as well
+as .torrent file reading, writing and creation from a file or directory
+"""
 import os
-from unittest import TestCase
+from unittest import TestCase, skip
 
 from tests.context import btlib
 
 
+@skip("not ready")
 class TransmissionCommand:
     def __init__(self):
         self.prog_root = """C:\Program Files (x86)\Transmission"""
@@ -13,6 +19,29 @@ class TransmissionCommand:
         self.program = os.path.join(self.prog_root, self.prog_name)
 
 
+class FileItem(TestCase):
+    """
+    Tests the metainfo's file item representation.
+    """
+
+    def test_invalid_args(self):
+        invalid_path = ("Invalid path", ("", 1))
+        with self.subTest(invalid_path[0]):
+            with self.assertRaises(btlib.torrent.CreationError):
+                btlib.torrent.FileItem(*invalid_path[1])
+
+        invalid_length = ("Invalid length", ("path", -12))
+        with self.subTest(invalid_length[0]):
+            with self.assertRaises(btlib.torrent.CreationError):
+                btlib.torrent.FileItem(*invalid_length[1])
+
+        invalid_length = ("Invalid length", ("path", 0))
+        with self.subTest(invalid_length[0]):
+            with self.assertRaises(btlib.torrent.CreationError):
+                btlib.torrent.FileItem(*invalid_length[1])
+
+
+@skip("not ready")
 class BasicCreation(TestCase):
     def setUp(self):
         pass
