@@ -10,7 +10,7 @@ import subprocess
 from filecmp import cmp
 from shutil import rmtree, copyfile
 from time import time
-from unittest import TestCase, skip
+from unittest import TestCase
 
 from tests.context import btlib
 
@@ -53,6 +53,8 @@ class TorrentTest(TestCase):
     my_external_torrent_filename = os.path.join(test_torrent_data_dir, "my_test_torrent.torrent")
     tracker = "http://www.brianmorrow.net/faketracker"
     comment = "This is some dang comment!"
+    filenames = []
+    created_by = "Transmission/2.84+ (14608)"
 
     @classmethod
     def setUpClass(cls):
@@ -68,7 +70,9 @@ class TorrentTest(TestCase):
 
         os.mkdir(cls.test_torrent_data_dir)
         for x in range(5):  # number of files
-            with open(os.path.join(cls.test_torrent_data_dir, f"Test file {x}" + str(int(time()))), "w+") as f:
+            filename = os.path.join(cls.test_torrent_data_dir, f"Test file {x}" + str(int(time())))
+            cls.filenames.append(os.path.basename(filename))
+            with open(filename, "w+") as f:
                 for y in range(16):
                     f.write("This is random data?\nYEAH RIGHT\n" * 2 ** y)
 
@@ -100,8 +104,8 @@ class TorrentTest(TestCase):
 
         creates a copy of the externally created .torrent and randomly removes some data from it
         """
-        copy_file_name = os.path.join(TorrentTest.test_torrent_data_dir, "test_torrent_copy.torrent")
-        copyfile(TorrentTest.external_torrent_filename, copy_file_name)
+        copy_file_name = os.path.join(self.test_torrent_data_dir, "test_torrent_copy.torrent")
+        copyfile(self.external_torrent_filename, copy_file_name)
         file_size = os.path.getsize(copy_file_name)
 
         with open(copy_file_name, 'wb') as f:
@@ -113,44 +117,45 @@ class TorrentTest(TestCase):
 
         os.remove(copy_file_name)
 
-    @skip("Not ready")
     def test__gather_files(self):
         """
         Test that we gathered files appropriately
         """
-        self.fail()
+        external_torrent = btlib.torrent.Torrent.from_file(self.external_torrent_filename)
+        for f in external_torrent.files:
+            self.assertIn(f.path, self.filenames)
+            self.assertEquals(f.size, os.path.getsize(os.path.join(self.test_torrent_data_dir, f.path)))
 
-    @skip("Not ready")
     def test__pieces(self):
         """
         Test that we are piecing things out appropriately
         """
         self.fail()
 
-    @skip("Not ready")
-    def test_files(self):
-        """
-        Test the list of files used for the torrent's data
-        """
-        self.fail()
-
-    @skip("Not ready")
     def test_properties(self):
         """
         Tests the properties of the torrent metainfo file
         """
-        # single announce url
+        t = btlib.torrent.Torrent.from_file(self.external_torrent_filename)
+        self.assertEqual(t.announce_urls, [self.tracker])
         # multiple announce urls
-        # comment
+        self.assertEqual(t.comment, self.comment)
         # no comment
         # created_by
+        self.assertEqual(t.created_by, self.created_by)
         # no created_by
         # private
         # public
         # pieces
         # piece_length
         # total_size
-        self.fail()
+
+        # the size from os.path.getsize is always bigger for some reason
+        # TODO: figure out why
+        dir_size = sum(os.path.getsize(
+            os.path.join(self.test_torrent_data_dir, f)) for f in os.listdir(self.test_torrent_data_dir) if
+                       os.path.isfile(os.path.join(self.test_torrent_data_dir, f)))
+        self.assertAlmostEqual(t.total_size, dir_size, delta=20000)
 
     def test_decode_recode_compare(self):
         """
@@ -159,35 +164,35 @@ class TorrentTest(TestCase):
 
         TODO: move this test to a more proper location
         """
-        with open(TorrentTest.external_torrent_filename, 'rb') as f:
+        with open(self.external_torrent_filename, 'rb') as f:
             data = f.read()
             unencoded_data = btlib.bencode.Decoder().decode(data)
 
-            with open(TorrentTest.my_external_torrent_filename, 'wb+') as ff:
+            with open(self.my_external_torrent_filename, 'wb+') as ff:
                 encoded_data = btlib.bencode.Encoder().bencode(unencoded_data)
                 ff.write(encoded_data)
 
-        self.assertTrue(cmp(TorrentTest.external_torrent_filename, TorrentTest.my_external_torrent_filename))
-        os.remove(TorrentTest.my_external_torrent_filename)
+        self.assertTrue(cmp(self.external_torrent_filename, self.my_external_torrent_filename))
+        os.remove(self.my_external_torrent_filename)
 
     def test_open_file_rewrite(self):
         """
         Tests that we can open an externally created .torrent file, decode it, create a torrent instance,
         then rewrite it into another file. The resulting two files should be equal.
         """
-        transmission_torrent = btlib.torrent.Torrent.from_file(TorrentTest.external_torrent_filename)
-        temp_output_filename = os.path.join(TorrentTest.test_torrent_data_dir, "test_torrent_rewritten.torrent")
+        transmission_torrent = btlib.torrent.Torrent.from_file(self.external_torrent_filename)
+        temp_output_filename = os.path.join(self.test_torrent_data_dir, "test_torrent_rewritten.torrent")
         transmission_torrent.to_file(temp_output_filename)
-        self.assertTrue(cmp(TorrentTest.external_torrent_filename, temp_output_filename))
+        self.assertTrue(cmp(self.external_torrent_filename, temp_output_filename))
 
     def test_decode_recode_decode_compare(self):
         """
         Decodes a torrent file created using an external program, reencodes that file to a .torrent,
         decodes the resulting torrent and compares its dictionary with the original decoded dictionary
         """
-        transmission_torrent = btlib.torrent.Torrent.from_file(TorrentTest.external_torrent_filename)
+        transmission_torrent = btlib.torrent.Torrent.from_file(self.external_torrent_filename)
         original_data = transmission_torrent.meta_info
-        temp_output_filename = os.path.join(TorrentTest.test_torrent_data_dir, "test_torrent_rewritten.torrent")
+        temp_output_filename = os.path.join(self.test_torrent_data_dir, "test_torrent_rewritten.torrent")
         transmission_torrent.to_file(temp_output_filename)
         new_data = btlib.torrent.Torrent.from_file(temp_output_filename).meta_info
         self.assertEqual(original_data, new_data)

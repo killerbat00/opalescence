@@ -214,9 +214,9 @@ class Torrent:
         The announce URL of the tracker including the announce-list if it's a key in the metainof dictionary
         :return: a list of accounce URLs for the tracker
         """
-        urls = [self.meta_info.get(b"announce")]
+        urls = [self.meta_info.get(b"announce").decode("UTF-8")]
         if b"announce-list" in self.meta_info:
-            urls += self.meta_info.get[b"announce-list"][0]
+            urls += self.meta_info.get[b"announce-list"][0].decode("UTF-8")
         return urls
 
     @property
@@ -225,7 +225,7 @@ class Torrent:
         :return: the torrent's comment
         """
         if b"comment" in self.meta_info:
-            return self.meta_info[b"comment"]
+            return self.meta_info[b"comment"].decode("UTF-8")
         return
 
     @property
@@ -234,7 +234,7 @@ class Torrent:
         :return: the torrent's creation program
         """
         if b"created by" in self.meta_info:
-            return self.meta_info[b"created_by"]
+            return self.meta_info[b"created by"].decode("UTF-8")
         return
 
     @property

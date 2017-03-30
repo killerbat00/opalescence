@@ -21,8 +21,8 @@ class Decoder(TestCase):
         """
         decoder = btlib.bencode.Decoder()
         self.assertIsInstance(decoder, btlib.bencode.Decoder)
-        self.assertEquals(decoder.recursion_limit, 1000)
-        self.assertEquals(decoder.current_iter, 0)
+        self.assertEqual(decoder.recursion_limit, 1000)
+        self.assertEqual(decoder.current_iter, 0)
 
     def test_recursion_limit_creation(self):
         """
@@ -37,7 +37,7 @@ class Decoder(TestCase):
 
         for limit in good_limits:
             decoder = btlib.bencode.Decoder(recursion_limit=limit)
-            self.assertEquals(decoder.recursion_limit, limit)
+            self.assertEqual(decoder.recursion_limit, limit)
 
     def test_empty_values(self):
         """
@@ -46,7 +46,7 @@ class Decoder(TestCase):
         decoder = btlib.bencode.Decoder()
         empty_bytes = ("empty bytes", bytes(), None)
         with self.subTest(msg=f"bdecode {empty_bytes[0]}"):
-            self.assertEquals(decoder.decode(empty_bytes[1]), empty_bytes[2])
+            self.assertEqual(decoder.decode(empty_bytes[1]), empty_bytes[2])
 
         with self.subTest(msg=f"_decode {empty_bytes[0]}"):
             with self.assertRaises(AttributeError):
@@ -59,7 +59,7 @@ class Decoder(TestCase):
 
         for case in non_errors:
             with self.subTest(msg=f"_decode {case[0]}"):
-                self.assertEquals(decoder._decode(case[1]), case[2])
+                self.assertEqual(decoder._decode(case[1]), case[2])
 
         empty_int = ("empty int", BytesIO(b"ie"), btlib.bencode.DecodeError)
         invalid_str = ("empty string", BytesIO(b"3:"), btlib.bencode.DecodeError)
@@ -102,7 +102,7 @@ class Decoder(TestCase):
         for k, v in locals().items():
             if k not in ["self", "decoder"]:
                 with self.subTest(msg=f"_decode {v[0]}"):
-                    self.assertEquals(decoder._decode(v[1]), v[2])
+                    self.assertEqual(decoder._decode(v[1]), v[2])
 
     def test__decode_recursion_limit(self):
         """
@@ -131,7 +131,7 @@ class Decoder(TestCase):
         for k, v in locals().items():
             if k not in ["self", "decoder"]:
                 with self.subTest(msg=f"_decode {v[0]}"):
-                    self.assertEquals(decoder._decode(v[1]), v[2])
+                    self.assertEqual(decoder._decode(v[1]), v[2])
 
     def test__decode_nested_list(self):
         """
@@ -150,7 +150,7 @@ class Decoder(TestCase):
         for k, v in locals().items():
             if k not in ["self", "decoder"]:
                 with self.subTest(msg=f"_decode {v[0]}"):
-                    self.assertEquals(decoder._decode(v[1]), v[2])
+                    self.assertEqual(decoder._decode(v[1]), v[2])
 
     def test__decode_consecutive_dicts(self):
         """
@@ -167,7 +167,7 @@ class Decoder(TestCase):
         for k, v in locals().items():
             if k not in ["self", "decoder"]:
                 with self.subTest(msg=f"_decode {v[0]}"):
-                    self.assertEquals(decoder._decode(v[1]), v[2])
+                    self.assertEqual(decoder._decode(v[1]), v[2])
 
     def test__decode_nested_dict(self):
         """
@@ -178,7 +178,7 @@ class Decoder(TestCase):
         """
         empty = BytesIO(b"dddeee")
         res = btlib.bencode.Decoder()._decode(empty)
-        self.assertEquals(res, OrderedDict())
+        self.assertEqual(res, OrderedDict())
 
     def test__decode_invalid_char(self):
         """
@@ -225,7 +225,7 @@ class Decoder(TestCase):
 
         for k, v in good_data.items():
             with self.subTest(k=k):
-                self.assertEquals(decoder._decode_int(BytesIO(v)), k)
+                self.assertEqual(decoder._decode_int(BytesIO(v)), k)
 
     def test__decode_str(self):
         """
@@ -248,7 +248,7 @@ class Decoder(TestCase):
 
         for b in good_data:
             with self.subTest(b=b):
-                self.assertEquals(decoder._decode_str(BytesIO(b)), b[3:])
+                self.assertEqual(decoder._decode_str(BytesIO(b)), b[3:])
 
     def test__parse_num(self):
         """
@@ -257,7 +257,7 @@ class Decoder(TestCase):
         decoder = btlib.bencode.Decoder()
         custom_delim = ("Custom delimiter", BytesIO(b"12%"), 12)
         with self.subTest(msg=f"_parse_num {custom_delim[0]}"):
-            self.assertEquals(decoder._parse_num(custom_delim[1], delimiter=b"%"), 12)
+            self.assertEqual(decoder._parse_num(custom_delim[1], delimiter=b"%"), 12)
 
         empty_val = ("Empty val", BytesIO())
         with self.subTest(msg=f"_parse_num {empty_val[0]}"):
@@ -291,7 +291,7 @@ class Encoder(TestCase):
         Returning none mirrors the behavior of passing empty binary data to the decoder
         """
         with self.subTest(msg="Empty dict"):
-            self.assertEquals(btlib.bencode.Encoder().bencode(OrderedDict()), None)
+            self.assertEqual(btlib.bencode.Encoder().bencode(OrderedDict()), None)
 
     def test_wrong_types(self):
         """
@@ -318,7 +318,7 @@ class Encoder(TestCase):
         for k, v in locals().items():
             if k != "self":
                 with self.subTest(msg=v[0]):
-                    self.assertEquals(btlib.bencode.Encoder()._encode(v[1]), v[2])
+                    self.assertEqual(btlib.bencode.Encoder()._encode(v[1]), v[2])
 
     def test__encode(self):
         """
@@ -338,11 +338,11 @@ class Encoder(TestCase):
         a[b"val"] = OrderedDict({b"hmm": [1, 2, 3, b"key"]})
         valid_dict = ("Valid dict", a, b"d3:vald3:hmmli1ei2ei3e3:keyeee")
         with self.subTest(msg=valid_dict[0]):
-            self.assertEquals(btlib.bencode.Encoder()._encode(valid_dict[1]), valid_dict[2])
+            self.assertEqual(btlib.bencode.Encoder()._encode(valid_dict[1]), valid_dict[2])
 
         valid_bytes = ("Valid bytes", b"these are valid bytes", b"21:these are valid bytes")
         with self.subTest(msg=valid_bytes[0]):
-            self.assertEquals(btlib.bencode.Encoder()._encode(valid_bytes[1]), valid_bytes[2])
+            self.assertEqual(btlib.bencode.Encoder()._encode(valid_bytes[1]), valid_bytes[2])
 
     def test__encode_int(self):
         """
@@ -352,7 +352,7 @@ class Encoder(TestCase):
         encoder = btlib.bencode.Encoder()
         for t in valid_int:
             with self.subTest(smg=f"Valid int {t[0]}"):
-                self.assertEquals(encoder._encode_int(t[0]), t[1])
+                self.assertEqual(encoder._encode_int(t[0]), t[1])
 
     def test__encode_bytestr(self):
         """
@@ -363,4 +363,4 @@ class Encoder(TestCase):
 
         for t in valid_strings:
             with self.subTest(msg=f"Valid string {t[0]}"):
-                self.assertEquals(encoder._encode_bytestr(t[0]), t[1])
+                self.assertEqual(encoder._encode_bytestr(t[0]), t[1])
