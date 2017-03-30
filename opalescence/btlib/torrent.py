@@ -123,32 +123,63 @@ class Torrent:
     """
     Wrapper around the torrent's metainfo. Doesn't include any download state.
     Torrents are created from files.
+
+    Unsupported metainfo keys:
+        encoding
     """
 
-    def __init__(self, filename: str):
+    def __init__(self):
         """
         Creates the lightweight representation of the torrent's metainfo and validates it
-
-        :param filename: .torrent metainfo filepath
-        :raises CreationError:
         """
-        self.filename = filename
+        self.filename = None
         self.files = []
         self.meta_info = None
         self.info_hash = None
 
-        if not os.path.exists(self.filename):
-            logger.error(f"Path does not exist {self.filename}")
+    @classmethod
+    def from_file(cls, filename: str) -> "Torrent":
+        """
+        Class method to create a torrent object from a .torrent metainfo file
+
+        :param filename: path to .torrent file
+        :return: Torrent instance
+        """
+        torrent = cls()
+        torrent.filename = filename
+
+        if not os.path.exists(torrent.filename):
+            logger.error(f"Path does not exist {filename}")
             raise CreationError
 
-        with open(self.filename, 'rb') as f:
+        with open(torrent.filename, 'rb') as f:
             data = f.read()
-            self.meta_info = Decoder().decode(data)
-            _validate_torrent_dict(self.meta_info)
-            info = Encoder().bencode(self.meta_info[b"info"]).encode()
-            self.info_hash = hashlib.sha1(info).digest()
+            torrent.meta_info = Decoder().decode(data)
+            _validate_torrent_dict(torrent.meta_info)
+            info = Encoder().bencode(torrent.meta_info[b"info"])
+            torrent.info_hash = hashlib.sha1(info).digest()
 
-        self._gather_files()
+        torrent._gather_files()
+        logger.debug(f"Created a torrent from {filename}")
+        return torrent
+
+    def to_file(self, output_filename: str):
+        """
+        Writes the torrent metainfo dictionay back to a .torrent file
+
+        :param output_filename: The output filename of the torrent
+        """
+        if len(output_filename) == 0:
+            logger.error(f"Torrent must have an output file name")
+            raise CreationError
+
+        with open(output_filename, 'wb+') as f:
+            try:
+                data = Encoder().bencode(self.meta_info)
+                f.write(data)
+            except EncodeError:
+                logger.error(f"Error encoding torrent metainfo dictionary for {self}")
+                raise CreationError
 
     @classmethod
     def create_from_path(cls, *args):
@@ -159,15 +190,21 @@ class Torrent:
         :param args:
         :return: Torrent instance
         """
-        pass
+        raise NotImplementedError
 
     def _gather_files(self):
         """
         Gathers the files located in the torrent
         """
         if b"files" in self.meta_info[b"info"]:
-            self.files += [FileItem(f[b"path"].decode("UTF-8"), f[b"length"]) for f in
-                           self.meta_info[b"info"][b"files"]]
+            for f in self.meta_info[b"info"][b"files"]:
+                path = None
+                if isinstance(f[b"path"], list):
+                    path = f[b"path"][0].decode("UTF-8")
+                elif isinstance(f[b"path"], bytes):
+                    path = f[b"path"].decode("UTF-8")
+                self.files += [FileItem(path, f[b"length"])]
+
         else:
             self.files += FileItem(self.meta_info[b"info"][b"name"].decode("UTF-8"), self.meta_info[b"info"][b"length"])
 
@@ -210,7 +247,9 @@ class Torrent:
     @property
     def pieces(self) -> List[bytes]:
         """
-        Splits up the bytestring representing the piece SHA1 hashes into 20 byte slice and return a list
+        Splits up the bytestring representing the piece SHA1 hashes into
+        20 byte slice and returns a list of these pieces
+
         :return: List of the piece bytes
         """
         return list(_pc(self.meta_info[b"info"][b"pieces"]))
@@ -300,7 +339,7 @@ class OldTorrent:
         :raises: CreationError
         """
         if not self.base_location:
-            logger.error("Unable to create torrent. No base path specified. This is a programmer error.")
+            logger.error("Unable to create_torrent torrent. No base path specified. This is a programmer error.")
             raise CreationError
 
         base_path = self.base_location
@@ -432,7 +471,8 @@ class OldTorrent:
                 torrent_obj = bdecode(f.read())
 
             if torrent_obj is None:
-                logger.error("Unable to create Torrent instance from empty file {file}.".format(file=torrent_file))
+                logger.error(
+                    "Unable to create_torrent Torrent instance from empty file {file}.".format(file=torrent_file))
                 raise CreationError
 
             logger.debug("Creating Torrent instance from file {file}".format(file=torrent_file))
@@ -441,7 +481,7 @@ class OldTorrent:
                 "Created Torrent instance from {file} {torrent}".format(file=torrent_file, torrent=torrent.info_hash))
             return torrent
         except IOError as ioerr:
-            logger.error("Unable to create Torrent instance. {file} does not exist.".format(file=torrent_file))
+            logger.error("Unable to create_torrent Torrent instance. {file} does not exist.".format(file=torrent_file))
             raise CreationError from ioerr
         except (DecodeError, EncodeError) as e:
             logger.error("Unable to bdecode or bencode during creation {file}".format(file=torrent_file))
@@ -453,7 +493,7 @@ class OldTorrent:
         """
         Creates a Torrent from a given path, gathering piece hashes from given files.
         Supports creating torrents from single files and multiple files.
-        :param path:       path from which to create the Torrent
+        :param path:       path from which to create_torrent the Torrent
         :param trackers:   tracker url
         :param comment:    optional,torrent's comment,defaults to ""
         :param piece_size: optional,piece size,defaults to default 16384

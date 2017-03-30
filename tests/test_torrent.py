@@ -6,100 +6,188 @@ Tests functionality related to opalescence's representation of torrent metainfo 
 as .torrent file reading, writing and creation from a file or directory
 """
 import os
+import subprocess
+from filecmp import cmp
+from shutil import rmtree, copyfile
+from time import time
 from unittest import TestCase, skip
 
 from tests.context import btlib
 
 
-@skip("not ready")
-class TransmissionCommand:
+class Transmission:
+    """
+    Represents the transmission command used to create_torrent a .torrent file from 'randomly' generated data.
+    """
+
     def __init__(self):
         self.prog_root = """C:\Program Files (x86)\Transmission"""
         self.prog_name = "transmission-create.exe"
         self.program = os.path.join(self.prog_root, self.prog_name)
 
-
-class FileItem(TestCase):
-    """
-    Tests the metainfo's file item representation.
-    """
-
-    def test_invalid_args(self):
-        invalid_path = ("Invalid path", ("", 1))
-        with self.subTest(invalid_path[0]):
-            with self.assertRaises(btlib.torrent.CreationError):
-                btlib.torrent.FileItem(*invalid_path[1])
-
-        invalid_length = ("Invalid length", ("path", -12))
-        with self.subTest(invalid_length[0]):
-            with self.assertRaises(btlib.torrent.CreationError):
-                btlib.torrent.FileItem(*invalid_length[1])
-
-        invalid_length = ("Invalid length", ("path", 0))
-        with self.subTest(invalid_length[0]):
-            with self.assertRaises(btlib.torrent.CreationError):
-                btlib.torrent.FileItem(*invalid_length[1])
-
-
-@skip("not ready")
-class BasicCreation(TestCase):
-    def setUp(self):
-        pass
-
-    def test_obj_creation_from_external_file(self):
+    def create_torrent(self, from_dir: str, dest_filename: str, comment: str, tracker: str):
         """
-        Test that we can create a torrent metainfo object from a .torrent file created with an external program.
-        Currently, this uses a torrent file created by Transmission
+        Asks Transmission to create_torrent a .torrent file
+
+        :param from_dir:      directory from which to create_torrent the .torrent
+        :param dest_filename: destination filename of the torrent
+        :param comment:       torrent comment
+        :param tracker:       tracker URL
+        :return:              True on succes, False otherwise
         """
-        # check for transmission torrent file
-        # if missing
-        #   check for test data directory
-        #       create if missing
-        #   use transmission to generate torrent file
-        # generate btlib.torrent.Torrent object from transmission file
-        # ensure btlib.torent.CreationError isn't thrown
+        cmd = [self.program, "-o", dest_filename, "-c", comment, "-t", tracker, from_dir]
+        try:
+            subprocess.run(cmd)
+        except subprocess.SubprocessError:
+            # log, etc
+            return False
+        return True
+
+
+class TorrentTest(TestCase):
+    """
+    Tests the Torrent representation
+    """
+    test_torrent_data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "test_torrent_data"))
+    external_torrent_filename = os.path.join(test_torrent_data_dir, "test_torrent.torrent")
+    my_external_torrent_filename = os.path.join(test_torrent_data_dir, "my_test_torrent.torrent")
+    tracker = "http://www.brianmorrow.net/faketracker"
+    comment = "This is some dang comment!"
+
+    @classmethod
+    def setUpClass(cls):
+        """
+        Sets up the test cases. This creates a temporary directory of files containing random data.
+        This directory is used to create_torrent a torrent in an external program. We use this .torrent throughout
+        the tests
+
+        TODO: generate the data more randomly
+        """
+        if os.path.exists(cls.test_torrent_data_dir):
+            rmtree(cls.test_torrent_data_dir)
+
+        os.mkdir(cls.test_torrent_data_dir)
+        for x in range(5):  # number of files
+            with open(os.path.join(cls.test_torrent_data_dir, f"Test file {x}" + str(int(time()))), "w+") as f:
+                for y in range(16):
+                    f.write("This is random data?\nYEAH RIGHT\n" * 2 ** y)
+
+        transmission_cmd = Transmission()
+        if not transmission_cmd.create_torrent(cls.test_torrent_data_dir, cls.external_torrent_filename,
+                                               cls.comment, cls.tracker):
+            raise RuntimeError("Unable to create_torrent torrent file from transmission.")
+
+    @classmethod
+    def tearDownClass(cls):
+        """
+        Removes the test data directory created for testing
+        """
+        if os.path.exists(cls.test_torrent_data_dir):
+            rmtree(cls.test_torrent_data_dir)
+
+    def test_invalid_path(self):
+        """
+        Test that an invalid path throws a CreationError
+        """
+        invalid_path = "Doesn't exist"
+        with self.subTest(msg="Invalid path"):
+            with self.assertRaises(btlib.torrent.CreationError):
+                btlib.torrent.Torrent.from_file(invalid_path)
+
+    def test_invalid_torrent_metainfo(self):
+        """
+        Test that invalid torrent metainfo throws an error
+
+        creates a copy of the externally created .torrent and randomly removes some data from it
+        """
+        copy_file_name = os.path.join(TorrentTest.test_torrent_data_dir, "test_torrent_copy.torrent")
+        copyfile(TorrentTest.external_torrent_filename, copy_file_name)
+        file_size = os.path.getsize(copy_file_name)
+
+        with open(copy_file_name, 'wb') as f:
+            f.truncate(file_size // 2)
+
+        # the metainfo dictionary is entirely corrupted now, so we should expect a DecodeError
+        with self.assertRaises(btlib.bencode.DecodeError):
+            btlib.torrent.Torrent.from_file(copy_file_name)
+
+        os.remove(copy_file_name)
+
+    @skip("Not ready")
+    def test__gather_files(self):
+        """
+        Test that we gathered files appropriately
+        """
         self.fail()
 
-    def test_obj_creation_from_dir(self):
+    @skip("Not ready")
+    def test__pieces(self):
         """
-        Test that we can create a torrent metainfo object from a directory of test data.
-        This directory of test data should be the same used when creating a .torrent file with an external program.
+        Test that we are piecing things out appropriately
         """
-        # check for my test torrent file
-        # create from directory if missing
-        # check for transmission torrent file
-        # if missing
-        #   generate
-        # generate btlib.torrent.Torrent object from transmission file
-        #
-        # compare my torrent file object to transmission file's
         self.fail()
+
+    @skip("Not ready")
+    def test_files(self):
+        """
+        Test the list of files used for the torrent's data
+        """
+        self.fail()
+
+    @skip("Not ready")
+    def test_properties(self):
+        """
+        Tests the properties of the torrent metainfo file
+        """
+        # single announce url
+        # multiple announce urls
+        # comment
+        # no comment
+        # created_by
+        # no created_by
+        # private
+        # public
+        # pieces
+        # piece_length
+        # total_size
+        self.fail()
+
+    def test_decode_recode_compare(self):
+        """
+        This should probably live in test_bencode.py, but resides here now since this class creates a .torrent
+        metainfo file with an external program
+
+        TODO: move this test to a more proper location
+        """
+        with open(TorrentTest.external_torrent_filename, 'rb') as f:
+            data = f.read()
+            unencoded_data = btlib.bencode.Decoder().decode(data)
+
+            with open(TorrentTest.my_external_torrent_filename, 'wb+') as ff:
+                encoded_data = btlib.bencode.Encoder().bencode(unencoded_data)
+                ff.write(encoded_data)
+
+        self.assertTrue(cmp(TorrentTest.external_torrent_filename, TorrentTest.my_external_torrent_filename))
+        os.remove(TorrentTest.my_external_torrent_filename)
+
+    def test_open_file_rewrite(self):
+        """
+        Tests that we can open an externally created .torrent file, decode it, create a torrent instance,
+        then rewrite it into another file. The resulting two files should be equal.
+        """
+        transmission_torrent = btlib.torrent.Torrent.from_file(TorrentTest.external_torrent_filename)
+        temp_output_filename = os.path.join(TorrentTest.test_torrent_data_dir, "test_torrent_rewritten.torrent")
+        transmission_torrent.to_file(temp_output_filename)
+        self.assertTrue(cmp(TorrentTest.external_torrent_filename, temp_output_filename))
 
     def test_decode_recode_decode_compare(self):
         """
-        Decodes a torrent file created using qbittorrent, reencodes that file to a .torrent,
-        decodes the resulting torrent and compares its dictionary with the original decoded
-        from qbittorrent data
+        Decodes a torrent file created using an external program, reencodes that file to a .torrent,
+        decodes the resulting torrent and compares its dictionary with the original decoded dictionary
         """
-        qbt_input = ""
-        qbt_output = ""
-
-        qbittorrent_file = btlib.torrent.Torrent.from_file(qbt_input)
-        qbittorrent_file.to_file(qbt_output)
-        my_file = btlib.torrent.Torrent.from_file(qbt_output)
-        q_obj = qbittorrent_file._to_obj()
-        my_obj = my_file._to_obj()
-        self.assertEquals(q_obj, my_obj)
-
-    def test_path_to_torrent(self):
-        """
-        Creates a torrent from a path of files.
-        Also creates a torrent object from a qbittorrent metainfo file created for the same files.
-        Expects the metainfo of the two to be the same.
-        """
-        path = ""
-        qbt_file = ""
-        trackers = []
-        my_from_dir = btlib.torrent.Torrent.from_path(path, trackers, comment="this is a comment")
-        qbt_from_dir = btlib.torrent.Torrent.from_file(qbt_file)
-        self.assertEquals(my_from_dir.info_hash, qbt_from_dir.info_hash)
+        transmission_torrent = btlib.torrent.Torrent.from_file(TorrentTest.external_torrent_filename)
+        original_data = transmission_torrent.meta_info
+        temp_output_filename = os.path.join(TorrentTest.test_torrent_data_dir, "test_torrent_rewritten.torrent")
+        transmission_torrent.to_file(temp_output_filename)
+        new_data = btlib.torrent.Torrent.from_file(temp_output_filename).meta_info
+        self.assertEqual(original_data, new_data)
