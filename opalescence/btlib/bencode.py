@@ -20,11 +20,12 @@ from io import BytesIO
 from typing import Union
 
 logger = logging.getLogger('opalescence.' + __name__)
+logger.setLevel(logging.DEBUG)
 
 
 class BencodeRecursionError(Exception):
     """
-    Raised when the RECURSION_LIMIT is reached
+    Raised when the recursion limit is reached.
     """
     pass
 
@@ -55,7 +56,7 @@ class _Delims:
     NUM_END = DICT_END
     DIVIDER = b':'
     DIGITS = [b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9']
-    VALID_CHARS = [DICT_START, DICT_END, LIST_START, NUM_START, DIVIDER] + DIGITS
+    EOF = b"!"
 
 
 class Decoder:
@@ -75,35 +76,42 @@ class Decoder:
             logger.error(error_msg)
             raise DecodeError(error_msg)
 
-        self.recursion_limit = recursion_limit
-        self.current_iter = 0
-        self.raw_data = data
-        self.data: BytesIO = None
-
-    def decode(self) -> OrderedDict:
-        """
-        Decodes a bencoded bytestring, returning an OrderedDict of the data.
-
-        :return:     decoded torrent info as an OrderedDict
-                     the dict will be empty if empty or no bytes received
-        :raises:     DecodeError
-        """
-        logger.debug(f"Decoding bytestream {self.raw_data}")
-
-        if not self.raw_data:
-            return OrderedDict()
-
-        if len(self.raw_data) == 0:
-            return OrderedDict()
-
-        try:
-            self.data = BytesIO(self.raw_data)
-        except TypeError as te:
-            error_msg = f"Cannot decode data. Invalid type of {type(self.raw_data)}."
+        if not data:
+            error_msg = "No data received."
             logger.error(error_msg)
+            raise DecodeError(error_msg)
+
+        self._recursion_limit = recursion_limit
+        self._current_iter = 0
+        self._set_data(data)
+
+    def _set_data(self, data: bytes) -> None:
+        """
+        Sets the data used by the decoder.
+        Warning: _set_data does not check if the data passed in as an argument exists.
+        calling decode() after setting no data will return None
+
+        :param data: bytes of data to decode
+        """
+        try:
+            self.data = BytesIO(data)
+            self._current_iter = 0
+        except TypeError as te:
+            error_msg = f"Cannot decode data. Invalid type of {type(data)}."
+            logger.exception(error_msg)
             raise DecodeError(error_msg) from te
 
-        return self._decode()
+    def decode(self) -> Union[OrderedDict, list, bytes, int, None]:
+        """
+        Decodes a bencoded bytestring, returning the data as python objects
+
+        :return:     decoded torrent info, or None if empty data received
+        """
+        logger.debug("Decoding bytestream.")
+        decoded = self._decode()
+        if decoded == _Delims.EOF:
+            return
+        return decoded
 
     def _decode(self) -> Union[OrderedDict, list, bytes, int]:
         """
@@ -112,21 +120,21 @@ class Decoder:
         :return:     torrent info decoded into a python object
         :raises:     DecodeError, BencodeRecursionError
         """
-        if self.current_iter > self.recursion_limit:
-            error_msg = f"Recursion limit of {self.recursion_limit} reached."
+        if self._current_iter > self._recursion_limit:
+            error_msg = f"Recursion limit reached."
             logger.error(error_msg)
             raise BencodeRecursionError(error_msg)
         else:
-            self.current_iter += 1
+            self._current_iter += 1
 
         char = self.data.read(1)
 
         if not char:
-            # ends the recursive madness
-            return
+            # ends the recursive madness. _Delims.EOF is used to signal we've decoded as far as we can go
+            return _Delims.EOF
         if char == _Delims.DICT_END:
             # extraneous end delimiters are ignored -> d3:num3:valee = {"num", "val"}
-            return
+            return _Delims.EOF
         elif char == _Delims.NUM_START:
             return self._decode_int()
         elif char in _Delims.DIGITS:
@@ -136,7 +144,7 @@ class Decoder:
         elif char == _Delims.LIST_START:
             return self._decode_list()
         else:
-            error_msg = f"Unable to bdecode stream. {char} is an invalid bencoded type of value."
+            error_msg = f"Unable to bdecode {char}. Invalid bencoding key."
             logger.error(error_msg)
             raise DecodeError(error_msg)
 
@@ -154,7 +162,7 @@ class Decoder:
 
         while True:
             key = self._decode()
-            if not key:
+            if key == _Delims.EOF:
                 break
             if not isinstance(key, bytes):
                 error_msg = f"Invalid dictionary key: {key}. Dictionary keys must be bytestrings."
@@ -182,7 +190,7 @@ class Decoder:
         decoded_list = []
         while True:
             item = self._decode()
-            if not item:
+            if item == _Delims.EOF:
                 break
             decoded_list.append(item)
         return decoded_list
@@ -193,7 +201,7 @@ class Decoder:
 
         :return:     decoded integer
         """
-        return self._parse_num(delimiter=_Delims.NUM_END)
+        return self._parse_num(_Delims.NUM_END)
 
     def _decode_str(self) -> bytes:
         """
@@ -205,7 +213,7 @@ class Decoder:
         """
         # we've already consumed the byte that will start the string length, go back and get it
         self.data.seek(-1, 1)
-        string_len = self._parse_num(delimiter=_Delims.DIVIDER)
+        string_len = self._parse_num(_Delims.DIVIDER)
         error_msg = f"Unable to read specified string length {string_len}."
 
         string_val = self.data.read(string_len)
