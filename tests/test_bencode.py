@@ -7,20 +7,20 @@ from collections import OrderedDict
 from io import BytesIO
 from unittest import TestCase
 
-from tests.context import btlib
+from tests.context import bencode
 
 
 class Decoder(TestCase):
     """
-    Test class for opalescence.btlib.Decoder
+    Test class for opalescence.Decoder
     """
 
     def test_creation(self):
         """
         Ensure __init__ works properly
         """
-        decoder = btlib.bencode.Decoder()
-        self.assertIsInstance(decoder, btlib.bencode.Decoder)
+        decoder = bencode.Decoder()
+        self.assertIsInstance(decoder, bencode.Decoder)
         self.assertEqual(decoder.recursion_limit, 1000)
         self.assertEqual(decoder.current_iter, 0)
 
@@ -32,18 +32,18 @@ class Decoder(TestCase):
         good_limits = [2, 5, 10, 999999999]
 
         for limit in bad_limits:
-            with self.assertRaises(btlib.bencode.DecodeError):
-                btlib.bencode.Decoder(recursion_limit=limit)
+            with self.assertRaises(bencode.DecodeError):
+                bencode.Decoder(recursion_limit=limit)
 
         for limit in good_limits:
-            decoder = btlib.bencode.Decoder(recursion_limit=limit)
+            decoder = bencode.Decoder(recursion_limit=limit)
             self.assertEqual(decoder.recursion_limit, limit)
 
     def test_empty_values(self):
         """
         Ensure bdecode and _decode handle empty values properly
         """
-        decoder = btlib.bencode.Decoder()
+        decoder = bencode.Decoder()
         empty_bytes = ("empty bytes", bytes(), None)
         with self.subTest(msg=f"bdecode {empty_bytes[0]}"):
             self.assertEqual(decoder.decode(empty_bytes[1]), empty_bytes[2])
@@ -61,9 +61,9 @@ class Decoder(TestCase):
             with self.subTest(msg=f"_decode {case[0]}"):
                 self.assertEqual(decoder._decode(case[1]), case[2])
 
-        empty_int = ("empty int", BytesIO(b"ie"), btlib.bencode.DecodeError)
-        invalid_str = ("empty string", BytesIO(b"3:"), btlib.bencode.DecodeError)
-        only_delim = ("only delim", BytesIO(b":"), btlib.bencode.DecodeError)
+        empty_int = ("empty int", BytesIO(b"ie"), bencode.DecodeError)
+        invalid_str = ("empty string", BytesIO(b"3:"), bencode.DecodeError)
+        only_delim = ("only delim", BytesIO(b":"), bencode.DecodeError)
         errors = [empty_int, invalid_str, only_delim]
 
         for case in errors:
@@ -76,11 +76,11 @@ class Decoder(TestCase):
         Test that we can only decode a bytes-like object.
         Each type of object in bad_types must have len > 0 or bencode will return None
         """
-        decoder = btlib.bencode.Decoder()
+        decoder = bencode.Decoder()
         bad_types = [[1, 2], "string", {"1": "a"}, (1, 2), {1, 2, 3}]
         for t in bad_types:
             with self.subTest(msg=f"bdecode {t}"):
-                with self.assertRaises(btlib.bencode.DecodeError):
+                with self.assertRaises(bencode.DecodeError):
                     decoder.decode(t)
 
     def test__decode_imbalanced_delims(self):
@@ -89,7 +89,7 @@ class Decoder(TestCase):
         imbalanced beginning delimiters are invalid
         imbalanced ending delimiters are ignored
         """
-        decoder = btlib.bencode.Decoder()
+        decoder = bencode.Decoder()
 
         missing_start_delim = ("Missing start delim", BytesIO(b"3:vale"), b"val")
         ambiguous_end_delim = ("Ambiguous end delim", BytesIO(b"d3:val3:numee"), OrderedDict({b"val": b"num"}))
@@ -108,10 +108,10 @@ class Decoder(TestCase):
         """
         Test that we get a BencodeRecursionError if we try to recursively decode an object that is too large
         """
-        decoder = btlib.bencode.Decoder()
+        decoder = bencode.Decoder()
         decoder.recursion_limit = 5  # set to some low value so test runs quickly
         buffer = BytesIO(b"d3:val3:val3:val3:val3:val3:val3:val3:vale")
-        with self.assertRaises(btlib.bencode.BencodeRecursionError):
+        with self.assertRaises(bencode.BencodeRecursionError):
             decoder._decode(buffer)
 
     def test__decode_consecutive_lists(self):
@@ -122,7 +122,7 @@ class Decoder(TestCase):
         even if one of those lists contains some data then empty lists
         if an empty list is encountered in a list with data after it, that data is not returned
         """
-        decoder = btlib.bencode.Decoder()
+        decoder = bencode.Decoder()
         cons_lists = ("Consecutive lists", BytesIO(b"lelelelelele"), [])
         cons_lists_pop = ("Consecutive lists w/ populated", BytesIO(b"l3:vallee"), [b"val"])
         cons_lists_with_dict = ("Consecutive lists w/ dict value", BytesIO(b"lde3:vale"), [])
@@ -141,7 +141,7 @@ class Decoder(TestCase):
         _decode will return nested lists if the innermost is populated, otherwise it will only recurse to the first
         list with data
         """
-        decoder = btlib.bencode.Decoder()
+        decoder = bencode.Decoder()
         empty_nest = ("Empty nested lists", BytesIO(b"llleee"), [])
         pop_list = ("Populated nested list", BytesIO(b"ll3:valee"), [[b"val"]])
         nested_pop_list = ("Nested populated list", BytesIO(b"lll3:valeee"), [[[b"val"]]])
@@ -159,7 +159,7 @@ class Decoder(TestCase):
         even if one of those dicts contains data then empty lists
         if an empty list is encountered in a dict with data after it, that data is not returned
         """
-        decoder = btlib.bencode.Decoder()
+        decoder = bencode.Decoder()
         cons_dicts = ("Consecutive dicts", BytesIO(b"dedededede"), OrderedDict())
         populated_cons = ("Populated consecutive dicts", BytesIO(b"d3:val3:valede"), OrderedDict({b"val": b"val"}))
         populated_empty_key = ("Dict with empty key", BytesIO(b"dle3:val3:vale"), OrderedDict())
@@ -177,7 +177,7 @@ class Decoder(TestCase):
         dictionaries can not be keys of dictionaries
         """
         empty = BytesIO(b"dddeee")
-        res = btlib.bencode.Decoder()._decode(empty)
+        res = bencode.Decoder()._decode(empty)
         self.assertEqual(res, OrderedDict())
 
     def test__decode_invalid_char(self):
@@ -187,8 +187,8 @@ class Decoder(TestCase):
         dicts can only contain string or integer keys and dict, string, list, integer values
         list can only contain string, integer, list, or
         """
-        err = btlib.bencode.DecodeError
-        decoder = btlib.bencode.Decoder()
+        err = bencode.DecodeError
+        decoder = bencode.Decoder()
         invalid_char = ("Invalid character", BytesIO(b"?"), err)
         invalid_key_dict = ("Invalid dict key", BytesIO(b"d?e"), err)
         empty_key_dict = ("Empty dict key", BytesIO(b"d3:e"), err)
@@ -204,7 +204,7 @@ class Decoder(TestCase):
         """
         Tests that the _decode_int function handles properly and improperly formatted bencoded integer data
         """
-        decoder = btlib.bencode.Decoder()
+        decoder = bencode.Decoder()
         no_delim = bytes(b"14")
         wrong_delim = bytes(b"i14b")
         uneven_delim = bytes(b"i14")
@@ -220,7 +220,7 @@ class Decoder(TestCase):
 
         for b in bad_data:
             with self.subTest(b=b):
-                with self.assertRaises(btlib.bencode.DecodeError):
+                with self.assertRaises(bencode.DecodeError):
                     decoder._decode_int(BytesIO(b))
 
         for k, v in good_data.items():
@@ -231,7 +231,7 @@ class Decoder(TestCase):
         """
         Tests that the _decode_str function handles properly and improperly formatted data
         """
-        decoder = btlib.bencode.Decoder()
+        decoder = bencode.Decoder()
         bad_fmt = b"A:aaaaaaaa"
         wrong_delim = b"4-asdf"
         wrong_len_short = b"18:aaaaaaaaaaaaaaaa"
@@ -243,7 +243,7 @@ class Decoder(TestCase):
 
         for b in bad_data:
             with self.subTest(b=b):
-                with self.assertRaises(btlib.bencode.DecodeError):
+                with self.assertRaises(bencode.DecodeError):
                     decoder._decode_str(BytesIO(b))
 
         for b in good_data:
@@ -254,35 +254,35 @@ class Decoder(TestCase):
         """
         Tests _parse_num
         """
-        decoder = btlib.bencode.Decoder()
+        decoder = bencode.Decoder()
         custom_delim = ("Custom delimiter", BytesIO(b"12%"), 12)
         with self.subTest(msg=f"_parse_num {custom_delim[0]}"):
             self.assertEqual(decoder._parse_num(custom_delim[1], delimiter=b"%"), 12)
 
         empty_val = ("Empty val", BytesIO())
         with self.subTest(msg=f"_parse_num {empty_val[0]}"):
-            with self.assertRaises(btlib.bencode.DecodeError):
+            with self.assertRaises(bencode.DecodeError):
                 decoder._parse_num(empty_val[1], 0)
 
         only_delim = ("Only delim", BytesIO(b":"))
         with self.subTest(msg=f"_parse_num {only_delim[0]}"):
-            with self.assertRaises(btlib.bencode.DecodeError):
+            with self.assertRaises(bencode.DecodeError):
                 decoder._parse_num(only_delim[1], 0)
 
         leading_zero = ("Leading zero", BytesIO(b"01:"))
         with self.subTest(msg=f"_parse_num {leading_zero[0]}"):
-            with self.assertRaises(btlib.bencode.DecodeError):
+            with self.assertRaises(bencode.DecodeError):
                 decoder._parse_num(leading_zero[1], 0)
 
         negative_zero = ("Negative zero", BytesIO(b"-0:"))
         with self.subTest(msg=f"_parse_num {negative_zero[0]}"):
-            with self.assertRaises(btlib.bencode.DecodeError):
+            with self.assertRaises(bencode.DecodeError):
                 decoder._parse_num(negative_zero[1], 0)
 
 
 class Encoder(TestCase):
     """
-    Test class for opalescence.btlib.Encoder
+    Test class for opalescence.Encoder
     """
 
     def test_empty_values(self):
@@ -291,18 +291,18 @@ class Encoder(TestCase):
         Returning none mirrors the behavior of passing empty binary data to the decoder
         """
         with self.subTest(msg="Empty dict"):
-            self.assertEqual(btlib.bencode.Encoder().bencode(OrderedDict()), None)
+            self.assertEqual(bencode.Encoder().bencode(OrderedDict()), None)
 
     def test_wrong_types(self):
         """
         Tests that tne encoder rejects invalid types
         """
         bad_types = [{0, 1}, "string", None, True]
-        encoder = btlib.bencode.Encoder()
+        encoder = bencode.Encoder()
 
         for t in bad_types:
             with self.subTest(msg=f"Bad type: {t}"):
-                with self.assertRaises(btlib.bencode.EncodeError):
+                with self.assertRaises(bencode.EncodeError):
                     encoder._encode(t)
 
     def test__encode_empty_vals(self):
@@ -318,7 +318,7 @@ class Encoder(TestCase):
         for k, v in locals().items():
             if k != "self":
                 with self.subTest(msg=v[0]):
-                    self.assertEqual(btlib.bencode.Encoder()._encode(v[1]), v[2])
+                    self.assertEqual(bencode.Encoder()._encode(v[1]), v[2])
 
     def test__encode(self):
         """
@@ -326,30 +326,30 @@ class Encoder(TestCase):
         """
         invalid_type = ("Invalid type in valid type", OrderedDict({b"val": {1, 2}}))
         with self.subTest(msg=invalid_type[0]):
-            with self.assertRaises(btlib.bencode.EncodeError):
-                btlib.bencode.Encoder()._encode(invalid_type[1])
+            with self.assertRaises(bencode.EncodeError):
+                bencode.Encoder()._encode(invalid_type[1])
 
         invalid_dict_key = ("Invalid dict key", OrderedDict({12: b"value"}))
         with self.subTest(msg=invalid_dict_key[0]):
-            with self.assertRaises(btlib.bencode.EncodeError):
-                btlib.bencode.Encoder()._encode(invalid_dict_key[1])
+            with self.assertRaises(bencode.EncodeError):
+                bencode.Encoder()._encode(invalid_dict_key[1])
 
         a = OrderedDict()
         a[b"val"] = OrderedDict({b"hmm": [1, 2, 3, b"key"]})
         valid_dict = ("Valid dict", a, b"d3:vald3:hmmli1ei2ei3e3:keyeee")
         with self.subTest(msg=valid_dict[0]):
-            self.assertEqual(btlib.bencode.Encoder()._encode(valid_dict[1]), valid_dict[2])
+            self.assertEqual(bencode.Encoder()._encode(valid_dict[1]), valid_dict[2])
 
         valid_bytes = ("Valid bytes", b"these are valid bytes", b"21:these are valid bytes")
         with self.subTest(msg=valid_bytes[0]):
-            self.assertEqual(btlib.bencode.Encoder()._encode(valid_bytes[1]), valid_bytes[2])
+            self.assertEqual(bencode.Encoder()._encode(valid_bytes[1]), valid_bytes[2])
 
     def test__encode_int(self):
         """
         Tests the encoder's integer encoding
         """
         valid_int = [(12, b"i12e"), (0, b"i0e"), (-100, b"i-100e")]
-        encoder = btlib.bencode.Encoder()
+        encoder = bencode.Encoder()
         for t in valid_int:
             with self.subTest(smg=f"Valid int {t[0]}"):
                 self.assertEqual(encoder._encode_int(t[0]), t[1])
@@ -359,7 +359,7 @@ class Encoder(TestCase):
         Tests the encoder's bytestring encoding
         """
         valid_strings = [(b"value", b"5:value"), (b"", b"0:")]
-        encoder = btlib.bencode.Encoder()
+        encoder = bencode.Encoder()
 
         for t in valid_strings:
             with self.subTest(msg=f"Valid string {t[0]}"):
