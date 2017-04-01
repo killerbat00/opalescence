@@ -76,29 +76,29 @@ class Peer:
             self._parse_msg(buf, msg)
             # decode response
 
-        #        except:
-        #            logger.debug("Error writing to {peer}".format(peer=self))
-        #            return
-        #        try:
-        #            chunks = await reader.read()
-        #            if not chunks:
-        #                logger.debug("No data received")
-        #                return
-        #        except:
-        #            logger.debug("Error reading from {peer}".format(peer=self))
-        #            return
-        #        msg = "{pstrlen}{pstr}{reserved}{info_hash}{peer_id}".format(pstrlen=self._pstr_len_bytes, pstr=PSTR,
-        #                                                                     reserved=self._reserved, info_hash=self.info_hash,
-        #                                                                     peer_id=self.peer_id).encode("ISO-8859-1")
-        #        message = "%s%s%s%s%s" % (chr(19), "BitTorrent protocol", 8 * chr(0),
-        #                                  self.info_hash, self.peer_id)
-        #        message = message.encode("ISO-8859-1")
-        #
-        #        loop = asyncio.get_event_loop()
-        #
-        #        print(chunks)
-        #        self._parse_msg(chunks, msg)
-        #        logger.debug("[*] Received message {message}".format(message=chunks.decode("ISO-8859-1")))
+            #        except:
+            #            logger.debug("Error writing to {peer}".format(peer=self))
+            #            return
+            #        try:
+            #            chunks = await reader.read()
+            #            if not chunks:
+            #                logger.debug("No data received")
+            #                return
+            #        except:
+            #            logger.debug("Error reading from {peer}".format(peer=self))
+            #            return
+            #        msg = "{pstrlen}{pstr}{reserved}{info_hash}{peer_id}".format(pstrlen=self._pstr_len_bytes, pstr=PSTR,
+            #                                                                     reserved=self._reserved, info_hash=self.info_hash,
+            #                                                                     peer_id=self.peer_id).encode("ISO-8859-1")
+            #        message = "%s%s%s%s%s" % (chr(19), "BitTorrent protocol", 8 * chr(0),
+            #                                  self.info_hash, self.peer_id)
+            #        message = message.encode("ISO-8859-1")
+            #
+            #        loop = asyncio.get_event_loop()
+            #
+            #        print(chunks)
+            #        self._parse_msg(chunks, msg)
+            #        logger.debug("[*] Received message {message}".format(message=chunks.decode("ISO-8859-1")))
 
     def _parse_msg(self, message: bytes, orig: bytes):
         parts = struct.unpack('>B19s8x20s20s', message[:68])
