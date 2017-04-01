@@ -63,158 +63,190 @@ class Decoder:
     Decodes a benoded bytestring, returning an OrderedDict.
     """
 
-    def __init__(self, recursion_limit: int = 1000):
+    def __init__(self, data: bytes, recursion_limit: int = 1000):
+        """
+        Creates a new Decoder object.
+
+        :param data:            the bencoded bytes to decode
+        :param recursion_limit: the number of times we'll recursively call into the decoding functions
+        """
         if recursion_limit <= 0:
-            raise DecodeError("Recursion limit should be greater than 0. Preferably 1000 or above (roughly).")
+            error_msg = "Recursion limit should be greater than 0."
+            logger.error(error_msg)
+            raise DecodeError(error_msg)
 
         self.recursion_limit = recursion_limit
         self.current_iter = 0
+        self.raw_data = data
+        self.data: BytesIO = None
 
-    def decode(self, data: bytes) -> Union[OrderedDict, None]:
+    def decode(self) -> OrderedDict:
         """
-        Decodes a bencoded bytestring, returning an OrderedDict.
+        Decodes a bencoded bytestring, returning an OrderedDict of the data.
 
-        :param data: bencoed bytes of data
         :return:     decoded torrent info as an OrderedDict
-                     None if empty bytes received
+                     the dict will be empty if empty or no bytes received
         :raises:     DecodeError
         """
-        logger.debug("bdecoding bytes")
+        logger.debug(f"Decoding bytestream {self.raw_data}")
 
-        if len(data) == 0:
-            return None
+        if not self.raw_data:
+            return OrderedDict()
+
+        if len(self.raw_data) == 0:
+            return OrderedDict()
 
         try:
-            data = BytesIO(data)
+            self.data = BytesIO(self.raw_data)
         except TypeError as te:
-            logger.error(f"Cannot decode, invalid type of {type(data)}")
-            raise DecodeError from te
-        else:
-            return self._decode(data)
+            error_msg = f"Cannot decode data. Invalid type of {type(self.raw_data)}."
+            logger.error(error_msg)
+            raise DecodeError(error_msg) from te
 
-    def _decode(self, data: BytesIO) -> Union[OrderedDict, list, bytes, int]:
+        return self._decode()
+
+    def _decode(self) -> Union[OrderedDict, list, bytes, int]:
         """
         Recursively decodes a BytesIO buffer of bencoded data
 
-        :param data: BytesIO of bencoded binary data
         :return:     torrent info decoded into a python object
         :raises:     DecodeError, BencodeRecursionError
         """
         if self.current_iter > self.recursion_limit:
-            logger.error(f"Recursion limit of {self.recursion_limit} reached.")
-            raise BencodeRecursionError
+            error_msg = f"Recursion limit of {self.recursion_limit} reached."
+            logger.error(error_msg)
+            raise BencodeRecursionError(error_msg)
         else:
             self.current_iter += 1
 
-        char = data.read(1)
+        char = self.data.read(1)
 
         if not char:
+            # ends the recursive madness
             return
         if char == _Delims.DICT_END:
-            # mismatched end delimiters are ignored -> d3:num3:valee = {"num", "val"}
+            # extraneous end delimiters are ignored -> d3:num3:valee = {"num", "val"}
             return
         elif char == _Delims.NUM_START:
-            return self._decode_int(data)
+            return self._decode_int()
         elif char in _Delims.DIGITS:
-            return self._decode_str(data)
+            return self._decode_str()
         elif char == _Delims.DICT_START:
-            decoded_dict = OrderedDict()
-            keys = []
-            while True:
-                key = self._decode(data)
-                if not key:
-                    break
-                val = self._decode(data)
-                keys.append(key)
-                try:
-                    decoded_dict.setdefault(key, val)
-                except TypeError:
-                    logger.error("Tried to set an ordered dictionary as a key. Dictionaries cannot be keys")
-                    raise DecodeError
-            if keys != sorted(keys):
-                logger.error("Unable to decode bencoded dictionary. Keys are not sorted.")
-                raise DecodeError
-            return decoded_dict
+            return self._decode_dict()
         elif char == _Delims.LIST_START:
-            decoded_list = []
-            while True:
-                item = self._decode(data)
-                if not item:
-                    break
-                decoded_list.append(item)
-            return decoded_list
+            return self._decode_list()
         else:
-            logger.error(f"Unable to bdecode stream. {char} is invalid bencoded type of value.")
-            raise DecodeError
+            error_msg = f"Unable to bdecode stream. {char} is an invalid bencoded type of value."
+            logger.error(error_msg)
+            raise DecodeError(error_msg)
 
-    def _decode_int(self, data: BytesIO) -> int:
+    def _decode_dict(self) -> OrderedDict:
         """
-        decodes a bencoded integer from a BytesIO buffer.
+        Decodes a bencoded dictionary into an OrderedDict
+        only bytestrings are allowed as keys for bencoded dictionaries
+        dictionary keys must be sorted according to their raw bytes
 
-        :param data: BytesIO stream of bencoded binary data
+        :return: decoded dictionary as OrderedDict
+        :raises: DecodeError
+        """
+        decoded_dict = OrderedDict()
+        keys = []
+
+        while True:
+            key = self._decode()
+            if not key:
+                break
+            if not isinstance(key, bytes):
+                error_msg = f"Invalid dictionary key: {key}. Dictionary keys must be bytestrings."
+                logger.error(error_msg)
+                raise DecodeError(error_msg)
+            val = self._decode()
+
+            decoded_dict.setdefault(key, val)
+            keys.append(key)
+
+        if keys != sorted(keys):
+            error_msg = f"Invalid dictionary. Keys {keys} are not sorted."
+            logger.error(error_msg)
+            raise DecodeError(error_msg)
+
+        return decoded_dict
+
+    def _decode_list(self) -> list:
+        """
+        Decodes a bencoded list into a python list
+        lists can contain any other bencoded types (bytestring, integer, list, dictionary)
+
+        :return: list of decoded data
+        """
+        decoded_list = []
+        while True:
+            item = self._decode()
+            if not item:
+                break
+            decoded_list.append(item)
+        return decoded_list
+
+    def _decode_int(self) -> int:
+        """
+        decodes a bencoded integer from the BytesIO buffer.
+
         :return:     decoded integer
-        :raises:     DecodeError
         """
-        data.seek(-1, 1)
-        char = data.read(1)
-        if char != _Delims.NUM_START:
-            logger.error(
-                f"Error while parsing integer. Found {char}, expected {_Delims.NUM_START}.")
-            raise DecodeError
-        return self._parse_num(data, delimiter=_Delims.NUM_END)
+        return self._parse_num(delimiter=_Delims.NUM_END)
 
-    def _decode_str(self, data: BytesIO) -> bytes:
+    def _decode_str(self) -> bytes:
         """
-        decodes a bencoded string from a BytesIO buffer.
-        empty strings are allowed if there is the proper number of empty characters to read.
+        decodes a bencoded string from the BytesIO buffer.
+        whitespace only strings are allowed if there is the proper number of whitespace characters to read.
 
-        :param data: BytesIO stream of bencoded binary data
         :return:     decoded string
         :raises:     DecodeError
         """
-        data.seek(-1, 1)
-        string_len = self._parse_num(data, delimiter=_Delims.DIVIDER)
+        # we've already consumed the byte that will start the string length, go back and get it
+        self.data.seek(-1, 1)
+        string_len = self._parse_num(delimiter=_Delims.DIVIDER)
+        error_msg = f"Unable to read specified string length {string_len}."
 
-        try:
-            string_val = data.read(string_len)
-        except:
-            logger.error(f"Unable to read specified string length {string_len}")
-            raise DecodeError
+        string_val = self.data.read(string_len)
 
         if len(string_val) != string_len:
-            logger.error(f"Unable to read specified string length {string_len}")
-            raise DecodeError
+            logger.error(error_msg)
+            raise DecodeError(error_msg)
+
         return string_val
 
-    def _parse_num(self, data: BytesIO, delimiter: bytes) -> int:
+    def _parse_num(self, delimiter: bytes) -> int:
         """
-        parses an bencoded integer up to specified delimiter from a BytesIO buffer.
+        parses an bencoded integer up to specified delimiter from the BytesIO buffer.
 
-        :param data:
         :param delimiter: delimiter do indicate the end of the number
         :return:          decoded number
         :raises:          DecodeError
         """
         parsed_num = bytes()
         while True:
-            char = data.read(1)
-            if char not in _Delims.DIGITS + [b"-"] or char == '':
+            char = self.data.read(1)
+            if char in _Delims.DIGITS + [b"-"]:  # allow negative integers
+                parsed_num += char
+            else:
                 if char != delimiter:
-                    logger.error(
-                        "Invalid character while parsing integer. Found {wrong}, expected {right}".format(wrong=char,
-                                                                                                          right=delimiter))
-                    raise DecodeError
+                    error_msg = f"Invalid character while parsing integer. Found {char} expected {delimiter}."
+                    logger.error(error_msg)
+                    raise DecodeError(error_msg)
                 else:
                     break
-            parsed_num += char
 
-        num_str = parsed_num.decode("ASCII")
+        num_str = parsed_num.decode("UTF-8")
+
         if len(num_str) == 0:
-            logger.error("Empty strings are not allowed for integer keys")
-            raise DecodeError
-        elif len(num_str) > 1 and (num_str[:2] == '-0' or num_str[0] == '0'):
-            logger.error("Leading or negative zeros are not allowed for integer keys")
-            raise DecodeError
+            error_msg = "Empty strings are not allowed for integer keys."
+            logger.error(error_msg)
+            raise DecodeError(error_msg)
+        elif len(num_str) > 1 and (num_str[0] == '0' or num_str[:2] == '-0'):
+            error_msg = "Leading or negative zeros are not allowed for integer keys."
+            logger.error(error_msg)
+            raise DecodeError(error_msg)
 
         return int(num_str)
 
