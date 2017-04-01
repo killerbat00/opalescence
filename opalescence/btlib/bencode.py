@@ -341,9 +341,9 @@ class Encoder:
                 error_msg = f"Dictionary keys must be bytes. Not {type(k)}."
                 logger.error(error_msg)
                 raise EncodeError(error_msg)
+            keys.append(k)
             key = self._encode_bytestr(k)
             contents += key
-            keys.append(key)
             contents += self._encode(v)
         contents += _Delims.DICT_END
         if keys != sorted(keys):

@@ -149,18 +149,23 @@ class Torrent:
         torrent.filename = filename
 
         if not os.path.exists(torrent.filename):
-            logger.error(f"Path does not exist {filename}")
-            raise CreationError
+            error_msg = f"Path does not exist {filename}."
+            logger.error(error_msg)
+            raise CreationError(error_msg)
 
-        with open(torrent.filename, 'rb') as f:
-            data = f.read()
-            torrent.meta_info = Decoder().decode(data)
-            _validate_torrent_dict(torrent.meta_info)
-            info = Encoder().bencode(torrent.meta_info[b"info"])
-            torrent.info_hash = hashlib.sha1(info).digest()
+        try:
+            with open(torrent.filename, 'rb') as f:
+                data = f.read()
+                torrent.meta_info = Decoder(data).decode()
+                _validate_torrent_dict(torrent.meta_info)
+                info = Encoder(torrent.meta_info[b"info"]).encode()
+                torrent.info_hash = hashlib.sha1(info).digest()
+        except (EncodeError, DecodeError) as ede:
+            raise CreationError from ede
 
         torrent._gather_files()
         logger.debug(f"Created a torrent from {filename}")
+
         return torrent
 
     def to_file(self, output_filename: str):
@@ -169,17 +174,17 @@ class Torrent:
 
         :param output_filename: The output filename of the torrent
         """
-        if len(output_filename) == 0:
-            logger.error(f"Torrent must have an output file name")
-            raise CreationError
+        if not output_filename:
+            error_msg = "Torrent must have an output filename."
+            logger.error(error_msg)
+            raise CreationError(error_msg)
 
         with open(output_filename, 'wb+') as f:
             try:
-                data = Encoder().bencode(self.meta_info)
+                data = Encoder(self.meta_info).encode()
                 f.write(data)
-            except EncodeError:
-                logger.error(f"Error encoding torrent metainfo dictionary for {self}")
-                raise CreationError
+            except EncodeError as ee:
+                raise CreationError from ee
 
     @classmethod
     def create_from_path(cls, *args):
@@ -229,7 +234,7 @@ class Torrent:
         The announce URL of the tracker including the announce-list if it's a key in the metainof dictionary
         :return: a list of announce URLs for the tracker
         """
-        urls = {self.meta_info.get(b"announce").decode("UTF-8")}
+        urls = set(self.meta_info.get(b"announce").decode("UTF-8"))
         if b"announce-list" in self.meta_info:
             for announce in self.meta_info.get(b"announce-list"):
                 urls.add(announce[0].decode("UTF-8"))

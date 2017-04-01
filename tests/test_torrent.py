@@ -71,8 +71,8 @@ class TorrentTest(TestCase):
         with open(copy_file_name, 'wb') as f:
             f.truncate(file_size // 2)
 
-        # the metainfo dictionary is entirely corrupted now, so we should expect a DecodeError
-        with self.assertRaises(bencode.DecodeError):
+        # the metainfo dictionary is entirely corrupted now, so we should expect a CreationError
+        with self.assertRaises(torrent.CreationError):
             torrent.Torrent.from_file(copy_file_name)
 
         os.remove(copy_file_name)
@@ -85,12 +85,6 @@ class TorrentTest(TestCase):
         filename = ".".join(os.path.basename(self.external_torrent_path).split(".")[:-1])
         for f in external_torrent.files:
             self.assertEqual(f.path, filename)
-
-    def test__pieces(self):
-        """
-        Test that we are piecing things out appropriately
-        """
-        self.fail()
 
     def test_properties(self):
         """
@@ -129,10 +123,10 @@ class TorrentTest(TestCase):
 
         with open(self.external_torrent_path, 'rb') as f:
             data = f.read()
-            unencoded_data = bencode.Decoder().decode(data)
+            unencoded_data = bencode.Decoder(data).decode()
 
             with open(file_copy, 'wb+') as ff:
-                encoded_data = bencode.Encoder().bencode(unencoded_data)
+                encoded_data = bencode.Encoder(unencoded_data).encode()
                 ff.write(encoded_data)
 
         self.assertTrue(cmp(self.external_torrent_path, file_copy))
