@@ -64,7 +64,7 @@ class Decoder:
     Decodes a benoded bytestring, returning an OrderedDict.
     """
 
-    def __init__(self, data: bytes, recursion_limit: int = 1000):
+    def __init__(self, data: bytes, recursion_limit: int = 99999):
         """
         Creates a new Decoder object.
 
@@ -138,7 +138,7 @@ class Decoder:
         elif char == _Delims.NUM_START:
             return self._decode_int()
         elif char in _Delims.DIGITS:
-            return self._decode_str()
+            return self._decode_bytestr()
         elif char == _Delims.DICT_START:
             return self._decode_dict()
         elif char == _Delims.LIST_START:
@@ -203,7 +203,7 @@ class Decoder:
         """
         return self._parse_num(_Delims.NUM_END)
 
-    def _decode_str(self) -> bytes:
+    def _decode_bytestr(self) -> bytes:
         """
         decodes a bencoded string from the BytesIO buffer.
         whitespace only strings are allowed if there is the proper number of whitespace characters to read.
@@ -261,68 +261,122 @@ class Decoder:
 
 class Encoder:
     """
-    Encodes an OrderedDict and returns the bencoded bytes
+    Encodes a python object and returns the bencoded bytes
     """
 
-    def bencode(self, data: OrderedDict) -> Union[bytes, None]:
+    def __init__(self, data: Union[dict, list, bytes, int]):
         """
-        Bencodes an OrderedDict and returns the bencoded string.
-        :param data: OrderedDict object to bencode
+        Creates an Encoder instace with the specified data.
+
+        :param data: dict, list, byte, or int data to encode
+        :raises:     EncodeError if data is not populated.
+        """
+        if not data:
+            error_msg = "No data received."
+            logger.error(error_msg)
+            raise EncodeError(error_msg)
+
+        self._set_data(data)
+
+    def _set_data(self, data: Union[dict, list, bytes, int]) -> None:
+        """
+        Sets the data being used by the encoder
+        Warning: the length or existence of data is not checked here
+
+        :param data: python object to set as data
+        """
+        self.data = data
+
+    def encode(self) -> Union[bytes, None]:
+        """
+        Bencodes a python object and returns the bencoded string.
+
         :return:     bencoded bytes or None if empty data received
         :raises:     EncodeError
         """
-        logger.debug(f"bencoding OrderedDict {data}")
+        logger.debug(f"Bencoding python object {self.data}.")
 
-        if len(data) == 0:
-            return None
+        if not self.data:
+            return
 
-        return self._encode(data)
+        return self._encode(self.data)
 
     def _encode(self, obj: Union[dict, list, bytes, int]) -> bytes:
         """
-        Recursively bencodes an OrderedDict
+        Recursively bencodes a python object
+
         :param obj: object to decode
         :return:    bencoded string
         :raises:    EncodeError
         """
         if isinstance(obj, dict):
-            contents = _Delims.DICT_START
-            for k, v in obj.items():
-                if not isinstance(k, bytes):
-                    logger.error("Dictionary keys must be bytes")
-                    raise EncodeError()
-                contents += self._encode_bytestr(k)
-                contents += self._encode(v)
-            contents += _Delims.DICT_END
-            return contents
+            return self._encode_dict(obj)
         elif isinstance(obj, list):
-            contents = _Delims.LIST_START
-            for item in obj:
-                val = self._encode(item)
-                if val:
-                    contents += val
-            contents += _Delims.LIST_END
-            return contents
+            return self._encode_list(obj)
         elif isinstance(obj, bytes):
             return self._encode_bytestr(obj)
         elif isinstance(obj, bool):
-            logger.error("Boolean values are unsupported")
-            raise EncodeError
+            error_msg = "Boolean values are unsupported."
+            logger.error(error_msg)
+            raise EncodeError(error_msg)
         elif isinstance(obj, int):
             return self._encode_int(obj)
         else:
-            logger.error("Unexpected object found {obj}".format(obj=obj))
-            raise EncodeError
+            error_msg = f"Unexpected object found {type(obj)} {obj}."
+            logger.error(error_msg)
+            raise EncodeError(error_msg)
+
+    def _encode_dict(self, obj: dict) -> bytes:
+        """
+        bencodes a python dictionary.
+        Keys may only be bytestrings and they must be in ascending order according to their bytes.
+
+        :param obj: dictionary to encode
+        :return: bencoded string of the decoded dictionary
+        """
+        contents = _Delims.DICT_START
+        keys = []
+        for k, v in obj.items():
+            if not isinstance(k, bytes):
+                error_msg = f"Dictionary keys must be bytes. Not {type(k)}."
+                logger.error(error_msg)
+                raise EncodeError(error_msg)
+            key = self._encode_bytestr(k)
+            contents += key
+            keys.append(key)
+            contents += self._encode(v)
+        contents += _Delims.DICT_END
+        if keys != sorted(keys):
+            error_msg = "Invalid dictionary.  Keys {keys} not sorted."
+            logger.error(error_msg)
+            raise EncodeError(error_msg)
+        return contents
+
+    def _encode_list(self, obj: list) -> bytes:
+        """
+        bencodes a python list.
+
+        :param obj: list to encode
+        :return: bencoded string of the decoded list
+        """
+        contents = _Delims.LIST_START
+        for item in obj:
+            val = self._encode(item)
+            if val:
+                contents += val
+        contents += _Delims.LIST_END
+        return contents
 
     def _encode_int(self, int_obj: int) -> bytes:
         """
         bencodes an integer.
+
         :param int_obj: integer to bencode
         :return:        bencoded string of the specified integer
         """
         ret = bytes()
         ret += _Delims.NUM_START
-        ret += str(int_obj).encode("ASCII")
+        ret += str(int_obj).encode("UTF-8")
         ret += _Delims.NUM_END
         return ret
 
@@ -334,7 +388,7 @@ class Encoder:
         :return:           bencoded string of the specified string
         """
         ret = bytes()
-        ret += str(len(string_obj)).encode("ASCII")
+        ret += str(len(string_obj)).encode("UTF-8")
         ret += _Delims.DIVIDER
         ret += string_obj
         return ret
