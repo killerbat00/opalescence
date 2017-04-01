@@ -203,20 +203,36 @@ class Torrent:
                     path = f[b"path"][0].decode("UTF-8")
                 elif isinstance(f[b"path"], bytes):
                     path = f[b"path"].decode("UTF-8")
-                self.files += [FileItem(path, f[b"length"])]
+                self.files.append([FileItem(path, f[b"length"])])
 
         else:
-            self.files += FileItem(self.meta_info[b"info"][b"name"].decode("UTF-8"), self.meta_info[b"info"][b"length"])
+            self.files.append(
+                FileItem(self.meta_info[b"info"][b"name"].decode("UTF-8"), self.meta_info[b"info"][b"length"]))
 
     @property
-    def announce_urls(self) -> List[str]:
+    def multi_file(self) -> bool:
+        """
+        TODO: proper handling of multi-file torrents.
+        For a single file torrent, the meta_info["info"]["name"] is the torrent's content's file basename and
+                                       meta_info["info"]["length"] is its size
+
+        For multiple file torrents, the meta_info["info"]["name"] is the torrent's content's directory name and
+                                        meta_info["info"]["files"] contains the content's file basename
+                                        meta_info["info"]["files"]["length"] is the file's size
+                                        meta_info["info"]["length"] doesn't contribute anything here
+        """
+        return b"files" in self.meta_info[b"info"]
+
+    @property
+    def announce_urls(self) -> set:
         """
         The announce URL of the tracker including the announce-list if it's a key in the metainof dictionary
-        :return: a list of accounce URLs for the tracker
+        :return: a list of announce URLs for the tracker
         """
-        urls = [self.meta_info.get(b"announce").decode("UTF-8")]
+        urls = {self.meta_info.get(b"announce").decode("UTF-8")}
         if b"announce-list" in self.meta_info:
-            urls += self.meta_info.get[b"announce-list"][0].decode("UTF-8")
+            for announce in self.meta_info.get(b"announce-list"):
+                urls.add(announce[0].decode("UTF-8"))
         return urls
 
     @property
@@ -235,6 +251,15 @@ class Torrent:
         """
         if b"created by" in self.meta_info:
             return self.meta_info[b"created by"].decode("UTF-8")
+        return
+
+    @property
+    def creation_date(self) -> Union[int, None]:
+        """
+        :return: the torrent's creation date
+        """
+        if b"creation date" in self.meta_info:
+            return self.meta_info[b"creation date"]
         return
 
     @property
