@@ -165,7 +165,7 @@ class Decoder:
             if key == _Delims.EOF:
                 break
             if not isinstance(key, bytes):
-                error_msg = f"Invalid dictionary key: {key}. Dictionary keys must be bytestrings."
+                error_msg = f"Dictionary keys must be bytes. Not {type(key)}."
                 logger.error(error_msg)
                 raise DecodeError(error_msg)
             val = self._decode()
@@ -316,7 +316,7 @@ class Encoder:
         elif isinstance(obj, bytes):
             return self._encode_bytestr(obj)
         elif isinstance(obj, bool):
-            error_msg = "Boolean values are unsupported."
+            error_msg = "Boolean values not supported."
             logger.error(error_msg)
             raise EncodeError(error_msg)
         elif isinstance(obj, int):
