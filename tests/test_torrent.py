@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 """
@@ -6,6 +5,7 @@ Tests functionality related to opalescence's representation of torrent metainfo 
 as .torrent file reading, writing and creation from a file or directory
 """
 import os
+from collections import OrderedDict
 from filecmp import cmp
 from shutil import copyfile
 from unittest import TestCase
@@ -15,7 +15,7 @@ from requests import get
 from tests.context import torrent, bencode
 
 
-class TorrentTest(TestCase):
+class TestTorrent(TestCase):
     """
     Tests the Torrent representation
     """
@@ -90,7 +90,7 @@ class TorrentTest(TestCase):
         """
         Tests the properties of the torrent metainfo file
         """
-        announce_urls = ["http://torrent.ubuntu.com:6969/announce", "http://ipv6.torrent.ubuntu.com:6969/announce"]
+        announce_urls = [["http://torrent.ubuntu.com:6969/announce"], ["http://ipv6.torrent.ubuntu.com:6969/announce"]]
         t = torrent.Torrent.from_file(self.external_torrent_path)
         for f in announce_urls:
             self.assertIn(f, t.announce_urls)
@@ -155,3 +155,30 @@ class TorrentTest(TestCase):
         new_data = torrent.Torrent.from_file(temp_output_filename).meta_info
         self.assertEqual(original_data, new_data)
         os.remove(temp_output_filename)
+
+    def test__validate_torrent_dict(self):
+        """
+        Tests that _validate_torrent_dict accepts and rejects torrent metainfo dictionaries correctly.
+        """
+        no_keys = OrderedDict()
+        missing_key = OrderedDict({b"announce": b"val"})
+        missing_info_key = OrderedDict(
+            {b"announce": b"val", b"info": OrderedDict({b"pieces": b"00000000000000000000", b"piece length": 16384})})
+        invalid_pieces_length = OrderedDict(
+            {b"announce": b"val",
+             b"info": OrderedDict({b"name": b"name", b"pieces": b"0", b"piece length": 16384})})
+        missing_length = OrderedDict(
+            {b"announce": b"val", b"info": OrderedDict({b"name": b"name", b"pieces": b"00000000000000000000",
+                                                        b"piece length": 16384})})
+        missing_file_list = OrderedDict({b"announce": b"val", b"info": OrderedDict(
+            {b"files": [], b"name": b"name", b"pieces": b"00000000000000000000", b"piece length": 16384})})
+        invalid_file_list = OrderedDict({b"announce": b"val", b"info": OrderedDict(
+            {b"files": [OrderedDict({b"length": 12})], b"name": b"name", b"pieces": b"00000000000000000000",
+             b"piece length": 16384})})
+
+        bad_data = [no_keys, missing_key, missing_info_key, invalid_pieces_length, missing_length, missing_file_list,
+                    invalid_file_list]
+        for b in bad_data:
+            with self.subTest(b=b):
+                with self.assertRaises(torrent.CreationError):
+                    torrent._validate_torrent_dict(b)
