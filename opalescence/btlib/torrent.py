@@ -282,10 +282,13 @@ class Torrent:
             except EncodeError as ee:
                 raise CreationError from ee
 
+        logger.debug(f"Wrote .torrent file: {output_filename}")
+
     def _gather_files(self):
         """
         Gathers the files located in the torrent
         """
+        # TODO: filepaths are a list containing string elements that represent the path and filename
         if b"files" in self.meta_info[b"info"]:
             for f in self.meta_info[b"info"][b"files"]:
                 path = None

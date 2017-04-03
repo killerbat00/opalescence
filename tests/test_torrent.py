@@ -17,7 +17,7 @@ from tests.context import torrent, bencode
 
 class TestTorrent(TestCase):
     """
-    Tests the Torrent representation
+    Tests the Torrent representation.
     """
     external_torrent_path = os.path.abspath(os.path.dirname(__file__))
     torrent_url = "http://releases.ubuntu.com/16.04/ubuntu-16.04.2-desktop-amd64.iso.torrent"
@@ -27,25 +27,24 @@ class TestTorrent(TestCase):
         """
         Downloads an ubuntu torrent to use for testing.
         """
-        response = get(cls.torrent_url)
         cls.external_torrent_path = os.path.join(cls.external_torrent_path, cls.torrent_url.split("/")[-1])
-
-        if response.status_code == 200:
-            file_data = response.content
+        r = get(cls.torrent_url)
+        if r.status_code == 200:
+            file_data = r.content
             with open(cls.external_torrent_path, "wb+") as f:
                 f.write(file_data)
 
     @classmethod
     def tearDownClass(cls):
         """
-        Removes the test data directory created for testing
+        Removes the test data directory created for testing.
         """
         if os.path.exists(cls.external_torrent_path):
             os.remove(cls.external_torrent_path)
 
     def test_invalid_path(self):
         """
-        Test that an invalid path throws a CreationError
+        Test that an invalid path throws a CreationError.
         """
         invalid_path = "Doesn't exist"
         with self.subTest(msg="Invalid path"):
@@ -54,15 +53,15 @@ class TestTorrent(TestCase):
 
     def test_valid_path(self):
         """
-        Test that we get a torrent object from a valid path
+        Test that we get a torrent object from a valid path.
         """
         with self.subTest(msg="Valid path"):
             self.assertIsInstance(torrent.Torrent.from_file(self.external_torrent_path), torrent.Torrent)
 
     def test_invalid_torrent_metainfo(self):
         """
-        Test that invalid torrent metainfo throws an error
-        creates a copy of the externally created .torrent and randomly removes some data from it
+        Test that invalid torrent metainfo throws an error.
+        creates a copy of the externally created .torrent and randomly removes some data from it.
         """
         copy_file_name = os.path.join(os.path.dirname(self.external_torrent_path), "test_torrent_copy.torrent")
         copyfile(self.external_torrent_path, copy_file_name)
@@ -79,7 +78,7 @@ class TestTorrent(TestCase):
 
     def test__gather_files(self):
         """
-        Test that we gathered files appropriately
+        Test that we gathered files appropriately.
         """
         external_torrent = torrent.Torrent.from_file(self.external_torrent_path)
         filename = ".".join(os.path.basename(self.external_torrent_path).split(".")[:-1])
@@ -88,7 +87,7 @@ class TestTorrent(TestCase):
 
     def test_properties(self):
         """
-        Tests the properties of the torrent metainfo file
+        Tests the properties of the torrent metainfo file.
         """
         announce_urls = [["http://torrent.ubuntu.com:6969/announce"], ["http://ipv6.torrent.ubuntu.com:6969/announce"]]
         t = torrent.Torrent.from_file(self.external_torrent_path)
@@ -106,7 +105,7 @@ class TestTorrent(TestCase):
 
     def test_info_hash(self):
         """
-        Tests that the torrent's info hash property returns the correct info hash
+        Tests that the torrent's info hash property returns the correct info hash.
         """
         infohash_digest = b"\xdaw^J\xafV5\xefrX:9\x19w\xe5\xedo\x14a~"
         t = torrent.Torrent.from_file(self.external_torrent_path)
@@ -115,7 +114,7 @@ class TestTorrent(TestCase):
     def test_decode_recode_compare(self):
         """
         This should probably live in test_bencode.py, but resides here now since this class creates a .torrent
-        metainfo file with an external program
+        metainfo file with an external program.
 
         TODO: move this test to a more proper location
         """
@@ -146,7 +145,7 @@ class TestTorrent(TestCase):
     def test_decode_recode_decode_compare(self):
         """
         Decodes a torrent file created using an external program, reencodes that file to a .torrent,
-        decodes the resulting torrent and compares its dictionary with the original decoded dictionary
+        decodes the resulting torrent and compares its dictionary with the original decoded dictionary.
         """
         external_torrent = torrent.Torrent.from_file(self.external_torrent_path)
         original_data = external_torrent.meta_info

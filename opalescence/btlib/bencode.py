@@ -89,7 +89,7 @@ class Decoder:
         """
         Sets the data used by the decoder.
         Warning: _set_data does not check if the data passed in as an argument exists.
-        calling decode() after setting no data will return None
+        calling decode() after setting no data will return None.
 
         :param data: bytes of data to decode
         """
