@@ -2,11 +2,6 @@
 
 """
 Support for basic communication with a single peer - for now
-
-
-author: brian houston morrow
-
-TODO: connections to multiple peers
 """
 
 import asyncio

@@ -46,13 +46,14 @@ class Tracker:
         self.downloaded = 0
         self.left = 0
         self.event = "started"
-        self.peer_list = []
 
-    async def announce(self):
+    async def announce(self) -> "Response":
         """
         Makes an announce request to the tracker.
 
-        :raises TrackerCommError:
+        :raises TrackerCommError: if the tracker's HTTP code is not 200, the tracker sent a failure, or we
+                                  are unable to bdecode the tracker's response.
+        :returns: Response object representing the tracker's response
         """
         url = self._make_url()
 

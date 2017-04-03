@@ -28,19 +28,12 @@ class TestTorrent(TestCase):
         Downloads an ubuntu torrent to use for testing.
         """
         cls.external_torrent_path = os.path.join(cls.external_torrent_path, cls.torrent_url.split("/")[-1])
-        r = get(cls.torrent_url)
-        if r.status_code == 200:
-            file_data = r.content
-            with open(cls.external_torrent_path, "wb+") as f:
-                f.write(file_data)
-
-    @classmethod
-    def tearDownClass(cls):
-        """
-        Removes the test data directory created for testing.
-        """
-        if os.path.exists(cls.external_torrent_path):
-            os.remove(cls.external_torrent_path)
+        if not os.path.exists(cls.external_torrent_path):
+            r = get(cls.torrent_url)
+            if r.status_code == 200:
+                file_data = r.content
+                with open(cls.external_torrent_path, "wb+") as f:
+                    f.write(file_data)
 
     def test_invalid_path(self):
         """
