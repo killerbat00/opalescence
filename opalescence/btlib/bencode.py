@@ -19,8 +19,7 @@ from collections import OrderedDict
 from io import BytesIO
 from typing import Union
 
-logger = logging.getLogger('opalescence.' + __name__)
-logger.setLevel(logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 class BencodeRecursionError(Exception):

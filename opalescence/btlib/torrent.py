@@ -13,7 +13,7 @@ from typing import NamedTuple, List, Union
 
 from .bencode import Decoder, Encoder, DecodeError, EncodeError
 
-logger = logging.getLogger('opalescence.' + __name__)
+logger = logging.getLogger(__name__)
 
 
 class CreationError(Exception):
