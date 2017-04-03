@@ -39,7 +39,7 @@ class Tracker:
     def __init__(self, torrent: Torrent):
         self.torrent = torrent
         self.http_client = aiohttp.ClientSession()
-        self.peer_id = ("-OP0020-" + str(random.randint(100000000000, 999999999999))).encode("UTF-8")
+        self.peer_id = ("-OP0001-" + ''.join([str(random.randint(0, 9)) for _ in range(12)])).encode("UTF-8")
         self.tracker_id = None
         self.port = 6881
         self.uploaded = 0
