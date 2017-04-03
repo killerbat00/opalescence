@@ -13,3 +13,5 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from opalescence import bencode
 # noinspection PyUnresolvedReferences
 from opalescence import torrent
+# noinspection PyUnresolvedReferences
+from opalescence import tracker

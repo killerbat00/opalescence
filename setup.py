@@ -10,7 +10,7 @@ with open("VERSION") as version_file:
     version = version_file.read()
 
 requirements = [
-    "requests"
+    "requests", 'aiohttp'
 ]
 
 setup(
