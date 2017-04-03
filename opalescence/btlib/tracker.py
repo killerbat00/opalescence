@@ -33,6 +33,9 @@ class Tracker:
     Does not support the scrape convention.
     """
 
+    # TODO: implement announce-list extension support.
+    # TODO: implement scrape convention support
+
     def __init__(self, torrent: Torrent):
         self.torrent = torrent
         self.http_client = aiohttp.ClientSession()
@@ -81,6 +84,7 @@ class Tracker:
 
         ;return: tracker's announce url with correctly escaped and encoded parameters
         """
+        # TODO: implement proper announce-list handling
         return self.torrent.meta_info[b"announce"].decode("UTF-8") + "?" + urlencode(self._make_params())
 
     def _make_params(self) -> dict:

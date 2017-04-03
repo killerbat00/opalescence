@@ -1,5 +1,9 @@
-#!/usr/bin/env python
+# !/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+"""
+setuptools script for opalescence
+"""
 
 from setuptools import setup
 

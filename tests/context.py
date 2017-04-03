@@ -1,5 +1,5 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
 """
 Provides a context for test files so the package's files will be resolved properly
 """
@@ -15,3 +15,5 @@ from opalescence import bencode
 from opalescence import torrent
 # noinspection PyUnresolvedReferences
 from opalescence import tracker
+# noinspection PyUnresolvedReferences
+from opalescence import peer

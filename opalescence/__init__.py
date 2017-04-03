@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 
+"""
+Package containing the main opalescence logic
+"""
+
 from .btlib import *
 
 __author__ = """Brian Houston Morrow"""

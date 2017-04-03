@@ -8,8 +8,8 @@ import asyncio
 import os
 import socket
 import struct
-from copy import copy
 from unittest import TestCase, mock
+from urllib.parse import urlencode
 
 from requests import get
 
@@ -109,6 +109,15 @@ class TestTracker(TestCase):
         self.assertDictEqual(tt._make_params(), expected_params)
         tt.close()
 
+    def test__make_url(self):
+        """
+        tests that we properly construct the url for the announce call
+        """
+        tt = tracker.Tracker(self.torrent)
+        expected_url = "http://torrent.ubuntu.com:6969/announce?" + urlencode(tt._make_params())
+        self.assertEqual(tt._make_url(), expected_url)
+        tt.close()
+
     def test_announce(self):
         """
         Tests the announce method of a tracker
@@ -116,22 +125,26 @@ class TestTracker(TestCase):
         t = tracker.Tracker(self.torrent)
         resp = _run(t.announce())
         self.assertIsInstance(resp, tracker.Response)
+        self.assertFalse(resp.failed)
         t.close()
 
     def test_invalid_request(self):
         """
         Tests that announce fails with an invalid request
         """
-        t = copy(self.torrent)
-        t.meta_info[b"announce"] = b"invalid announce"
-        track = tracker.Tracker(t)
-        with self.subTest(msg="Invalid URL"):
+        track = tracker.Tracker(self.torrent)
+        track._make_url = mock.MagicMock(return_value="malformed url")
+        with self.subTest(msg="Malformed URL"):
             self.assertRaises(ValueError, _run, track.announce())
         track.close()
-        t.meta_info[b"announce"] = b"http://httpstat.us/404"
-        track = tracker.Tracker(t)
-        with self.subTest(msg="Bogus URL"):
-            self.assertRaises(tracker.TrackerCommError, _run, track.announce())
+
+        track = tracker.Tracker(self.torrent)
+        with mock.patch("aiohttp.ClientSession.get", new_callable=create_async_mock(b"", 404)) as mocked_get:
+            with self.subTest(msg="Non 200 HTTP response"):
+                self.assertRaises(tracker.TrackerCommError, _run, track.announce())
+                mocked_get.assert_called_once()
+                mocked_get.assert_called_once_with(track._make_url())
+
         track.close()
 
     def test_invalid_params(self):
@@ -140,7 +153,7 @@ class TestTracker(TestCase):
         """
         track = tracker.Tracker(self.torrent)
         track._make_params = mock.MagicMock(return_value={})
-        with self.subTest(msg="empty params"):
+        with self.subTest(msg="Empty params"):
             self.assertRaises(tracker.TrackerCommError, _run, track.announce())
         track.close()
 
@@ -149,27 +162,31 @@ class TestTracker(TestCase):
         Tests that a request to a page that returns a non bencoded
         dictionary throws a TrackerCommError (from a DecodeError)
         """
-        t = copy(self.torrent)
-        t.meta_info[b"announce"] = b"http://httpstat.us/200"
-        track = tracker.Tracker(t)
-        with self.subTest(msg="Valid 200 status, invalid data"):
-            self.assertRaises(tracker.TrackerCommError, _run, track.announce())
+        data = b"Not bencoded."
+        code = 200
+        track = tracker.Tracker(self.torrent)
+        with mock.patch("aiohttp.ClientSession.get", new_callable=create_async_mock(data, code)) as mocked_get:
+            with self.subTest(msg="Valid 200 HTTP response, invalid data."):
+                self.assertRaises(tracker.TrackerCommError, _run, track.announce())
+                mocked_get.assert_called_once()
+                mocked_get.assert_called_once_with(track._make_url())
         track.close()
 
     def test_failed_response(self):
         """
         Tests that a tracker response that failed (contains b"failure reason") throws a TrackerCommError
+        and properly finds the failure reason
         """
+        data = b"d14:failure reason14:mock mock mocke"
+        status = 200
+        track = tracker.Tracker(self.torrent)
         with self.subTest(msg="Failure reason key"):
-            data = b"d14:failure reason14:mock mock mocke"
-            status = 200
             with mock.patch("aiohttp.ClientSession.get", new_callable=create_async_mock(data, status)) as mocked_get:
-                track = tracker.Tracker(self.torrent)
                 with self.assertRaises(tracker.TrackerCommError):
                     _run(track.announce())
-                track.close()
                 mocked_get.assert_called_once()
                 mocked_get.assert_called_with(track._make_url())
+        track.close()
 
 
 class TestResponse(TestCase):
