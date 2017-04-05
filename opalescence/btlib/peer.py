@@ -20,7 +20,6 @@ class PeerError(Exception):
     """
     Raised when we encounter an error communicating with the peer.
     """
-    pass
 
 
 class MessageReader:
@@ -55,9 +54,7 @@ class Peer:
 
     async def parse_msg(self):
         """
-        Parses a message from the data buffer, requesting more from the reader, if necessary, consumes it,
-        and returns it to be handled
-        :return: Message instance describing message
+        Parses a message from the data buffer, requesting more from the reader, if necessary, consumes it
         """
         if not self.data_buffer or len(self.data_buffer) < 4:
             try:
@@ -114,6 +111,10 @@ class Peer:
 
                     logger.debug(f"{self}: sent bitfield {bitfield}")
                     self.data_buffer = self.data_buffer[msg_len - 1:]
+                    msg = struct.pack(">IB", 1, 2)
+                    self.writer.write(msg)
+                    await self.writer.drain()
+                    logger.debug(f"Sent interested message to {self}")
                 elif msg_id == 6:
                     logger.debug(f"{self}: sent request message.")
 

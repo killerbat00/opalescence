@@ -3,7 +3,6 @@
 """
 Contains tests for the peer functionality of btlib
 """
-import asyncio
 import os
 from unittest import TestCase
 
@@ -52,10 +51,12 @@ class TestPeer(TestCase):
         for p in peers:
             pp = peer.Peer(p[0], p[1], self.torrent.info_hash, self.tracker.peer_id)
             try:
-                async_run(asyncio.wait_for(pp._start(), 5.0))
-            except asyncio.futures.TimeoutError:
-                print("TimeoutError")
-                continue
-            except OSError:
+                async_run(pp._start())
+            except peer.PeerError:
                 print("OSError")
                 continue
+
+    def test_handshake(self):
+        """
+        Tests that we can negotiate a handshake with a remote peer.
+        """

@@ -17,3 +17,5 @@ from opalescence import torrent
 from opalescence import tracker
 # noinspection PyUnresolvedReferences
 from opalescence import peer
+# noinspection PyUnresolvedReferences
+from opalescence import client
