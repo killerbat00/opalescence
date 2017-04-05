@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 
 """
-Support for basic communication with a single peer - for now
+Support for basic communication with a peer.
+The piece-requesting strategy is naive at the moment. We request pieces (and blocks) starting at index 0.
+No data is currently written to disk or sent.
 """
 import asyncio
 import logging
 import struct
+
+import bitstring as bitstring
 
 from . import log_and_raise
 
@@ -17,6 +21,12 @@ class PeerError(Exception):
     Raised when we encounter an error communicating with the peer.
     """
     pass
+
+
+class MessageReader:
+    """
+    Reads a message from a StreamReader and tries to parse valid BitTorrent protocol messages
+    """
 
 
 class Peer:
@@ -69,6 +79,15 @@ class Peer:
                 elif msg_id == 1:
                     logger.debug(f"{self}: sent unchoke message.")
                     self.peer_choking = False
+                    msg = struct.pack(">IB", 1, 2)
+                    self.writer.write(msg)
+                    await self.writer.drain()
+                    logger.debug(f"Sent interested message to {self}")
+
+                    msg = struct.pack(">IBIII", 13, 6, 0, 0, 2 ** 14)
+                    self.writer.write(msg)
+                    await self.writer.drain()
+                    logger.debug(f"Sent request for the very first block of the first piece.")
                 elif msg_id == 2:
                     logger.debug(f"{self}: sent interested message.")
                     self.peer_interested = True
@@ -90,7 +109,9 @@ class Peer:
                     while len(self.data_buffer) < msg_len - 1:
                         self.data_buffer += await self.reader.read(10 * 1024)
 
-                    bitfield = self.data_buffer[:msg_len - 1]
+                    bitfield = struct.unpack(f">{msg_len - 1}s", self.data_buffer[:msg_len - 1])[0]
+                    bitfield = bitstring.BitArray(bytes=bitfield)
+
                     logger.debug(f"{self}: sent bitfield {bitfield}")
                     self.data_buffer = self.data_buffer[msg_len - 1:]
                 elif msg_id == 6:
@@ -176,6 +197,9 @@ class Handshake:
     def __init__(self, info_hash: bytes, peer_id: bytes):
         self.info_hash = info_hash
         self.peer_id = peer_id
+
+    def __str__(self):
+        return f"{self.info_hash}:{self.peer_id}"
 
     def encode(self) -> bytes:
         """
