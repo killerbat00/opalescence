@@ -37,7 +37,7 @@ class TestTorrent(TestCase):
 
     def test_invalid_path(self):
         """
-        Test that an invalid path throws a CreationError.
+        Test that an invalid path log_and_raise a CreationError.
         """
         invalid_path = "Doesn't exist"
         with self.subTest(msg="Invalid path"):
@@ -53,7 +53,7 @@ class TestTorrent(TestCase):
 
     def test_invalid_torrent_metainfo(self):
         """
-        Test that invalid torrent metainfo throws an error.
+        Test that invalid torrent metainfo log_and_raise an error.
         creates a copy of the externally created .torrent and randomly removes some data from it.
         """
         copy_file_name = os.path.join(os.path.dirname(self.external_torrent_path), "test_torrent_copy.torrent")

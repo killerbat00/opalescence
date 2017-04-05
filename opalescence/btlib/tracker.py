@@ -14,12 +14,13 @@ from urllib.parse import urlencode
 import aiohttp
 
 from opalescence.btlib import bencode
+from . import log_and_raise
 from .torrent import Torrent
 
 logger = logging.getLogger(__name__)
 
 
-class TrackerCommError(Exception):
+class TrackerError(Exception):
     """
     Raised when we encounter an error while communicating with the tracker.
     """
@@ -34,7 +35,7 @@ class Tracker:
     """
 
     # TODO: implement announce-list extension support.
-    # TODO: implement scrape convention support
+    # TODO: implement scrape convention support.
 
     def __init__(self, torrent: Torrent):
         self.torrent = torrent
@@ -51,39 +52,57 @@ class Tracker:
         """
         Makes an announce request to the tracker.
 
-        :raises TrackerCommError: if the tracker's HTTP code is not 200, the tracker sent a failure, or we
-                                  are unable to bdecode the tracker's response.
+        :raises TrackerError: if the tracker's HTTP code is not 200, the tracker sent a failure, or we
+                              are unable to bdecode the tracker's response.
         :returns: Response object representing the tracker's response
         """
         url = self._make_url()
+        decoded_data = None
 
-        logger.debug(f"Making announce request: {url}")
+        logger.debug(f"Making {self.event} announce to: {url}")
         async with self.http_client.get(url) as r:
             data = await r.read()
             if r.status != 200:
-                error_msg = f"Unable to connect to the tracker.\n{data}"
-                logger.error(error_msg)
-                raise TrackerCommError(error_msg)
+                log_and_raise(f"Unable to connect to the tracker.\n{data}", logger, TrackerError)
 
             try:
                 decoded_data = bencode.Decoder(data).decode()
             except bencode.DecodeError as e:
-                error_msg = f"Unable to decode tracker response {data}"
-                logger.error(error_msg)
-                raise TrackerCommError(error_msg) from e
+                log_and_raise(f"Unable to decode tracker response.\n{data}", logger, TrackerError, e)
+
             tr = Response(decoded_data)
             if tr.failed:
-                error_msg = f"Announce call to tracker {url} failed.\n{tr.failure_reason}"
-                logger.error(error_msg)
-                raise TrackerCommError(error_msg)
+                log_and_raise(f"Failed announce call to tracker {url}\n{tr.failure_reason}", logger, TrackerError)
+
+            if self.event:
+                self.event = ""
             return Response(decoded_data)
+
+    async def cancel(self) -> None:
+        """
+        Informs the tracker we are gracefully shutting down.
+        :raises TrackerError:
+        """
+        self.event = "stopped"
+        await self.announce()
+        return
+
+    async def completed(self) -> None:
+        """
+        Informs the tracker we have completed downloading this torrent
+        :raises TrackerError:
+        """
+        self.event = "completed"
+        await self.announce()
+        return
 
     def _make_url(self) -> str:
         """
         Builds and escapes the url used to communicate with the tracker.
         Currently only uses the announce key
 
-        ;return: tracker's announce url with correctly escaped and encoded parameters
+        :raises TrackerError:
+        :return: tracker's announce url with correctly escaped and encoded parameters
         """
         # TODO: implement proper announce-list handling
         return self.torrent.meta_info[b"announce"].decode("UTF-8") + "?" + urlencode(self._make_params())
@@ -94,7 +113,6 @@ class Tracker:
 
         :return: dictionary of properly encoded parameters
         """
-        # TODO: implement proper tracker event sending
         return {"info_hash": self.torrent.info_hash,
                 "peer_id": self.peer_id,
                 "port": self.port,
@@ -123,11 +141,9 @@ class Response:
     @property
     def failure_reason(self) -> Union[str, None]:
         """
-        If the request failed, this will be the only key
         :return: the failure reason
         """
         if self.failed:
-            # not sure if this should be decoded or not
             return self.data[b"failure reason"].decode("UTF-8")
         return None
 
@@ -150,7 +166,10 @@ class Response:
         """
         :return: the tracker id
         """
-        return self.data.get(b"tracker id")
+        tracker_id = self.data.get(b"tracker id")
+        if tracker_id:
+            return tracker_id.decode("UTF-8")
+        return
 
     @property
     def complete(self) -> int:
@@ -169,6 +188,7 @@ class Response:
     @property
     def peers(self) -> Union[list, None]:
         """
+        :raises TrackerError:
         :return: the list of peers. The response can be given as a list of dictionaries about the peers, or a string
         encoding the ip address and ports for the peers
         """
@@ -185,6 +205,4 @@ class Response:
             logger.debug("Decoding dictionary model peers.")
             return [(p[b"ip"].decode("UTF-8"), p[b"port"]) for p in peers]
         else:
-            error_msg = f"Unable to decode peers: {peers}."
-            logger.error(error_msg)
-            raise TrackerCommError(error_msg)
+            log_and_raise(f"Unable to decode peers {peers}", logger, TrackerError)

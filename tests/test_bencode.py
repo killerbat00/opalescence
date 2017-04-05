@@ -80,7 +80,7 @@ class TestDecoder(TestCase):
             self.assertEqual(decoder._decode(), eof)
 
         with self.subTest(msg="Testing _decode with only the end of a dictionary (or list, or int)."):
-            decoder._set_data(bencode._Delims.DICT_END)  # empty dictionary also ends recursion
+            decoder._set_data(bencode.BencodeDelimiters.end)  # empty dictionary also ends recursion
             self.assertEqual(decoder._decode(), eof)
 
         with self.subTest(msg="Testing _decode with an empty dictionary."):
@@ -199,7 +199,7 @@ class TestDecoder(TestCase):
         decoder = bencode.Decoder(data)
         with self.subTest(msg="Emtpy integer and onlydelim."):
             with self.assertRaises(bencode.DecodeError):
-                decoder._parse_num(bencode._Delims.NUM_END)
+                decoder._parse_num(bencode.BencodeDelimiters.end)
 
         data = b"1^"
         with self.subTest(msg="Non-traditional delimiters."):
@@ -210,19 +210,19 @@ class TestDecoder(TestCase):
         with self.subTest(msg="Not a digit or '-'."):
             with self.assertRaises(bencode.DecodeError):
                 decoder._set_data(data)
-                decoder._parse_num(bencode._Delims.NUM_END)
+                decoder._parse_num(bencode.BencodeDelimiters.end)
 
         data = b"01e"
         with self.subTest(msg="Leading zero."):
             with self.assertRaises(bencode.DecodeError):
                 decoder._set_data(data)
-                decoder._parse_num(bencode._Delims.NUM_END)
+                decoder._parse_num(bencode.BencodeDelimiters.end)
 
         data = b"-0e"
         with self.subTest(msg="Negative zero."):
             with self.assertRaises(bencode.DecodeError):
                 decoder._set_data(data)
-                decoder._parse_num(bencode._Delims.NUM_END)
+                decoder._parse_num(bencode.BencodeDelimiters.end)
 
 
 class TestEncoder(TestCase):

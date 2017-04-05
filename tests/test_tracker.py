@@ -83,6 +83,26 @@ class TestTracker(TestCase):
         self.assertFalse(resp.failed)
         t.close()
 
+    def test_cancel(self):
+        """
+        Tests the cancel announce call to the tracker
+        """
+        t = tracker.Tracker(self.torrent)
+        t.announce = create_async_mock()
+        async_run(t.cancel())
+        self.assertEqual(t.event, "stopped")
+        t.announce.assert_called_once()
+
+    def test_completed(self):
+        """
+        Tests the completed announce call to the tracker
+        """
+        t = tracker.Tracker(self.torrent)
+        t.announce = create_async_mock()
+        async_run(t.completed())
+        self.assertEqual(t.event, "completed")
+        t.announce.assert_called_once()
+
     def test_invalid_request(self):
         """
         Tests that announce fails with an invalid request
@@ -94,9 +114,10 @@ class TestTracker(TestCase):
         track.close()
 
         track = tracker.Tracker(self.torrent)
-        with mock.patch("aiohttp.ClientSession.get", new_callable=create_async_mock(b"", 404)) as mocked_get:
+        with mock.patch("aiohttp.ClientSession.get",
+                        new_callable=create_async_mock(data=b"", status=404)) as mocked_get:
             with self.subTest(msg="Non 200 HTTP response"):
-                self.assertRaises(tracker.TrackerCommError, async_run, track.announce())
+                self.assertRaises(tracker.TrackerError, async_run, track.announce())
                 mocked_get.assert_called_once()
                 mocked_get.assert_called_once_with(track._make_url())
 
@@ -104,40 +125,42 @@ class TestTracker(TestCase):
 
     def test_invalid_params(self):
         """
-        Tests that a TrackerCommError is thrown when we send the tracker invalid parameters
+        Tests that a TrackerError is thrown when we send the tracker invalid parameters
         """
         track = tracker.Tracker(self.torrent)
         track._make_params = mock.MagicMock(return_value={})
         with self.subTest(msg="Empty params"):
-            self.assertRaises(tracker.TrackerCommError, async_run, track.announce())
+            self.assertRaises(tracker.TrackerError, async_run, track.announce())
         track.close()
 
     def test_valid_request_bad_data(self):
         """
         Tests that a request to a page that returns a non bencoded
-        dictionary throws a TrackerCommError (from a DecodeError)
+        dictionary log_and_raise a TrackerError (from a DecodeError)
         """
         data = b"Not bencoded."
         code = 200
         track = tracker.Tracker(self.torrent)
-        with mock.patch("aiohttp.ClientSession.get", new_callable=create_async_mock(data, code)) as mocked_get:
+        with mock.patch("aiohttp.ClientSession.get",
+                        new_callable=create_async_mock(data=data, status=code)) as mocked_get:
             with self.subTest(msg="Valid 200 HTTP response, invalid data."):
-                self.assertRaises(tracker.TrackerCommError, async_run, track.announce())
+                self.assertRaises(tracker.TrackerError, async_run, track.announce())
                 mocked_get.assert_called_once()
                 mocked_get.assert_called_once_with(track._make_url())
         track.close()
 
     def test_failed_response(self):
         """
-        Tests that a tracker response that failed (contains b"failure reason") throws a TrackerCommError
+        Tests that a tracker response that failed (contains b"failure reason") log_and_raise a TrackerError
         and properly finds the failure reason
         """
         data = b"d14:failure reason14:mock mock mocke"
         status = 200
         track = tracker.Tracker(self.torrent)
         with self.subTest(msg="Failure reason key"):
-            with mock.patch("aiohttp.ClientSession.get", new_callable=create_async_mock(data, status)) as mocked_get:
-                with self.assertRaises(tracker.TrackerCommError):
+            with mock.patch("aiohttp.ClientSession.get",
+                            new_callable=create_async_mock(data=data, status=status)) as mocked_get:
+                with self.assertRaises(tracker.TrackerError):
                     async_run(track.announce())
                 mocked_get.assert_called_once()
                 mocked_get.assert_called_with(track._make_url())

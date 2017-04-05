@@ -11,6 +11,7 @@ import os
 from collections import OrderedDict
 from typing import NamedTuple, List, Union
 
+from . import log_and_raise
 from .bencode import Decoder, Encoder, DecodeError, EncodeError
 
 logger = logging.getLogger(__name__)
@@ -61,31 +62,21 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
     dict_keys = list(decoded_dict.keys())
 
     if not dict_keys:
-        error_msg = "No valid keys in dictionary."
-        logger.error(error_msg)
-        raise CreationError(error_msg)
+        log_and_raise("No valid keys in dictionary.", logger, CreationError)
     for key in min_req_keys:
         if key not in dict_keys:
-            error_msg = f"Required key not found: {key}."
-            logger.error(error_msg)
-            raise CreationError(error_msg)
+            log_and_raise(f"Required key not found: {key}", logger, CreationError)
 
     info_keys = list(decoded_dict[b"info"].keys())
 
     if not info_keys:
-        error_msg = "No valid keys in info dictionary."
-        logger.error(error_msg)
-        raise CreationError(error_msg)
+        log_and_raise("No valid keys in info dictionary.", logger, CreationError)
     for key in min_info_req_keys:
         if key not in info_keys:
-            error_msg = f"Required key not found: {key}."
-            logger.error(error_msg)
-            raise CreationError(error_msg)
+            log_and_raise(f"Required key not found: {key}", logger, CreationError)
 
     if len(decoded_dict[b"info"][b"pieces"]) % 20 != 0:
-        error_msg = "Piece length not a multiple of 20."
-        logger.error(error_msg)
-        raise CreationError(error_msg)
+        log_and_raise("Piece length not a multiple of 20.", logger, CreationError)
 
     multiple_files = b"files" in info_keys
 
@@ -93,20 +84,14 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
         file_list = decoded_dict[b"info"][b"files"]
 
         if not file_list:
-            error_msg = "No file list."
-            logger.error(error_msg)
-            raise CreationError(error_msg)
+            log_and_raise("No file list.", logger, CreationError)
         for f in file_list:
             for key in min_files_req_keys:
                 if key not in f.keys():
-                    error_msg = f"Required key not found: {key}."
-                    logger.error(error_msg)
-                    raise CreationError(error_msg)
+                    log_and_raise(f"Required key not found: {key}", logger, CreationError)
     else:
         if b"length" not in info_keys:
-            error_msg = "Required key not found: b'length'."
-            logger.error(error_msg)
-            raise CreationError(error_msg)
+            log_and_raise("Required key not found: b'length'", logger, CreationError)
     # we made it!
     return True
 
@@ -135,15 +120,14 @@ class Torrent:
         Class method to create a torrent object from a .torrent metainfo file
 
         :param filename: path to .torrent file
+        :raises CreationError:
         :return: Torrent instance
         """
         torrent = cls()
         torrent.filename = filename
 
         if not os.path.exists(torrent.filename):
-            error_msg = f"Path does not exist {filename}."
-            logger.error(error_msg)
-            raise CreationError(error_msg)
+            log_and_raise(f"Path does not exist {filename}", logger, CreationError)
 
         try:
             with open(torrent.filename, 'rb') as f:
@@ -157,7 +141,6 @@ class Torrent:
 
         torrent._gather_files()
         logger.debug(f"Created a torrent from {filename}")
-
         return torrent
 
     @classmethod
@@ -172,18 +155,18 @@ class Torrent:
         :param comment:
         :param piece_size:
         :param private:
-        :return:            Torrent instance
-        :raises:            CreationError
+        :raises CreationError:
         """
+        raise NotImplementedError
 
     def _collect_pieces(self):
         """
         The real workhorse of torrent creation.
         Reads through all specified files, breaking them into piece_length chunks and storing their 20byte sha1
         digest into the pieces list
-        :raises: CreationError
+        :raises CreationError:
         """
-        pass
+        raise NotImplementedError
         # if not self.base_location:
         #    logger.error("Unable to create_torrent torrent. No base path specified. This is a programmer error.")
         #    raise CreationError
@@ -228,8 +211,8 @@ class Torrent:
         :param comment:    optional,torrent's comment,defaults to ""
         :param piece_size: optional,piece size,defaults to default 16384
         :param private:    optional,private torrent?,defaults to False
+        :raises CreationError:
         :return:           Torrent object
-        :raises:           CreationError
         """
         raise NotImplementedError
         # files = []
@@ -269,11 +252,10 @@ class Torrent:
         Writes the torrent metainfo dictionary back to a .torrent file
 
         :param output_filename: The output filename of the torrent
+        :raises CreationError:
         """
         if not output_filename:
-            error_msg = "Torrent must have an output filename."
-            logger.error(error_msg)
-            raise CreationError(error_msg)
+            log_and_raise("Torrent must have an output filename.", logger, CreationError)
 
         with open(output_filename, 'wb+') as f:
             try:

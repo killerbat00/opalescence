@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 """
 Utilities used when testing.
 """
@@ -16,10 +17,10 @@ def async_run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-def create_async_mock(data: bytes, status: int):
+def create_async_mock(data: bytes = None, status: int = None):
     """
-    Creates a MagicMock function object that will behaves like an async coroutine and that can be used
-    to replace a function used in an async with statement
+    Creates a subclassed MagicMock that will behaves like an async coroutine and that can be used
+    to replace an object used in an async with statement
     :param data:   data that will be returned when the mock connection is read
     :param status: the mock connection's status
     """
@@ -40,5 +41,8 @@ def create_async_mock(data: bytes, status: int):
 
         async def __aexit__(self, *_):
             pass
+
+        def __await__(self):
+            yield
 
     return AsyncMock()
