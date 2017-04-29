@@ -87,13 +87,8 @@ class Requester:
             offset = pc_msg.begin + msg_data_len
             needed_length = self.piece_length - offset
             self.partial_pieces[pc_msg.index] = pc_msg
-            while needed_length > 0:
-                if needed_length > Request.size:
-                    self.pending_requests.append(Request(pc_msg.index, self.piece_length - Request.size))
-
             if needed_length > Request.size:
                 self.pending_requests.append(Request(pc_msg.index, offset))
-                self.pending_requests
                 self.pending_requests.append(Request(pc_msg.index))
             self.pending_requests.append(Request(pc_msg.index, offset, needed_length))
 
