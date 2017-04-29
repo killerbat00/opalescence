@@ -1,25 +1,10 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-"""
-Support for basic communication with a peer.
-The piece-requesting strategy is naive at the moment. We request pieces (and blocks) starting at index 0.
-No data is currently written to disk or sent.
-"""
 import asyncio
-import logging
+import io
 import struct
 
 import bitstring as bitstring
-
-from . import log_and_raise
-
-logger = logging.getLogger(__name__)
-
-
-class PeerError(Exception):
-    """
-    Raised when we encounter an error communicating with the peer.
-    """
 
 
 class Message:
@@ -29,6 +14,7 @@ class Message:
     Messages (except the initial handshake) look like:
     <Length prefix><Message ID><Payload>
     """
+
     def __str__(self):
         return str(type(self))
 
@@ -213,7 +199,7 @@ class Request(Message):
     def __str__(self):
         return f"{self.index}:{self.begin}:{self.length}"
 
-    def __init__(self, index: int, begin: int, length: int=size):
+    def __init__(self, index: int, begin: int, length: int = size):
         self.index = index
         self.begin = begin
         self.length = length
@@ -234,9 +220,26 @@ class Request(Message):
         return cls(request[0], request[1], request[2])
 
 
-class Piece(Message):
+class Piece:
     """
-    piece message
+    Represents a piece of the torrent.
+    Pieces are made up of blocks.
+
+    Not really a message itself
+    """
+
+    def __init__(self, index, length):
+        self.index = index
+        self.length = length
+        self.data = io.BytesIO()
+        self.remaining_bytes = self.length
+        self.peers = []
+
+
+class Block(Message):
+    """
+    piece message.
+    This is really used to send blocks, which are smaller than Pieces
 
     <0009+X><7><index><begin><block>
     """
@@ -246,8 +249,8 @@ class Piece(Message):
         return f"{self.index}:{self.begin}:{self.data}"
 
     def __init__(self, index: int, begin: int, data: bytes):
-        self.index = index
-        self.begin = begin
+        self.index = index  # index of the actual piece
+        self.begin = begin  # offset into the piece
         self.data = data
 
     def encode(self) -> bytes:
@@ -255,15 +258,15 @@ class Piece(Message):
         :return: the piece message encoded in bytes
         """
         data_len = len(self.data)
-        return struct.pack(f">IBII{data_len}s", 9 + data_len, Piece.msg_id,
+        return struct.pack(f">IBII{data_len}s", 9 + data_len, Block.msg_id,
                            self.index, self.begin, self.data)
 
     @classmethod
-    def decode(cls, data: bytes) -> "Piece":
+    def decode(cls, data: bytes) -> "Block":
         """
         :return: a decoded piece message
         """
-        data_len = len(data)
+        data_len = len(data) - 8  # account for the index and begin bytes
         piece_data = struct.unpack(f">II{data_len}s", data)
         return cls(piece_data[0], piece_data[1], piece_data[2])
 
@@ -280,7 +283,7 @@ class Cancel(Message):
     def __str__(self):
         return f"{self.index}:{self.begin}:{self.length}"
 
-    def __init__(self, index: int, begin: int, length: int=size):
+    def __init__(self, index: int, begin: int, length: int = size):
         self.index = index
         self.begin = begin
         self.length = length
@@ -356,6 +359,7 @@ class MessageReader:
             return KeepAlive()
 
         msg_id = struct.unpack(">B", await self._consume(1))[0]
+        msg_len -= 1  # the msg_len includes 1 byte for the id, we've consumed that already
 
         if msg_id == 0:
             return Choke()
@@ -366,130 +370,19 @@ class MessageReader:
         elif msg_id == 3:
             return NotInterested()
         elif msg_id == 4:
-            have_index = await self._consume(msg_len - 1)
-            return Have.decode(have_index[1:])
+            have_index = await self._consume(msg_len)
+            return Have.decode(have_index)
         elif msg_id == 5:
-            bitfield = await self._consume(msg_len - 1)
-            return Bitfield.decode(bitfield[1:])
+            bitfield = await self._consume(msg_len)
+            return Bitfield.decode(bitfield)
         elif msg_id == 6:
-            request = await self._consume(msg_len - 1)
-            return Request.decode(request[1:])
+            request = await self._consume(msg_len)
+            return Request.decode(request)
         elif msg_id == 7:
-            piece = await self._consume(msg_len - 1)
-            return Piece.decode(piece[1:])
+            piece = await self._consume(msg_len)
+            return Block.decode(piece)
         elif msg_id == 8:
-            cancel = await self._consume(msg_len - 1)
-            return Cancel.decode(cancel[1:])
+            cancel = await self._consume(msg_len)
+            return Cancel.decode(cancel)
         else:
             raise StopAsyncIteration()
-
-
-class Peer:
-    """
-    Represents a peer and provides methods for communicating with said peer.
-    """
-
-    def __init__(self, ip, port, info_hash, peer_id):
-        self.ip = ip
-        self.port = port
-        self.info_hash = info_hash
-        self.id = peer_id
-        self.peer_id = None
-        self.reader = None
-        self.writer = None
-        self.am_choking = True
-        self.am_interested = False
-        self.peer_choking = True
-        self.peer_interested = False
-        self.alive = True
-        self.data_buffer = b''
-        # self.future = asyncio.ensure_future(self._start())
-
-    def __str__(self):
-        return f"{self.ip}:{self.port}"
-
-    async def handshake(self) -> bytes:
-        """
-        Negotiates the initial handshake with the peer.
-
-        :raises PeerError:
-        :return: remaining data we've read from the reader
-        """
-        # TODO: validate the peer id we receive is the same as from the tracker
-        sent_handshake = Handshake(self.info_hash, self.id)
-        self.writer.write(sent_handshake.encode())
-        await self.writer.drain()
-
-        data = b''
-        while len(data) < Handshake.msg_len:
-            data = await self.reader.read(10 * 1024)
-            if not data:
-                log_and_raise(f"{self}: Unable to initiate handshake", logger,
-                              PeerError)
-
-        rcvd = Handshake.decode(data[:Handshake.msg_len])
-
-        if rcvd.info_hash != self.info_hash:
-            log_and_raise(f"{self}: Incorrect info hash received.", logger,
-                          PeerError)
-
-        logger.debug(f"{self}: Successfully negotiated handshake.")
-        return data[Handshake.msg_len:]
-
-    async def interested(self):
-        """
-        Sends the interested message to the peer.
-        The peer should unchoke us after this.
-        """
-        self.writer.write(Interested.encode())
-        await self.writer.drain()
-        self.am_interested = True
-        logger.debug(f"Sent interested message to {self}")
-
-    async def _start(self):
-        # TODO: scan valid bittorrent ports (6881-6889)
-        try:
-            self.reader, self.writer = await asyncio.open_connection(
-                host=self.ip, port=self.port)
-
-            logger.debug(f"{self}: Opened connection.")
-            data = await self.handshake()
-
-            await self.interested()
-
-            while self.alive:
-                async for msg in MessageReader(self.reader, data):
-                    if isinstance(msg, KeepAlive):
-                        logger.debug(f"{self}: Sent {msg}")
-                    elif isinstance(msg, Choke):
-                        self.peer_choking = True
-                        logger.debug(f"{self}: Sent {msg}")
-                    elif isinstance(msg, Unchoke):
-                        self.peer_choking = False
-                        logger.debug(f"{self}: Sent {msg}")
-                    elif isinstance(msg, Interested):
-                        self.peer_interested = True
-                        logger.debug(f"{self}: Sent {msg}")
-                    elif isinstance(msg, NotInterested):
-                        self.peer_interested = False
-                        logger.debug(f"{self}: Sent {msg}")
-                    elif isinstance(msg, Have):
-                        logger.debug(f"{self}: Has {msg}")
-                    elif isinstance(msg, Bitfield):
-                        logger.debug(f"{self}: Bitfield {msg}")
-                    elif isinstance(msg, Request):
-                        logger.debug(f"{self}: Requested {msg}")
-                    elif isinstance(msg, Piece):
-                        logger.debug(f"{self}: Piece {msg}")
-                    elif isinstance(msg, Cancel):
-                        logger.debug(f"{self}: Canceled {msg}")
-                    else:
-                        raise PeerError("Unsupported message type.")
-
-                    if not self.peer_choking and self.am_interested:
-                        logger.debug(f"Requesting piece from {self}")
-
-        except Exception as e:
-            logger.debug(f"{self}: Unable to open connection.")
-            raise PeerError from e
-
