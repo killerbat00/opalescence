@@ -36,7 +36,6 @@ setup(
     classifiers=[
         "Development Status :: 4 - Beta",
         "License :: OSI Approved :: MIT License",
-        "Natural Language :: English",
         "Programming Language :: Python :: 3.6"
     ],
     test_suite="tests",
