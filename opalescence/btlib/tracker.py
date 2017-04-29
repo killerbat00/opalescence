@@ -4,6 +4,7 @@
 Support for communication with an external tracker.
 """
 
+import asyncio
 import logging
 import random
 import socket
@@ -36,10 +37,11 @@ class Tracker:
 
     # TODO: implement announce-list extension support.
     # TODO: implement scrape convention support.
+    DEFAULT_INTERVAL = 60  # 1 minute
 
     def __init__(self, torrent: Torrent):
         self.torrent = torrent
-        self.http_client = aiohttp.ClientSession()
+        self.http_client = aiohttp.ClientSession(loop=asyncio.get_event_loop())
         self.peer_id = ("-OP0001-" + ''.join([str(random.randint(0, 9)) for _ in range(12)])).encode("UTF-8")
         self.tracker_id = None
         self.port = 6881
@@ -113,14 +115,16 @@ class Tracker:
 
         :return: dictionary of properly encoded parameters
         """
-        return {"info_hash": self.torrent.info_hash,
-                "peer_id": self.peer_id,
-                "port": self.port,
-                "uploaded": self.uploaded,
-                "downloaded": self.downloaded,
-                "left": self.left,
-                "compact": 1,
-                "event": self.event}
+        params = {"info_hash": self.torrent.info_hash,
+                  "peer_id": self.peer_id,
+                  "port": self.port,
+                  "uploaded": self.uploaded,
+                  "downloaded": self.downloaded,
+                  "left": self.left,
+                  "compact": 1}
+        if self.event:
+            params["event"] = self.event
+        return params
 
     def close(self):
         """
