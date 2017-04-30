@@ -77,7 +77,7 @@ class Peer:
                     self.peer_interested = False
                     logger.debug(f"{self}: Sent {msg}")
                 elif isinstance(msg, Have):
-                    self.requester.peer_has_pc(self, msg.index)
+                    self.requester.peer_has_piece(self, msg.index)
                     logger.debug(f"{self}: Has {msg}")
                 elif isinstance(msg, Bitfield):
                     self.requester.peer_sent_bitfield(self, msg.bitfield)
@@ -85,7 +85,7 @@ class Peer:
                 elif isinstance(msg, Request):
                     logger.debug(f"{self}: Requested {msg}")
                 elif isinstance(msg, Block):
-                    self.requester.peer_sent_pc(msg)
+                    self.requester.peer_sent_block(msg)
                     logger.debug(f"{self}: Piece {msg}")
                 elif isinstance(msg, Cancel):
                     logger.debug(f"{self}: Canceled {msg}")
@@ -101,6 +101,7 @@ class Peer:
                         await self.writer.drain()
                         logger.debug(f"Requested piece {request.index}:{request.begin}:{request.length} from {self}")
 
+        # TODO: Narrow down exceptions that are safely consumed
         # Eat exceptions here so we'll move to the next peer.
         # We'll eventually try this peer again anyway if the number of peers is low
         except Exception as e:

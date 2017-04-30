@@ -31,7 +31,7 @@ class Client:
         self.torrent = torrent
         self.tracker = Tracker(self.torrent)
         self.requester = Requester(self.torrent)
-        self.peer = None
+        self.current_peers = []
         self.peer_list = []
         self.interval = self.tracker.DEFAULT_INTERVAL
         self.last_ping = 0
@@ -58,17 +58,18 @@ class Client:
         except TrackerError as te:
             log_and_raise(f"Unable to make announce call to {self.tracker}", logger, ClientError, te)
 
-    def next_peer(self) -> None:
+    def assign_peers(self) -> None:
         """
-        Assigns the next peer in our list as the current one with which we are communicating
+        Assigns the first N peers in the peer list to the active peers.
         """
-        if not self.peer_list:
-            task = self.loop.create_task(self.ping())
-            self.loop.call_soon(task)
-            return
+        for p in self.current_peers:
+            self.requester.remove_peer(p)
 
-        p = self.peer_list.pop()
-        self.peer = Peer(p[0], p[1], self.torrent, self.tracker.peer_id, self.requester)
+        self.current_peers = []
+
+        for x in range(10):
+            p = self.peer_list.pop()
+            self.current_peers.append(Peer(p[0], p[1], self.torrent, self.tracker.peer_id, self.requester))
 
     async def start(self):
         """
@@ -77,12 +78,13 @@ class Client:
         while True:
             try:
                 await self.ping()
-                self.next_peer()
-                await self.peer.start()
+                self.assign_peers()
+                for p in self.current_peers:
+                    asyncio.ensure_future(p.start())
             except PeerError:
-                self.requester.remove_peer(self.peer)
-                self.next_peer()
-                await self.peer.start()
+                self.assign_peers()
+                for p in self.current_peers:
+                    asyncio.ensure_future(p.start())
                 continue
             except ClientError as e:
                 raise e

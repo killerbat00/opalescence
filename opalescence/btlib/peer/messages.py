@@ -220,22 +220,6 @@ class Request(Message):
         return cls(request[0], request[1], request[2])
 
 
-class Piece:
-    """
-    Represents a piece of the torrent.
-    Pieces are made up of blocks.
-
-    Not really a message itself
-    """
-
-    def __init__(self, index, length):
-        self.index = index
-        self.length = length
-        self.data = io.BytesIO()
-        self.remaining_bytes = self.length
-        self.peers = []
-
-
 class Block(Message):
     """
     piece message.
@@ -270,6 +254,48 @@ class Block(Message):
         piece_data = struct.unpack(f">II{data_len}s", data)
         return cls(piece_data[0], piece_data[1], piece_data[2])
 
+
+class Piece:
+    """
+    Represents a piece of the torrent.
+    Pieces are made up of blocks.
+
+    Not really a message itself
+    """
+
+    def __init__(self, index, length):
+        self.index = index
+        self.data = io.BytesIO()
+        self._length = length
+        self._offset = 0
+
+    def add_block(self, block: Block):
+        """
+        Adds a block to this piece.
+        Blocks are assumed to be added in order so we can add data beginning at the block's offset
+        without having holes in the piece.
+        :param block: The block message containing the block's info
+        """
+        assert (self.index == block.index)
+        self.data.seek(block.begin, 0)
+        self.data.write(block.data)
+        self._offset = block.begin + len(block.data)
+        self.data.flush()
+
+    @property
+    def offset(self) -> int:
+        """
+        :return: The current offset before which we have block data, and after which we don't
+        """
+        return self._offset
+
+    @property
+    def complete(self) -> bool:
+        """
+        Have we downloaded all the blocks needed for this piece?
+        :return: True if this piece is complete, false otherwise
+        """
+        return self._offset == self._length
 
 class Cancel(Message):
     """

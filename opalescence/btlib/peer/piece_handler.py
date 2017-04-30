@@ -24,16 +24,16 @@ class Writer:
     """
 
     def __init__(self, torrent: Torrent):
-        self.torrent = torrent
+        self.piece_length = torrent.piece_length
         self.buffer = io.BytesIO()
 
     def write(self, piece: Piece):
         """
         Writes the piece's data to the buffer
         """
-        pc_offset = piece.index * piece.length
+        offset = piece.index * self.piece_length
         try:
-            self.buffer.seek(pc_offset, 0)
+            self.buffer.seek(offset, 0)
             self.buffer.write(piece.data)
         except OSError as oe:
             logger.debug(f"Encountered OSError when writing {piece.index}")
@@ -52,45 +52,18 @@ class Requester:
         self.piece_length = torrent.piece_length
         self.pc_writer = Writer(torrent)
         self.bitfield = None
-        self.pieces = {i: set() for i in range(self.total_pieces)}
+        self.available_pieces = {i: set() for i in range(self.total_pieces)}
         self.pending_requests = []
-        self.partial_pieces = {}
+        self.downloaded_pieces = {}
 
-    def peer_has_pc(self, peer: Peer, pc_index: int) -> None:
+    def peer_has_piece(self, peer: Peer, pc_index: int) -> None:
         """
         Sent when a peer has a piece of the torrent.
 
         :param peer:     The peer who has the piece
         :param pc_index: the index of the piece
         """
-        self.pieces[pc_index].add(peer)
-
-    def peer_sent_pc(self, pc_msg: Block) -> None:
-        """
-        Called when we've received a block from the remote peer.
-
-        :param pc_msg: The piece message with the data and e'erthang
-        """
-        msg_data_len = len(pc_msg.data)
-        if pc_msg.begin == 0 and msg_data_len == self.piece_length:
-            # we have a full piece!
-            pc_hash = hashlib.sha1(pc_msg.data).digest()
-            if pc_hash != self.torrent.pieces[pc_msg.index]:
-                logger.debug(f"Piece received from peer doesn't match expected hash.")
-                return
-            pc = Piece(pc_msg.index, self.piece_length)
-            pc.data = pc_msg.data
-            self.bitfield[pc_msg.index] = 1
-            self.pc_writer.write(pc)
-        else:
-            # we need more blocks of that piece
-            offset = pc_msg.begin + msg_data_len
-            needed_length = self.piece_length - offset
-            self.partial_pieces[pc_msg.index] = pc_msg
-            if needed_length > Request.size:
-                self.pending_requests.append(Request(pc_msg.index, offset))
-                self.pending_requests.append(Request(pc_msg.index))
-            self.pending_requests.append(Request(pc_msg.index, offset, needed_length))
+        self.available_pieces[pc_index].add(peer)
 
     def peer_sent_bitfield(self, peer: Peer, bitfield: bitstring.BitArray) -> None:
         """
@@ -105,18 +78,7 @@ class Requester:
 
         for i, b in enumerate(bitfield):
             if b:
-                self.pieces[i].add(peer)
-
-    def next_request(self) -> Request:
-        """
-        Requests the next block we need.
-        """
-        if self.pending_requests:
-            return self.pending_requests.pop()
-        else:
-            for i, b in enumerate(self.bitfield):
-                if b == 0:
-                    return Request(i, 0)
+                self.available_pieces[i].add(peer)
 
     def remove_peer(self, peer: Peer) -> None:
         """
@@ -125,5 +87,55 @@ class Requester:
 
         :param peer: peer to remove
         """
-        for _, peer_set in self.pieces.items():
+        for _, peer_set in self.available_pieces.items():
             peer_set.discard(peer)
+
+    def peer_sent_block(self, block: Block) -> None:
+        """
+        Called when we've received a block from the remote peer.
+        First, see if there are other blocks from that piece already downloaded.
+        If so, add this block to the piece and pend a request for the remaining blocks
+        that we would need.
+
+        :param block: The piece message with the data and e'erthang
+        """
+        if block.index in self.downloaded_pieces:
+            pc = self.downloaded_pieces.get(block.index)
+        else:
+            pc = Piece(block.index, self.torrent.piece_length)
+            self.downloaded_pieces[block.index] = pc
+
+        pc.add_block(block)
+        if not pc.complete:
+            self.pending_requests.append(Request(block.index, pc.offset))
+        else:
+            pc.data.seek(0)
+            pc_data = pc.data.read()
+            pc_hash = hashlib.sha1(pc_data).digest()
+            if pc_hash != self.torrent.pieces[pc.index]:
+                logger.debug(f"Received piece doesn't match expected hash {pc.index}")
+            else:
+                self.bitfield[pc.index] = 1
+                # self.pc_writer.write(pc)
+
+    def next_request(self) -> Request:
+        """
+        Requests the next block we need.
+        """
+        if self.pending_requests:
+            return self.pending_requests.pop()
+
+        if not self.downloaded_pieces:
+            return Request(0, 0)
+
+        last_index = list(self.downloaded_pieces.keys())[-1]
+        last_piece = self.downloaded_pieces.get(last_index)
+
+        if not last_piece:
+            return Request(last_index, 0)
+
+        if not last_piece.complete:
+            self.pending_requests.append(Request(last_piece.index, last_piece.offset))
+            return self.next_request()
+
+        return Request(last_piece.index + 1, 0)
