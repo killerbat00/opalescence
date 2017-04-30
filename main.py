@@ -6,10 +6,14 @@ Opalescence is a simple torrent client.
 """
 
 import argparse
+import asyncio
 import logging
 import logging.config
 import os
 import unittest
+
+from opalescence.btlib.client import Client
+from opalescence.btlib.torrent import Torrent
 
 
 def create_logger():
@@ -27,13 +31,16 @@ def create_logger():
 def create_argparser() -> argparse.ArgumentParser:
     """
     Initializes the root argument parser and all relevant subparsers for supported commands.
-    :return:    argparse.ArgumentParser instance
+    :return:    argparse.ArgumentParser instance that's ready to make things happen
     """
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers()
     test_parser = subparsers.add_parser("test", help="Run the test suite")
     test_parser.set_defaults(func=run_tests)
-
+    download_parser = subparsers.add_parser("download", help="Download a .torrent file")
+    download_parser.add_argument('torrent_file')
+    download_parser.add_argument('destination')
+    download_parser.set_defaults(func=download_file)
     return parser
 
 
@@ -65,6 +72,27 @@ def run_tests(_) -> None:
     suite = loader.discover(os.path.abspath(os.path.join(os.path.dirname(__file__), "tests")))
     runner.run(suite)
 
+
+def download_file(file_path: argparse.Namespace) -> None:
+    """
+    Downloads a .torrent file
+    :param file_path: .torrent filepath
+    """
+    logging.debug(f"Downloading {file_path}")
+    logging.debug(f"Downloading {file_path.torrent_file}\n"
+                  f"to {file_path.destination}")
+
+    loop = asyncio.get_event_loop()
+    loop.set_debug(True)
+    client = Client(Torrent.from_file(file_path.torrent_file))
+    task = loop.create_task(client.start())
+
+    try:
+        loop.run_until_complete(task)
+    except asyncio.CancelledError:
+        logging.warning("Event loop was cancelled")
+    finally:
+        loop.close()
 
 if __name__ == '__main__':
     main()

@@ -1,17 +1,24 @@
 # opalescence
 
-One day this project will grow to be a humble, yet useful torrent client.
-A torrent client that strives not to impress, but rather to just...exist.
+A torrent client written with asyncio and Python 3.6.
 
-Currently, it's a glorified bencoder and torrent creation machine. (with tests!)
-
-#TODO
-- [ ] get rid of dependency on weird config.py file
-- [ ] better tests
-- [ ] respect encoding directory
+Currently, the client employs a naive sequential piece requesting strategy and never unchokes remote peers.
 
 
-#### far in the future functionality:
-- [ ] diffing between Torrents?
-- [ ] tracker comm
-- [ ] ui?
+## Installing Opalescence
+clone this repository
+
+`git clone https://github.com/killerbat00/opalescence.git`
+
+install using pip
+
+`pip install -e <path-to-opalescence>`
+
+## using opalescence
+download a torrent
+
+`python3 <path-to-opalescence>/main.py download <.torrent-file> <destination>`
+
+## testing opalescence
+`python3 <path-to-opalescence>/main.py test`
+

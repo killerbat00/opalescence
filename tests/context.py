@@ -1,5 +1,5 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
 """
 Provides a context for test files so the package's files will be resolved properly
 """
@@ -13,3 +13,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from opalescence import bencode
 # noinspection PyUnresolvedReferences
 from opalescence import torrent
+# noinspection PyUnresolvedReferences
+from opalescence import tracker
+# noinspection PyUnresolvedReferences
+from opalescence import peer
+# noinspection PyUnresolvedReferences
+from opalescence import client

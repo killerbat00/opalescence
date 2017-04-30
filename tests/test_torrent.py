@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 """
@@ -6,6 +5,7 @@ Tests functionality related to opalescence's representation of torrent metainfo 
 as .torrent file reading, writing and creation from a file or directory
 """
 import os
+from collections import OrderedDict
 from filecmp import cmp
 from shutil import copyfile
 from unittest import TestCase
@@ -15,9 +15,9 @@ from requests import get
 from tests.context import torrent, bencode
 
 
-class TorrentTest(TestCase):
+class TestTorrent(TestCase):
     """
-    Tests the Torrent representation
+    Tests the Torrent representation.
     """
     external_torrent_path = os.path.abspath(os.path.dirname(__file__))
     torrent_url = "http://releases.ubuntu.com/16.04/ubuntu-16.04.2-desktop-amd64.iso.torrent"
@@ -27,25 +27,17 @@ class TorrentTest(TestCase):
         """
         Downloads an ubuntu torrent to use for testing.
         """
-        response = get(cls.torrent_url)
         cls.external_torrent_path = os.path.join(cls.external_torrent_path, cls.torrent_url.split("/")[-1])
-
-        if response.status_code == 200:
-            file_data = response.content
-            with open(cls.external_torrent_path, "wb+") as f:
-                f.write(file_data)
-
-    @classmethod
-    def tearDownClass(cls):
-        """
-        Removes the test data directory created for testing
-        """
-        if os.path.exists(cls.external_torrent_path):
-            os.remove(cls.external_torrent_path)
+        if not os.path.exists(cls.external_torrent_path):
+            r = get(cls.torrent_url)
+            if r.status_code == 200:
+                file_data = r.content
+                with open(cls.external_torrent_path, "wb+") as f:
+                    f.write(file_data)
 
     def test_invalid_path(self):
         """
-        Test that an invalid path throws a CreationError
+        Test that an invalid path log_and_raise a CreationError.
         """
         invalid_path = "Doesn't exist"
         with self.subTest(msg="Invalid path"):
@@ -54,15 +46,15 @@ class TorrentTest(TestCase):
 
     def test_valid_path(self):
         """
-        Test that we get a torrent object from a valid path
+        Test that we get a torrent object from a valid path.
         """
         with self.subTest(msg="Valid path"):
             self.assertIsInstance(torrent.Torrent.from_file(self.external_torrent_path), torrent.Torrent)
 
     def test_invalid_torrent_metainfo(self):
         """
-        Test that invalid torrent metainfo throws an error
-        creates a copy of the externally created .torrent and randomly removes some data from it
+        Test that invalid torrent metainfo log_and_raise an error.
+        creates a copy of the externally created .torrent and randomly removes some data from it.
         """
         copy_file_name = os.path.join(os.path.dirname(self.external_torrent_path), "test_torrent_copy.torrent")
         copyfile(self.external_torrent_path, copy_file_name)
@@ -79,7 +71,7 @@ class TorrentTest(TestCase):
 
     def test__gather_files(self):
         """
-        Test that we gathered files appropriately
+        Test that we gathered files appropriately.
         """
         external_torrent = torrent.Torrent.from_file(self.external_torrent_path)
         filename = ".".join(os.path.basename(self.external_torrent_path).split(".")[:-1])
@@ -88,9 +80,9 @@ class TorrentTest(TestCase):
 
     def test_properties(self):
         """
-        Tests the properties of the torrent metainfo file
+        Tests the properties of the torrent metainfo file.
         """
-        announce_urls = ["http://torrent.ubuntu.com:6969/announce", "http://ipv6.torrent.ubuntu.com:6969/announce"]
+        announce_urls = [["http://torrent.ubuntu.com:6969/announce"], ["http://ipv6.torrent.ubuntu.com:6969/announce"]]
         t = torrent.Torrent.from_file(self.external_torrent_path)
         for f in announce_urls:
             self.assertIn(f, t.announce_urls)
@@ -106,7 +98,7 @@ class TorrentTest(TestCase):
 
     def test_info_hash(self):
         """
-        Tests that the torrent's info hash property returns the correct info hash
+        Tests that the torrent's info hash property returns the correct info hash.
         """
         infohash_digest = b"\xdaw^J\xafV5\xefrX:9\x19w\xe5\xedo\x14a~"
         t = torrent.Torrent.from_file(self.external_torrent_path)
@@ -115,7 +107,7 @@ class TorrentTest(TestCase):
     def test_decode_recode_compare(self):
         """
         This should probably live in test_bencode.py, but resides here now since this class creates a .torrent
-        metainfo file with an external program
+        metainfo file with an external program.
 
         TODO: move this test to a more proper location
         """
@@ -146,7 +138,7 @@ class TorrentTest(TestCase):
     def test_decode_recode_decode_compare(self):
         """
         Decodes a torrent file created using an external program, reencodes that file to a .torrent,
-        decodes the resulting torrent and compares its dictionary with the original decoded dictionary
+        decodes the resulting torrent and compares its dictionary with the original decoded dictionary.
         """
         external_torrent = torrent.Torrent.from_file(self.external_torrent_path)
         original_data = external_torrent.meta_info
@@ -155,3 +147,30 @@ class TorrentTest(TestCase):
         new_data = torrent.Torrent.from_file(temp_output_filename).meta_info
         self.assertEqual(original_data, new_data)
         os.remove(temp_output_filename)
+
+    def test__validate_torrent_dict(self):
+        """
+        Tests that _validate_torrent_dict accepts and rejects torrent metainfo dictionaries correctly.
+        """
+        no_keys = OrderedDict()
+        missing_key = OrderedDict({b"announce": b"val"})
+        missing_info_key = OrderedDict(
+            {b"announce": b"val", b"info": OrderedDict({b"pieces": b"00000000000000000000", b"piece length": 16384})})
+        invalid_pieces_length = OrderedDict(
+            {b"announce": b"val",
+             b"info": OrderedDict({b"name": b"name", b"pieces": b"0", b"piece length": 16384})})
+        missing_length = OrderedDict(
+            {b"announce": b"val", b"info": OrderedDict({b"name": b"name", b"pieces": b"00000000000000000000",
+                                                        b"piece length": 16384})})
+        missing_file_list = OrderedDict({b"announce": b"val", b"info": OrderedDict(
+            {b"files": [], b"name": b"name", b"pieces": b"00000000000000000000", b"piece length": 16384})})
+        invalid_file_list = OrderedDict({b"announce": b"val", b"info": OrderedDict(
+            {b"files": [OrderedDict({b"length": 12})], b"name": b"name", b"pieces": b"00000000000000000000",
+             b"piece length": 16384})})
+
+        bad_data = [no_keys, missing_key, missing_info_key, invalid_pieces_length, missing_length, missing_file_list,
+                    invalid_file_list]
+        for b in bad_data:
+            with self.subTest(b=b):
+                with self.assertRaises(torrent.CreationError):
+                    torrent._validate_torrent_dict(b)

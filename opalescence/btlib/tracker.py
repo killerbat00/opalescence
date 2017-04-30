@@ -2,162 +2,211 @@
 
 """
 Support for communication with an external tracker.
-B A S I C
-
-author: brian houston morrow
 """
 
+import asyncio
+import logging
 import random
 import socket
 import struct
+from typing import Union
+from urllib.parse import urlencode
 
-import requests
+import aiohttp
 
-from .bencode import DecodeError
-from .peer import Peer
+from opalescence.btlib import bencode
+from . import log_and_raise
+from .torrent import Torrent
+
+logger = logging.getLogger(__name__)
 
 
-class TrackerCommError(Exception):
+class TrackerError(Exception):
     """
     Raised when we encounter an error while communicating with the tracker.
     """
     pass
 
 
-class EventEnum(object):
+class Tracker:
     """
-    type used for more easily handling the tracker's event
-    """
-    started = 0
-    completed = 1
-    stopped = 2
-
-
-class TrackerInfo(object):
-    """
-    Represents the info from the tracker for a given torrent, providing methods
-    to schedule the information to refresh
+    Communication with the tracker.
+    Does not currently support the announce-list extension from BEP 0012: http://bittorrent.org/beps/bep_0012.html
+    Does not support the scrape convention.
     """
 
-    def __init__(self, url: str, info_hash: str, total_size: int, port: int = 6881):
-        # required
-        self.info_hash = info_hash
-        self.announce_url = url
-        self.peer_id = "-OP0020-" + str(random.randint(100000000000, 999999999999))
-        self.port = port
+    # TODO: implement announce-list extension support.
+    # TODO: implement scrape convention support.
+    DEFAULT_INTERVAL = 60  # 1 minute
+
+    def __init__(self, torrent: Torrent):
+        self.torrent = torrent
+        self.http_client = aiohttp.ClientSession(loop=asyncio.get_event_loop())
+        self.peer_id = ("-OP0001-" + ''.join([str(random.randint(0, 9)) for _ in range(12)])).encode("UTF-8")
+        self.tracker_id = None
+        self.port = 6881
         self.uploaded = 0
         self.downloaded = 0
-        self.left = total_size
-        self.compact = 0
-        self.no_peer_id = 0
-        self.event = EventEnum.started
-        self.peer_list = []
+        self.left = 0
+        self.event = "started"
 
-        # optional
-        self.tracker_id = ""
-        self.ip = None
-        self.numwant = 50  # Default to asking for 30 peers
-        self.key = None
-
-        # response
-        self.interval = 0
-        self.mininterval = 0
-        self.seeders = 0
-        self.leechers = 0
-        self.peers = ""  # list of dictionaries OR byte string of length % 6 = 0
-
-    def _decode_peers(self) -> None:
+    async def announce(self) -> "Response":
         """
-        Decodes the peer list from a list of OrderedDict or a string of bytes into a list of ip:port
-        TODO: Improve this a bit - it's probably not a great idea to read from self.peers then immediately overwrite it
-              after decoding.
-              I'm also not confident in how the ip addresses and ports are handled.
-              peer id handling is also wrong, but not affected for the test torrent i'm using now
+        Makes an announce request to the tracker.
+
+        :raises TrackerError: if the tracker's HTTP code is not 200, the tracker sent a failure, or we
+                              are unable to bdecode the tracker's response.
+        :returns: Response object representing the tracker's response
         """
-        if isinstance(self.peers, str):
-            peer_len = len(self.peers)
-            if peer_len % 6 != 0:
-                raise TrackerCommError(
-                    "Invalid peer list. Length {length} should be a multiple of 6.".format(length=peer_len))
+        url = self._make_url()
+        decoded_data = None
 
-            for i in range(0, peer_len - 1, 6):
-                peer_bytes = self.peers[i:i + 6]
-                ip_bytes = struct.unpack("!L", peer_bytes[0:4].encode("ISO-8859-1"))[0]
-                ip = socket.inet_ntoa(struct.pack('!L', ip_bytes))
-                port = struct.unpack("!H", peer_bytes[4:6].encode("ISO-8859-1"))[0]
-                self.peer_list.append(Peer(ip, port, self.info_hash, self.peer_id))
-        # this part is untested
-        elif isinstance(self.peers, list):
-            for peer in self.peers:
-                assert (isinstance(peer, dict))
+        logger.debug(f"Making {self.event} announce to: {url}")
+        async with self.http_client.get(url) as r:
+            data = await r.read()
+            if r.status != 200:
+                log_and_raise(f"Unable to connect to the tracker.\n{data}", logger, TrackerError)
 
-                if ["ip", "port", "peer id"] not in peer:
-                    raise TrackerCommError("Invalid peer list. Unable to decode {peer}".format(peer=peer))
-                self.peer_list.append(Peer(peer.get("ip"), peer.get("port"), self.info_hash, self.peer_id))
+            try:
+                decoded_data = bencode.Decoder(data).decode()
+            except bencode.DecodeError as e:
+                log_and_raise(f"Unable to decode tracker response.\n{data}", logger, TrackerError, e)
+
+            tr = Response(decoded_data)
+            if tr.failed:
+                log_and_raise(f"Failed announce call to tracker {url}\n{tr.failure_reason}", logger, TrackerError)
+
+            if self.event:
+                self.event = ""
+            return Response(decoded_data)
+
+    async def cancel(self) -> None:
+        """
+        Informs the tracker we are gracefully shutting down.
+        :raises TrackerError:
+        """
+        self.event = "stopped"
+        await self.announce()
+        return
+
+    async def completed(self) -> None:
+        """
+        Informs the tracker we have completed downloading this torrent
+        :raises TrackerError:
+        """
+        self.event = "completed"
+        await self.announce()
+        return
+
+    def _make_url(self) -> str:
+        """
+        Builds and escapes the url used to communicate with the tracker.
+        Currently only uses the announce key
+
+        :raises TrackerError:
+        :return: tracker's announce url with correctly escaped and encoded parameters
+        """
+        # TODO: implement proper announce-list handling
+        return self.torrent.meta_info[b"announce"].decode("UTF-8") + "?" + urlencode(self._make_params())
+
+    def _make_params(self) -> dict:
+        """
+        Builds the parameter dictionary the tracker expects for announce requests.
+
+        :return: dictionary of properly encoded parameters
+        """
+        params = {"info_hash": self.torrent.info_hash,
+                  "peer_id": self.peer_id,
+                  "port": self.port,
+                  "uploaded": self.uploaded,
+                  "downloaded": self.downloaded,
+                  "left": self.left,
+                  "compact": 1}
+        if self.event:
+            params["event"] = self.event
+        return params
+
+    def close(self):
+        """
+        Closes the http_client session
+        """
+        self.http_client.close()
+
+
+class Response:
+    """
+    Response received from the tracker after an announce request
+    """
+
+    def __init__(self, data: dict):
+        self.data = data
+        self.failed = b"failure reason" in self.data
+
+    @property
+    def failure_reason(self) -> Union[str, None]:
+        """
+        :return: the failure reason
+        """
+        if self.failed:
+            return self.data[b"failure reason"].decode("UTF-8")
+        return None
+
+    @property
+    def interval(self) -> int:
+        """
+        :return: the tracker's specified interval between announce requests
+        """
+        return self.data.get(b"interval", 0)
+
+    @property
+    def min_interval(self) -> int:
+        """
+        :return: the minimum interval, if specified we can't make requests more frequently than this
+        """
+        return self.data.get(b"min interval", 0)
+
+    @property
+    def tracker_id(self) -> Union[str, None]:  # or maybe bytes?
+        """
+        :return: the tracker id
+        """
+        tracker_id = self.data.get(b"tracker id")
+        if tracker_id:
+            return tracker_id.decode("UTF-8")
+        return
+
+    @property
+    def complete(self) -> int:
+        """
+        :return: seeders, the number of peers with the entire file
+        """
+        return self.data.get(b"complete", 0)
+
+    @property
+    def incomplete(self) -> int:
+        """
+        :return: leechers, the number of peers that are not seeders
+        """
+        return self.data.get(b"incomplete", 0)
+
+    @property
+    def peers(self) -> Union[list, None]:
+        """
+        :raises TrackerError:
+        :return: the list of peers. The response can be given as a list of dictionaries about the peers, or a string
+        encoding the ip address and ports for the peers
+        """
+        peers = self.data.get(b"peers")
+
+        if not peers:
+            return
+
+        if isinstance(peers, bytes):
+            logger.debug("Decoding binary model peers.")
+            split_peers = [peers[i:i + 6] for i in range(0, len(peers), 6)]
+            return [(socket.inet_ntoa(p[:4]), struct.unpack(">H", p[4:])[0]) for p in split_peers]
+        elif isinstance(peers, list):
+            logger.debug("Decoding dictionary model peers.")
+            return [(p[b"ip"].decode("UTF-8"), p[b"port"]) for p in peers]
         else:
-            raise TrackerCommError("Invalid peer list {peer_list}".format(peer_list=self.peers))
-
-    def _decode_response(self, r: requests.Response) -> None:
-        """
-        Decodes the content of a requests.Response response to the tracker
-        :param r:   requests.Response to the request we made to the tracker
-        :return:    TrackerHttpResponse object, raises TrackerResponseError if anything goes wrong
-        """
-        # type (requests.Response) -> None
-        assert (isinstance(r, requests.Response))
-
-        bencoded_resp = r.content
-        try:
-            decoded_obj = bdecode(bencoded_resp)
-        except DecodeError as e:
-            raise TrackerCommError("Unable to decode tracker response.\n{prev_msg}".format(prev_msg=e.message))
-
-        if "failure reason" in decoded_obj:
-            raise TrackerCommError(
-                "Request to {tracker_url} failed.\n{failure_msg}".format(tracker_url=self.announce_url,
-                                                                         failure_msg=decoded_obj["failure reason"]))
-
-        self.interval = decoded_obj["interval"]
-        if "min interval" in decoded_obj:
-            self.mininterval = decoded_obj["min interval"]
-
-        if "tracker id" in decoded_obj:
-            self.tracker_id = decoded_obj["tracker id"]
-
-        self.seeders = decoded_obj["complete"]
-        self.leechers = decoded_obj["incomplete"]
-        self.peers = decoded_obj["peers"]
-        self._decode_peers()
-
-        # after this we'll be making regular requests to the tracker so we don't need to specify this
-        # until we encounter another event
-        if self.event and self.event is EventEnum.started:
-            self.event = None
-
-    def make_request(self, event=EventEnum.started):
-        """
-        Makes a request to the tracker notifying it of our curent stats.
-        :param event:   optional,defaults to Started - One of Started, Stopped, Completed
-                        to let the tracker know our current status
-        :return:        True if response was received and Info updated, else False
-        """
-        if event != self.event:
-            self.event = event
-
-        params = {}
-        params.setdefault("info_hash", self.info_hash)
-        params.setdefault("peer_id", self.peer_id)
-        params.setdefault("port", self.port)
-        params.setdefault("uploaded", self.uploaded)
-        params.setdefault("downloaded", self.downloaded)
-        params.setdefault("left", self.left)
-        params.setdefault("compact", self.compact)
-        params.setdefault("no_peer_id", self.no_peer_id)
-        params.setdefault("event", self.event)
-        params.setdefault("numwant", self.numwant)
-
-        r = requests.get(self.announce_url, params=params)
-        if r.status_code == 200:
-            self._decode_response(r)
-            return True
-        return False
+            log_and_raise(f"Unable to decode peers {peers}", logger, TrackerError)
