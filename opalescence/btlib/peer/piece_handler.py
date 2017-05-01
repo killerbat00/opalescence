@@ -10,8 +10,8 @@ import logging
 
 import bitstring as bitstring
 
-from . import Peer
 from .messages import Request, Block, Piece
+from .peer import Peer
 from ..torrent import Torrent
 
 logger = logging.getLogger(__name__)

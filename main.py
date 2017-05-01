@@ -73,10 +73,10 @@ def run_tests(_) -> None:
     runner.run(suite)
 
 
-def download_file(file_path: argparse.Namespace) -> None:
+def download_file(file_path) -> None:
     """
     Downloads a .torrent file
-    :param file_path: .torrent filepath
+    :param file_path: .torrent filepath argparse.Namespace object
     """
     logging.debug(f"Downloading {file_path}")
     logging.debug(f"Downloading {file_path.torrent_file}\n"

@@ -8,7 +8,7 @@ import asyncio
 import logging
 
 from . import log_and_raise
-from .peer import Peer, PeerError
+from .peer.peer import PeerError, Peer
 from .peer.piece_handler import Requester
 from .torrent import Torrent
 from .tracker import Tracker, TrackerError
