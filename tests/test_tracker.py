@@ -192,7 +192,7 @@ class TestResponse(TestCase):
 
     def test_peer_dict(self):
         """
-        tests we correctly decode the dictionary model peer response from the tracker.
+        tests we correctly decode the dictionary model protocol response from the tracker.
         """
         dictionary_peers = {b"peers": [{b"ip": b"127.0.0.1", b"port": 6969},
                                        {b"ip": b"0.0.0.0", b"port": 1}]}
@@ -204,7 +204,7 @@ class TestResponse(TestCase):
 
     def test_peer_string(self):
         """
-        tests we correctly decode the bytestring peer response from the tracker
+        tests we correctly decode the bytestring protocol response from the tracker
         """
         ip1 = socket.inet_aton("127.0.0.1")
         p1 = struct.pack(">H", 6969)
