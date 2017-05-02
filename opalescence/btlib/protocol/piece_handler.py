@@ -7,6 +7,7 @@ Contains the logic for requesting pieces, as well as that for writing them to di
 import hashlib
 import io
 import logging
+import os
 
 import bitstring as bitstring
 
@@ -24,6 +25,7 @@ class Writer:
     """
 
     def __init__(self, torrent: Torrent):
+        self.filename = os.path.join(os.path.abspath(os.path.dirname(__file__)), torrent.name)
         self.piece_length = torrent.piece_length
         self.buffer = io.BytesIO()
 
@@ -32,9 +34,13 @@ class Writer:
         Writes the piece's data to the buffer
         """
         offset = piece.index * self.piece_length
+        piece.data.seek(0)
+        data = piece.data.read()
         try:
-            self.buffer.seek(offset, 0)
-            self.buffer.write(piece.data)
+            with open(self.filename, "ab+") as f:
+                f.seek(offset, 0)
+                f.write(data)
+                f.flush()
         except OSError as oe:
             logger.debug(f"Encountered OSError when writing {piece.index}")
             raise oe
@@ -55,6 +61,7 @@ class Requester:
         self.available_pieces = {i: set() for i in range(self.total_pieces)}
         self.pending_requests = []
         self.downloaded_pieces = {}
+        self.broken_pieces = []
 
     def peer_has_piece(self, peer: Peer, pc_index: int) -> None:
         """
@@ -104,11 +111,7 @@ class Requester:
             index = self.pending_requests.index(r)
             del self.pending_requests[index]
 
-        if block.index in self.downloaded_pieces:
-            pc = self.downloaded_pieces.get(block.index)
-        else:
-            pc = Piece(block.index, self.torrent.piece_length)
-            self.downloaded_pieces[block.index] = pc
+        pc = self.downloaded_pieces.get(block.index)
 
         pc.add_block(block)
         if pc.complete:
@@ -117,9 +120,10 @@ class Requester:
             pc_hash = hashlib.sha1(pc_data).digest()
             if pc_hash != self.torrent.pieces[pc.index]:
                 logger.debug(f"Received piece doesn't match expected hash {pc.index}")
+                self.broken_pieces.append(pc)
             else:
                 self.bitfield[pc.index] = 1
-                # self.pc_writer.write(pc)
+                self.pc_writer.write(pc)
 
     def next_request(self) -> Request:
         """
