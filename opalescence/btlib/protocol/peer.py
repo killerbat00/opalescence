@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Support for basic communication with a peer.
+Support for basic communication with a protocol.
 The piece-requesting and saving strategies are in piece_handler.py
 The coordination with peers is handled in ../client.py
 
-No data is currently sent to the remote peer.
+No data is currently sent to the remote protocol.
 """
 import asyncio
 import logging
@@ -19,16 +19,16 @@ logger = logging.getLogger(__name__)
 
 class PeerError(Exception):
     """
-    Raised when we encounter an error communicating with the peer.
+    Raised when we encounter an error communicating with the protocol.
     """
 
 
 class Peer:
     """
-    Represents a peer and provides methods for communicating with said peer.
+    Represents a protocol and provides methods for communicating with said protocol.
     """
 
-    # TODO: Add support for sending pieces to the peer
+    # TODO: Add support for sending pieces to the protocol
 
     def __init__(self, ip, port, torrent, peer_id, requester):
         self.ip = ip
@@ -49,7 +49,7 @@ class Peer:
 
     async def start(self):
         """
-        Starts communication with the peer and begins downloading the torrent.
+        Starts communication with the protocol and begins downloading the torrent.
         """
         # TODO: scan valid bittorrent ports (6881-6889)
         try:
@@ -101,20 +101,20 @@ class Peer:
                         logger.debug(f"Requested piece {request.index}:{request.begin}:{request.length} from {self}")
 
         # TODO: Narrow down exceptions that are safely consumed
-        # Eat exceptions here so we'll move to the next peer.
-        # We'll eventually try this peer again anyway if the number of peers is low
+        # Eat exceptions here so we'll move to the next protocol.
+        # We'll eventually try this protocol again anyway if the number of peers is low
         except Exception as e:
             logger.debug(f"{self}: Unable to open connection.\n{e}")
             raise PeerError from e
 
     async def handshake(self) -> bytes:
         """
-        Negotiates the initial handshake with the peer.
+        Negotiates the initial handshake with the protocol.
 
         :raises PeerError:
         :return: remaining data we've read from the reader
         """
-        # TODO: validate the peer id we receive is the same as from the tracker
+        # TODO: validate the protocol id we receive is the same as from the tracker
         sent_handshake = Handshake(self.info_hash, self.id)
         self.writer.write(sent_handshake.encode())
         await self.writer.drain()
@@ -137,8 +137,8 @@ class Peer:
 
     async def _interested(self):
         """
-        Sends the interested message to the peer.
-        The peer should unchoke us after this.
+        Sends the interested message to the protocol.
+        The protocol should unchoke us after this.
         """
         self.writer.write(Interested.encode())
         await self.writer.drain()

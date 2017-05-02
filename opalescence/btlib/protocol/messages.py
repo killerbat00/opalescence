@@ -301,7 +301,6 @@ class Piece:
         """
         return self._offset == self._length
 
-    @property
     def next_block(self):
         """
         :return: The offset of the next block, or None if there are no blocks left.
