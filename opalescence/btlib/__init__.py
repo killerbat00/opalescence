@@ -5,7 +5,7 @@ Module containing library code for the BitTorrent protocol
 """
 import logging
 
-__all__ = ["bencode", "peer", "torrent", "tracker", "client"]
+__all__ = ["bencode", "protocol", "torrent", "tracker", "client"]
 
 
 def log_and_raise(msg: str, log: logging.Logger, exc: Exception, from_e: Exception = None) -> None:

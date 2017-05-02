@@ -7,6 +7,7 @@ Contains the logic for requesting pieces, as well as that for writing them to di
 import hashlib
 import io
 import logging
+import os
 
 import bitstring as bitstring
 
@@ -24,6 +25,7 @@ class Writer:
     """
 
     def __init__(self, torrent: Torrent):
+        self.filename = os.path.join(os.path.abspath(os.path.dirname(__file__)), torrent.name)
         self.piece_length = torrent.piece_length
         self.buffer = io.BytesIO()
 
@@ -32,9 +34,13 @@ class Writer:
         Writes the piece's data to the buffer
         """
         offset = piece.index * self.piece_length
+        piece.data.seek(0)
+        data = piece.data.read()
         try:
-            self.buffer.seek(offset, 0)
-            self.buffer.write(piece.data)
+            with open(self.filename, "ab+") as f:
+                f.seek(offset, 0)
+                f.write(data)
+                f.flush()
         except OSError as oe:
             logger.debug(f"Encountered OSError when writing {piece.index}")
             raise oe
@@ -55,23 +61,24 @@ class Requester:
         self.available_pieces = {i: set() for i in range(self.total_pieces)}
         self.pending_requests = []
         self.downloaded_pieces = {}
+        self.broken_pieces = []
 
     def peer_has_piece(self, peer: Peer, pc_index: int) -> None:
         """
-        Sent when a peer has a piece of the torrent.
+        Sent when a protocol has a piece of the torrent.
 
-        :param peer:     The peer who has the piece
+        :param peer:     The protocol who has the piece
         :param pc_index: the index of the piece
         """
         self.available_pieces[pc_index].add(peer)
 
     def peer_sent_bitfield(self, peer: Peer, bitfield: bitstring.BitArray) -> None:
         """
-        Updates our dictionary of pieces with data from the remote peer
+        Updates our dictionary of pieces with data from the remote protocol
 
-        :param peer:     The peer who sent this bitfield, kept around
+        :param peer:     The protocol who sent this bitfield, kept around
                          to know where to eventually send requests
-        :param bitfield: The bitfield sent by the peer
+        :param bitfield: The bitfield sent by the protocol
         """
         if not self.bitfield:
             self.bitfield = bitstring.BitArray(length=len(bitfield))
@@ -82,60 +89,76 @@ class Requester:
 
     def remove_peer(self, peer: Peer) -> None:
         """
-        Removes a peer from this requester's data structures in the case that our communication
-        with that peer has stopped
+        Removes a protocol from this requester's data structures in the case that our communication
+        with that protocol has stopped
 
-        :param peer: peer to remove
+        :param peer: protocol to remove
         """
         for _, peer_set in self.available_pieces.items():
             peer_set.discard(peer)
 
     def peer_sent_block(self, block: Block) -> None:
         """
-        Called when we've received a block from the remote peer.
+        Called when we've received a block from the remote protocol.
         First, see if there are other blocks from that piece already downloaded.
         If so, add this block to the piece and pend a request for the remaining blocks
         that we would need.
 
         :param block: The piece message with the data and e'erthang
         """
-        if block.index in self.downloaded_pieces:
-            pc = self.downloaded_pieces.get(block.index)
-        else:
-            pc = Piece(block.index, self.torrent.piece_length)
-            self.downloaded_pieces[block.index] = pc
+        r = Request(block.index, block.begin)
+        if r in self.pending_requests:
+            index = self.pending_requests.index(r)
+            del self.pending_requests[index]
+
+        pc = self.downloaded_pieces.get(block.index)
 
         pc.add_block(block)
-        if not pc.complete:
-            self.pending_requests.append(Request(block.index, pc.offset))
-        else:
+        if pc.complete:
             pc.data.seek(0)
             pc_data = pc.data.read()
             pc_hash = hashlib.sha1(pc_data).digest()
             if pc_hash != self.torrent.pieces[pc.index]:
                 logger.debug(f"Received piece doesn't match expected hash {pc.index}")
+                self.broken_pieces.append(pc)
             else:
                 self.bitfield[pc.index] = 1
-                # self.pc_writer.write(pc)
+                self.pc_writer.write(pc)
 
     def next_request(self) -> Request:
         """
-        Requests the next block we need.
+        Requests the next block we need. The current strategy is a naive strategy that requests pieces and blocks
+        sequentially from remote peers.
         """
-        if self.pending_requests:
-            return self.pending_requests.pop()
-
         if not self.downloaded_pieces:
-            return Request(0, 0)
+            piece = Piece(0, self.torrent.piece_length)
+            self.downloaded_pieces[piece.index] = piece
+            request = Request(piece.index, piece.next_block())
+            self.pending_requests.append(request)
+            return request
 
-        last_index = list(self.downloaded_pieces.keys())[-1]
-        last_piece = self.downloaded_pieces.get(last_index)
+        current_piece = self.downloaded_pieces.get(len(self.downloaded_pieces) - 1)
+        next_block_begin = current_piece.next_block()
 
-        if not last_piece:
-            return Request(last_index, 0)
+        if next_block_begin is None:
+            # Start requesting the next piece
+            piece = Piece(current_piece.index + 1, self.torrent.piece_length)
+            self.downloaded_pieces[piece.index] = piece
+            request = Request(piece.index, piece.next_block())
+            self.pending_requests.append(request)
+            return request
 
-        if not last_piece.complete:
-            self.pending_requests.append(Request(last_piece.index, last_piece.offset))
-            return self.next_request()
+        request = Request(current_piece.index, next_block_begin)
+        while request in self.pending_requests:
+            next_offset = current_piece.next_block()
+            if next_offset is None:
+                # Start requesting the next piece
+                piece = Piece(current_piece.index + 1, self.torrent.piece_length)
+                self.downloaded_pieces[piece.index] = piece
+                request = Request(piece.index, piece.next_block())
+                self.pending_requests.append(request)
+                return request
+            request = Request(current_piece.index, next_offset)
 
-        return Request(last_piece.index + 1, 0)
+        self.pending_requests.append(request)
+        return request

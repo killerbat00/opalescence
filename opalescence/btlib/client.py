@@ -8,8 +8,8 @@ import asyncio
 import logging
 
 from . import log_and_raise
-from .peer.peer import PeerError, Peer
-from .peer.piece_handler import Requester
+from .protocol.peer import PeerError, Peer
+from .protocol.piece_handler import Requester
 from .torrent import Torrent
 from .tracker import Tracker, TrackerError
 
@@ -60,7 +60,7 @@ class Client:
 
     def assign_peers(self) -> None:
         """
-        Assigns the first N peers in the peer list to the active peers.
+        Assigns the first N peers in the protocol list to the active peers.
         """
         for p in self.current_peers:
             self.requester.remove_peer(p)

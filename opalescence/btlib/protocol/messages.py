@@ -9,7 +9,7 @@ import bitstring as bitstring
 
 class Message:
     """
-    Base class for representing messages exchanged with the peer
+    Base class for representing messages exchanged with the protocol
 
     Messages (except the initial handshake) look like:
     <Length prefix><Message ID><Payload>
@@ -21,7 +21,7 @@ class Message:
 
 class Handshake(Message):
     """
-    Handles the handshake message with the peer
+    Handles the handshake message with the protocol
     """
     msg_len = 68
 
@@ -34,7 +34,7 @@ class Handshake(Message):
 
     def encode(self) -> bytes:
         """
-        :return: handshake data to send to peer
+        :return: handshake data to send to protocol
         """
         return struct.pack(">B19s8x20s20s", 19, b'BitTorrent protocol',
                            self.info_hash, self.peer_id)
@@ -58,7 +58,7 @@ class KeepAlive(Message):
     @staticmethod
     def encode() -> bytes:
         """
-        :return: encoded message to be sent to peer
+        :return: encoded message to be sent to protocol
         """
         return struct.pack(">I", 0)
 
@@ -74,7 +74,7 @@ class Choke(Message):
     @staticmethod
     def encode() -> bytes:
         """
-        :return: encoded message to be sent to peer
+        :return: encoded message to be sent to protocol
         """
         return struct.pack(">IB", 1, Choke.msg_id)
 
@@ -90,7 +90,7 @@ class Unchoke(Message):
     @staticmethod
     def encode() -> bytes:
         """
-        :return: encoded message to be sent to peer
+        :return: encoded message to be sent to protocol
         """
         return struct.pack(">IB", 1, Unchoke.msg_id)
 
@@ -106,7 +106,7 @@ class Interested(Message):
     @staticmethod
     def encode() -> bytes:
         """
-        :return: encoded message to be sent to peer
+        :return: encoded message to be sent to protocol
         """
         return struct.pack(">IB", 1, Interested.msg_id)
 
@@ -122,7 +122,7 @@ class NotInterested(Message):
     @staticmethod
     def encode() -> bytes:
         """
-        :return: encoded message to be sent to peer
+        :return: encoded message to be sent to protocol
         """
         return struct.pack(">IB", 1, NotInterested.msg_id)
 
@@ -143,7 +143,7 @@ class Have(Message):
 
     def encode(self) -> bytes:
         """
-        :return: encoded message to be sent to peer
+        :return: encoded message to be sent to protocol
         """
         return struct.pack(">IBI", 5, self.msg_id, self.index)
 
@@ -172,7 +172,7 @@ class Bitfield(Message):
 
     def encode(self) -> bytes:
         """
-        :return: encoded message to be sent to peer
+        :return: encoded message to be sent to protocol
         """
         bitfield_len = len(self.bitfield)
         return struct.pack(f">IB{bitfield_len}s", 1 + bitfield_len,
@@ -195,6 +195,9 @@ class Request(Message):
     """
     msg_id = 6
     size = 2 ** 14
+
+    def __eq__(self, other):
+        return self.index == other.index and self.begin == other.begin
 
     def __str__(self):
         return f"{self.index}:{self.begin}:{self.length}"
@@ -268,6 +271,7 @@ class Piece:
         self.data = io.BytesIO()
         self._length = length
         self._offset = 0
+        self._next_block_offset = 0
 
     def add_block(self, block: Block):
         """
@@ -296,6 +300,26 @@ class Piece:
         :return: True if this piece is complete, false otherwise
         """
         return self._offset == self._length
+
+    def next_block(self):
+        """
+        :return: The offset of the next block, or None if there are no blocks left.
+                 The offset returned may be one after that for which we have
+                 data, this is because the Piece requester needs a way to
+                 get the next request for a piece easily.
+                 Essentially, keeping state for the piece requester
+                 in this Piece object, which isn't great.
+        """
+        if self.complete:
+            return None
+
+        if self._next_block_offset > self._length:
+            return None
+
+        cur_offset = self._next_block_offset
+        self._next_block_offset += Request.size
+        return cur_offset
+
 
 class Cancel(Message):
     """
@@ -373,7 +397,7 @@ class MessageReader:
     async def __anext__(self) -> Message:
         """
         Iterates through the data we have, requesting more
-        from the peer if necessary, and tries to decode and return
+        from the protocol if necessary, and tries to decode and return
         a valid message from that data.
 
         :raises StopAsyncIteration:
