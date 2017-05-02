@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import io
+import math
 import struct
 
 import bitstring as bitstring
@@ -269,8 +270,8 @@ class Piece:
     def __init__(self, index, length):
         self.index = index
         self.data = io.BytesIO()
+        self._blocks = [0 for _ in range(math.ceil(length / Request.size))]
         self._length = length
-        self._offset = 0
         self._next_block_offset = 0
 
     def add_block(self, block: Block):
@@ -281,25 +282,20 @@ class Piece:
         :param block: The block message containing the block's info
         """
         assert (self.index == block.index)
+        if block.begin == 0:
+            self._blocks[block.begin] = 1
+        else:
+            self._blocks[block.begin // Request.size] = 1
         self.data.seek(block.begin, 0)
         self.data.write(block.data)
-        self._offset = block.begin + len(block.data)
         self.data.flush()
 
     @property
-    def offset(self) -> int:
+    def complete(self):
         """
-        :return: The current offset before which we have block data, and after which we don't
+        :return: True if all blocks have been downloaded
         """
-        return self._offset
-
-    @property
-    def complete(self) -> bool:
-        """
-        Have we downloaded all the blocks needed for this piece?
-        :return: True if this piece is complete, false otherwise
-        """
-        return self._offset == self._length
+        return all(self._blocks)
 
     def next_block(self):
         """
@@ -310,10 +306,7 @@ class Piece:
                  Essentially, keeping state for the piece requester
                  in this Piece object, which isn't great.
         """
-        if self.complete:
-            return None
-
-        if self._next_block_offset > self._length:
+        if self._next_block_offset >= self._length:
             return None
 
         cur_offset = self._next_block_offset
@@ -326,7 +319,6 @@ class Piece:
         Used when we've downloaded the piece, but it turned out to be corrupt.
         """
         self.data = io.BytesIO()
-        self._offset = 0
         self._next_block_offset = 0
 
 
