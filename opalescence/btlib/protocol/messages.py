@@ -203,10 +203,11 @@ class Request(Message):
     def __str__(self):
         return f"{self.index}:{self.begin}:{self.length}"
 
-    def __init__(self, index: int, begin: int, length: int = size):
+    def __init__(self, index: int, begin: int, length: int = size, peer_id: str = ""):
         self.index = index
         self.begin = begin
         self.length = length
+        self.peer_id = peer_id
 
     def encode(self) -> bytes:
         """
@@ -344,6 +345,14 @@ class Cancel(Message):
         :return: the cancel message encoded in bytes
         """
         return struct.pack(">IBIII", 13, Cancel.msg_id, self.index, self.begin, self.length)
+
+    @classmethod
+    def from_request(cls, request: Request) -> "Cancel":
+        """
+        :param request: Request message we want to cancel.
+        :return: A Cancel message from a request
+        """
+        return cls(request.index, request.begin, request.length)
 
     @classmethod
     def decode(cls, data: bytes) -> "Cancel":
