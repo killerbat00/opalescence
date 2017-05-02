@@ -35,7 +35,7 @@ class Peer:
         self.port = port
         self.info_hash = torrent.info_hash
         self.id = peer_id
-        self.peer_id = None
+        self.peer_id = str(self)
         self.reader = None
         self.writer = None
         self.choking = True
@@ -48,13 +48,14 @@ class Peer:
     def __str__(self):
         return f"{self.ip}:{self.port}"
 
-    def cancel(self):
+    async def cancel(self):
         """
         Cancels this peer's execution
         :return:
         """
         logger.debug(f"{self}: Cancelling and closing connections.")
-        self.writer.close()
+        self.requester.remove_peer(self)
+        await self.writer.close()
         self.future.cancel()
 
     async def start(self):
@@ -86,15 +87,15 @@ class Peer:
                     self.peer_interested = False
                     logger.debug(f"{self}: Sent {msg}")
                 elif isinstance(msg, Have):
-                    self.requester.peer_has_piece(self, msg.index)
+                    self.requester.add_available_piece(self, msg.index)
                     logger.debug(f"{self}: Has {msg}")
                 elif isinstance(msg, Bitfield):
-                    self.requester.peer_sent_bitfield(self, msg.bitfield)
+                    self.requester.add_peer_bitfield(self, msg.bitfield)
                     logger.debug(f"{self}: Bitfield {msg.bitfield}")
                 elif isinstance(msg, Request):
                     logger.debug(f"{self}: Requested {msg}")
                 elif isinstance(msg, Block):
-                    self.requester.peer_sent_block(msg)
+                    self.requester.received_block(msg)
                     logger.debug(f"{self}: Piece {msg}")
                 elif isinstance(msg, Cancel):
                     logger.debug(f"{self}: Canceled {msg}")
@@ -105,7 +106,12 @@ class Peer:
                     if self.peer_choking:
                         await self._interested()
                     else:
-                        request = self.requester.next_request()
+                        request = self.requester.next_request(self.peer_id)
+                        if not request:
+                            logger.debug(f"{self}: No requests available. Closing connection.")
+                            await self.cancel()
+                            return
+
                         self.writer.write(request.encode())
                         await self.writer.drain()
                         logger.debug(f"Requested piece {request.index}:{request.begin}:{request.length} from {self}")
