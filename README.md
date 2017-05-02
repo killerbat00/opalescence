@@ -1,9 +1,9 @@
-# opalescence
+# :crystal_ball: :gem: opalescence :gem: :crystal_ball:
 
-A torrent client written with asyncio and Python 3.6.
+A torrent client written with Python3.6 and asyncio to explore new features in 3.6 and learn more about asyncio, unittests, and more complex system architecture.
 
-Currently, the client employs a naive sequential piece requesting strategy and never unchokes remote peers.
-
+Current capabilities:
+1. Download a specified .torrent file, piece by piece employing a naive sequential piece requesting strategy without unchoking remote peers.
 
 ## Installing Opalescence
 clone this repository
