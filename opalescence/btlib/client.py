@@ -79,12 +79,8 @@ class Client:
             try:
                 await self.ping()
                 self.assign_peers()
-                for p in self.current_peers:
-                    asyncio.ensure_future(p.start())
             except PeerError:
                 self.assign_peers()
-                for p in self.current_peers:
-                    asyncio.ensure_future(p.start())
                 continue
             except ClientError as e:
                 raise e

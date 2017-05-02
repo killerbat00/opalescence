@@ -43,9 +43,19 @@ class Peer:
         self.peer_choking = True
         self.peer_interested = False
         self.requester = requester
+        self.future = asyncio.ensure_future(self.start())
 
     def __str__(self):
         return f"{self.ip}:{self.port}"
+
+    def cancel(self):
+        """
+        Cancels this peer's execution
+        :return:
+        """
+        logger.debug(f"{self}: Cancelling and closing connections.")
+        self.writer.close()
+        self.future.cancel()
 
     async def start(self):
         """
