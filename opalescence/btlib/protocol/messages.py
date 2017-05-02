@@ -320,6 +320,15 @@ class Piece:
         self._next_block_offset += Request.size
         return cur_offset
 
+    def reset(self):
+        """
+        Resets the piece leaving it in a state equivalent to immediately after initializing.
+        Used when we've downloaded the piece, but it turned out to be corrupt.
+        """
+        self.data = io.BytesIO()
+        self._offset = 0
+        self._next_block_offset = 0
+
 
 class Cancel(Message):
     """
