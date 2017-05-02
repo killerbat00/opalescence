@@ -25,7 +25,7 @@ class PeerError(Exception):
 
 class Peer:
     """
-    Represents a protocol and provides methods for communicating with said protocol.
+    Represents a peer and provides methods for communicating with that peer.
     """
 
     # TODO: Add support for sending pieces to the protocol
@@ -48,15 +48,16 @@ class Peer:
     def __str__(self):
         return f"{self.ip}:{self.port}"
 
-    async def cancel(self):
+    def cancel(self):
         """
         Cancels this peer's execution
         :return:
         """
         logger.debug(f"{self}: Cancelling and closing connections.")
-        self.requester.remove_peer(self)
-        await self.writer.close()
-        self.future.cancel()
+        self.requester.remove_peer(self.peer_id)
+        self.writer.close()
+        if not self.future.done():
+            self.future.cancel()
 
     async def start(self):
         """
@@ -87,10 +88,10 @@ class Peer:
                     self.peer_interested = False
                     logger.debug(f"{self}: Sent {msg}")
                 elif isinstance(msg, Have):
-                    self.requester.add_available_piece(self, msg.index)
+                    self.requester.add_available_piece(self.peer_id, msg.index)
                     logger.debug(f"{self}: Has {msg}")
                 elif isinstance(msg, Bitfield):
-                    self.requester.add_peer_bitfield(self, msg.bitfield)
+                    self.requester.add_peer_bitfield(self.peer_id, msg.bitfield)
                     logger.debug(f"{self}: Bitfield {msg.bitfield}")
                 elif isinstance(msg, Request):
                     logger.debug(f"{self}: Requested {msg}")
@@ -106,15 +107,20 @@ class Peer:
                     if self.peer_choking:
                         await self._interested()
                     else:
-                        request = self.requester.next_request(self.peer_id)
-                        if not request:
+                        message = self.requester.next_request(self.peer_id)
+                        if not message:
                             logger.debug(f"{self}: No requests available. Closing connection.")
-                            await self.cancel()
+                            self.cancel()
                             return
 
-                        self.writer.write(request.encode())
+                        self.writer.write(message.encode())
                         await self.writer.drain()
-                        logger.debug(f"Requested piece {request.index}:{request.begin}:{request.length} from {self}")
+                        if isinstance(message, Request):
+                            logger.debug(
+                                f"Requested piece {message.index}:{message.begin}:{message.length} from {self}")
+                        else:
+                            logger.debug(
+                                f"Cancelling piece {message.index}:{message.begin}:{message.length} from {self}")
 
         # TODO: Narrow down exceptions that are safely consumed
         # Eat exceptions here so we'll move to the next protocol.

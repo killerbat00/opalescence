@@ -12,8 +12,7 @@ from typing import Union, Dict, List
 
 import bitstring as bitstring
 
-from .messages import Request, Block, Piece
-from .peer import Peer
+from .messages import Request, Block, Piece, Cancel
 from ..torrent import Torrent
 
 logger = logging.getLogger(__name__)
@@ -63,37 +62,38 @@ class Requester:
         self.downloaded_pieces: Dict(int, Piece) = {}
         self.downloading_pieces: Dict(int, Union(Piece, None)) = {i: None for i in range(len(self.torrent.pieces))}
         self.pending_requests: List(Request) = []
+        self.cancelling_requests: List(Cancel) = []
 
-    def add_available_piece(self, peer: Peer, index: int) -> None:
+    def add_available_piece(self, peer_id: str, index: int) -> None:
         """
         Sent when a peer has a piece of the torrent.
 
-        :param peer:  The peer has the piece
+        :param peer_id: The peer that has the piece
         :param index: The index of the piece
         """
-        self.available_pieces[index].add(str(peer))
+        self.available_pieces[index].add(peer_id)
 
-    def add_peer_bitfield(self, peer: Peer, bitfield: bitstring.BitArray) -> None:
+    def add_peer_bitfield(self, peer_id: str, bitfield: bitstring.BitArray) -> None:
         """
         Updates our dictionary of pieces with data from the remote peer
 
-        :param peer:     The peer who sent this bitfield, kept around
+        :param peer_id:  The peer who sent this bitfield, kept around
                          to know where to eventually send requests
         :param bitfield: The bitfield sent by the peer
         """
         for i, b in enumerate(bitfield):
             if b:
-                self.available_pieces[i].add(str(peer))
+                self.available_pieces[i].add(peer_id)
 
-    def remove_peer(self, peer: Peer) -> None:
+    def remove_peer(self, peer_id: str) -> None:
         """
         Removes a peer from this requester's data structures in the case
         that our communication with that peer has stopped
 
-        :param peer: peer to remove
+        :param peer_id: peer to remove
         """
         for _, peer_set in self.available_pieces.items():
-            peer_set.discard(str(peer))
+            peer_set.discard(peer_id)
 
     def received_block(self, block: Block) -> None:
         """
@@ -108,6 +108,7 @@ class Requester:
         r = Request(block.index, block.begin)
         if r in self.pending_requests:
             index = self.pending_requests.index(r)
+            self.cancelling_requests.append(self.pending_requests[index])
             del self.pending_requests[index]
 
         piece = self.downloading_pieces.get(block.index)
@@ -182,6 +183,13 @@ class Requester:
         :param peer_id: The remote peer who's asking for a new request's id
         :return: A new request, or None if that isn't possible.
         """
+        # First, check if we need to cancel any requests to the peer
+        indices = [self.cancelling_requests.index(r) for r in self.cancelling_requests if r.peer_id == peer_id]
+        if indices:
+            r = self.cancelling_requests[indices[0]]
+            del self.cancelling_requests[indices[0]]
+            return Cancel.from_request(r)
+
         # Find the next piece index for which the peer has an available piece
         piece_index = self._next_piece_index_for_peer(peer_id)
         if piece_index is None:
@@ -200,7 +208,7 @@ class Requester:
             piece = self._try_get_downloading_piece(piece_index)
             next_block_begin = piece.next_block()
 
-        request = Request(piece.index, next_block_begin)
+        request = Request(piece.index, next_block_begin, peer_id=peer_id)
         piece_index = piece.index
         while request in self.pending_requests:
             next_block_begin = piece.next_block()
@@ -211,7 +219,7 @@ class Requester:
                     return
                 piece = self._try_get_downloading_piece(piece_index)
                 next_block_begin = piece.next_block()
-            request = Request(piece.index, next_block_begin)
+            request = Request(piece.index, next_block_begin, peer_id=peer_id)
 
         self.pending_requests.append(request)
         return request
