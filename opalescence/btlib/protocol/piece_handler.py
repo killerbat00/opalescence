@@ -104,29 +104,31 @@ class Requester:
 
         :param block: The piece message with the data and e'erthang
         """
-        # Remove any pending requests for this block
+        # Remove the pending request for this block if there is one
         r = Request(block.index, block.begin)
-        while r in self.pending_requests:
+        if r in self.pending_requests:
             index = self.pending_requests.index(r)
             del self.pending_requests[index]
 
         piece = self.downloading_pieces.get(block.index)
         piece.add_block(block)
 
-        if piece.complete:
-            piece.data.seek(0)
-            piece_data = piece.data.read()
-            piece_hash = hashlib.sha1(piece_data).digest()
-            if piece_hash != self.torrent.pieces[piece.index]:
-                logger.debug(
-                    f"Hash for received piece {piece.index} doesn't match expected hash\n"
-                    f"Received: {piece_hash}\n"
-                    f"Expected: {self.torrent.pieces[piece.index]}")
-                piece.reset()
-            else:
-                self.downloaded_pieces[piece.index] = piece
-                self.downloading_pieces[piece.index] = None
-                self.piece_writer.write(piece)
+        if not piece.complete:
+            return
+
+        piece.data.seek(0)
+        piece_data = piece.data.read()
+        piece_hash = hashlib.sha1(piece_data).digest()
+        if piece_hash != self.torrent.pieces[piece.index]:
+            logger.debug(
+                f"Hash for received piece {piece.index} doesn't match expected hash\n"
+                f"Received: {piece_hash}\n"
+                f"Expected: {self.torrent.pieces[piece.index]}")
+            piece.reset()
+        else:
+            self.downloaded_pieces[piece.index] = piece
+            self.downloading_pieces[piece.index] = None
+            self.piece_writer.write(piece)
 
     def _next_piece_index_for_peer(self, peer_id: str, start: int = -1) -> Union[int, None]:
         """
