@@ -9,7 +9,7 @@ import hashlib
 import logging
 import os
 from collections import OrderedDict
-from typing import NamedTuple, List, Union
+from typing import NamedTuple, Union
 
 from . import log_and_raise
 from .bencode import Decoder, Encoder, DecodeError, EncodeError
@@ -113,6 +113,7 @@ class Torrent:
         self.files = []
         self.meta_info = None
         self.info_hash = None
+        self.pieces = []
 
     @classmethod
     def from_file(cls, filename: str) -> "Torrent":
@@ -140,6 +141,7 @@ class Torrent:
             raise CreationError from e
 
         torrent._gather_files()
+        torrent.pieces = list(_pc(torrent.meta_info[b"info"][b"pieces"]))
         logger.debug(f"Created a torrent from {filename}")
         return torrent
 
@@ -351,16 +353,6 @@ class Torrent:
         :return: True if the torrent is private, False otherwise
         """
         return bool(self.meta_info[b"info"].get(b"private", False))
-
-    @property
-    def pieces(self) -> List[bytes]:
-        """
-        Splits up the bytestring representing the piece SHA1 hashes into
-        20 byte slice and returns a list of these pieces
-
-        :return: List of the piece bytes
-        """
-        return list(_pc(self.meta_info[b"info"][b"pieces"]))
 
     @property
     def piece_length(self) -> int:
