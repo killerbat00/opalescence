@@ -145,11 +145,11 @@ class Requester:
         """
         # Find the next piece index in the pieces we are currently downloading that the
         # peer said it could send us
-        for k, v in self.downloading_pieces.items():
+        for i, v in self.downloading_pieces.items():
             if v:
-                if k > start:
-                    if peer_id in self.available_pieces[k]:
-                        return k
+                if i > start:
+                    if peer_id in self.available_pieces[i]:
+                        return i
 
         # We couldn't find an incomplete piece index. This means the peer can't give us any pieces that
         # we are currently downloading. So, we start requesting the next piece that hasn't been complete.

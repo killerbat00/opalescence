@@ -84,11 +84,13 @@ def download_file(file_path) -> None:
 
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
-    client = Client(Torrent.from_file(file_path.torrent_file))
-    task = loop.create_task(client.start())
+    torrent = Torrent.from_file(file_path.torrent_file)
+    client = Client()
+    client.download(torrent)
 
     try:
-        loop.run_until_complete(task)
+        loop.run_forever()
+        # loop.run_until_complete(task)
     except asyncio.CancelledError:
         logging.warning("Event loop was cancelled")
     finally:

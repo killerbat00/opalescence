@@ -22,11 +22,11 @@ class ClientError(Exception):
     """
 
 
-class Client:
+class ClientTorrent:
     """
-    Handles communication with the tracker and between peers
+    A torrent currently being handled by the client. This wraps the tracker, requester, and peers into a single
+    API.
     """
-
     def __init__(self, torrent: Torrent):
         self.torrent = torrent
         self.tracker = Tracker(self.torrent)
@@ -36,8 +36,18 @@ class Client:
         self.interval = self.tracker.DEFAULT_INTERVAL
         self.last_ping = 0
         self.loop = asyncio.get_event_loop()
+        self.future = asyncio.ensure_future(self.start())
 
-    async def ping(self):
+    async def cancel(self):
+        """
+        Cancels this download.
+        """
+        logger.debug(f"Cancelling download of {self.torrent.name}.")
+        await self.tracker.cancel()
+        if not self.future.done():
+            self.future.cancel()
+
+    async def _ping(self):
         """
         Pings the tracker. Called periodically based on the interval requested by the tracker.
         """
@@ -56,11 +66,12 @@ class Client:
                 self.peer_list = p
 
         except TrackerError as te:
-            log_and_raise(f"Unable to make announce call to {self.tracker}", logger, ClientError, te)
+            log_and_raise(f"Unable to make announce call to {self.tracker} for {self.torrent.name}", logger,
+                          ClientError, te)
 
     def assign_peers(self) -> None:
         """
-        Assigns the first N peers in the protocol list to the active peers.
+        Assigns the first 10 peers in the peer list to the active peers.
         """
         for p in self.current_peers:
             self.requester.remove_peer(p)
@@ -77,7 +88,7 @@ class Client:
         """
         while True:
             try:
-                await self.ping()
+                await self._ping()
                 self.assign_peers()
             except PeerError:
                 self.assign_peers()
@@ -85,3 +96,34 @@ class Client:
             except ClientError as e:
                 raise e
             await asyncio.sleep(self.interval)
+
+
+class Client:
+    """
+    The client manages multiple client torrents.
+    """
+
+    def __init__(self):
+        self.tasks = []
+        self.torrents = {}
+
+    def download(self, torrent: Torrent):
+        """
+        Starts downloading the torrent. Multiple torrents can be downloaded simultaneously.
+        :param torrent: Torrent to download.
+        """
+        if torrent not in self.torrents:
+            self.torrents[torrent] = ClientTorrent(torrent)
+
+    async def stop(self, torrent: Torrent = None):
+        """
+        Stops downloading the specified torrent, or all torrents if none specified.
+        :param torrent: torrent to stop downloading. Default = None = ALL torrents
+        """
+        if torrent:
+            await self.torrents[torrent].cancel()
+        else:
+            tasks = []
+            for t, ct in self.torrents.items():
+                tasks.append(ct.cancel)
+            asyncio.gather(*[x() for x in tasks])

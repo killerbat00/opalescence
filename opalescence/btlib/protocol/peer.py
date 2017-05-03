@@ -72,6 +72,10 @@ class Peer:
             data = await self.handshake()
             await self._interested()
 
+            # Remove the messagereader here. Although it uses async for, it waits for a message
+            # before executing the body. This means that we can't currently blast the peer with requests
+            # and instead only send a request when we get a message back from the peer.
+            # One option would be asking the requester for a number of requests for this peer.
             async for msg in MessageReader(self.reader, data):
                 if isinstance(msg, KeepAlive):
                     logger.debug(f"{self}: Sent {msg}")
