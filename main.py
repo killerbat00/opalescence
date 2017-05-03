@@ -15,17 +15,42 @@ import unittest
 from opalescence.btlib.client import Client
 from opalescence.btlib.torrent import Torrent
 
+_LoggingConfig = {
+    "version": 1,
+    "formatters": {
+        "basic": {
+            "format": "%(asctime)s : %(name)s : [%(levelname)s] %(message)s"
+        }
+    },
+    "handlers": {
+        "stdout": {
+            "class": "logging.StreamHandler",
+            "level": "DEBUG",
+            "formatter": "basic",
+            "stream": "ext://sys.stdout"
+
+        }
+    },
+    "loggers": {
+        "opalescence": {
+            "level": "DEBUG",
+            "handlers": ["stdout"]
+        }
+    },
+    "root": {
+        "level": "DEBUG",
+        "handlers": ["stdout"]
+    }
+}
+
 
 def create_logger():
     """
-    Creates and configures the root logger
+    Creates and configures the application's root logger.
+    Configuration is stored in a dictionary
     Configuration is pulled from config/logging.ini
     """
-    full_path = os.path.realpath(__file__)
-    dirname = os.path.dirname(full_path)
-    log_conf_path = os.path.join(dirname, "config", "logging.ini")
-    logging.config.fileConfig(log_conf_path)
-    logging.info("Initialized logging")
+    logging.config.dictConfig(_LoggingConfig)
 
 
 def create_argparser() -> argparse.ArgumentParser:
@@ -95,6 +120,7 @@ def download_file(file_path) -> None:
         logging.warning("Event loop was cancelled")
     finally:
         loop.close()
+
 
 if __name__ == '__main__':
     main()
