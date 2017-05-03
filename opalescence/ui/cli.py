@@ -11,8 +11,8 @@ import logging.config
 import os
 import unittest
 
-from opalescence.btlib.client import Client
-from opalescence.btlib.torrent import Torrent
+from ..btlib.client import Client
+from ..btlib.torrent import MetaInfoFile
 
 _LoggingConfig = {
     "version": 1,
@@ -42,6 +42,26 @@ _LoggingConfig = {
     }
 }
 
+VERSION = None
+logger = None
+
+
+def main():
+    """
+    CLI entry point
+    """
+    global logger
+    argparser = create_argparser()
+
+    try:
+        args = argparser.parse_args()
+        _LoggingConfig["root"]["level"] = args.loglevel
+        logging.config.dictConfig(_LoggingConfig)
+        logger = logging.getLogger("opalescence")
+        args.func(args)
+    except AttributeError:
+        argparser.print_help()
+
 
 def create_argparser() -> argparse.ArgumentParser:
     """
@@ -50,74 +70,62 @@ def create_argparser() -> argparse.ArgumentParser:
     :return:    argparse.ArgumentParser instance
     """
     parser = argparse.ArgumentParser()
+    parser.add_argument("--version", action="version", version=VERSION)
+    parser.add_argument("-d", "--debug", help="Print debug-level output.",
+                        action="store_const", dest="loglevel",
+                        const=logging.DEBUG, default=logging.WARNING)
+    parser.add_argument("-v", "--verbose", help="Print verbose output (but "
+                                                "still less verbose than "
+                                                "debug-level.",
+                        action="store_const", dest="loglevel",
+                        const=logging.INFO)
+
     subparsers = parser.add_subparsers()
     test_parser = subparsers.add_parser("test", help="Run the test suite")
-    test_parser.set_defaults(func=run_tests)
-
+    test_parser.set_defaults(func=test)
     download_parser = subparsers.add_parser("download",
                                             help="Download a .torrent file.")
     download_parser.add_argument('torrent_file',
                                  help="Path to the .torrent file to download.")
     download_parser.add_argument('destination',
                                  help="File destination path.")
-    download_parser.set_defaults(func=download_file)
+    download_parser.set_defaults(func=download)
     return parser
 
 
-def main():
-    """
-    Main entry-point into Opalescence.
-    """
-    logging.config.dictConfig(_LoggingConfig)
-    logging.info("Initializing argument parser and subparsers")
-    argparser = create_argparser()
-
-    try:
-        args = argparser.parse_args()
-        args.func(args)
-    except AttributeError:
-        logging.debug("Program invoked with no arguments")
-        argparser.print_help()
-
-
-def run_tests(_) -> None:
+def test(_) -> None:
     """
     Runs the test suite found in the tests/ directory
     :param _: unused
     """
-    logging.debug("Running the test suite")
+    logging.info(f"Running the test suite on the files in development.")
 
-    loader = unittest.defaultTestLoader
+    loader = unittest.defaultTestLoader()
     runner = unittest.TextTestRunner()
     suite = loader.discover(
         os.path.abspath(os.path.join(os.path.dirname(__file__), "tests")))
     runner.run(suite)
 
 
-def download_file(file_path) -> None:
+def download(file_path) -> None:
     """
     Downloads a .torrent file
     :param file_path: .torrent filepath argparse.Namespace object
     """
-    logging.debug(f"Downloading {file_path}")
-    logging.debug(f"Downloading {file_path.torrent_file}\n"
-                  f"to {file_path.destination}")
+    logging.info(f"Downloading {file_path.torrent_file} to "
+                 f"{file_path.destination}")
 
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
-    torrent = Torrent.from_file(file_path.torrent_file)
+    torrent = MetaInfoFile.from_file(file_path.torrent_file)
     client = Client()
     client.download(torrent)
 
     try:
         loop.run_forever()
-        # loop.run_until_complete(task)
     except asyncio.CancelledError:
         logging.warning("Event loop was cancelled")
+    except KeyboardInterrupt:
+        logger.warning("Keyboard Interrupt received.")
     finally:
         loop.close()
-
-
-if __name__ == '__main__':
-    main()
-    logging.shutdown()
