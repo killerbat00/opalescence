@@ -36,7 +36,7 @@ class TestTracker(TestCase):
                 file_data = r.content
                 with open(cls.external_torrent_path, "wb+") as f:
                     f.write(file_data)
-        cls.torrent = torrent.Torrent.from_file(cls.external_torrent_path)
+        cls.torrent = torrent.MetaInfoFile.from_file(cls.external_torrent_path)
 
     def test_creation(self):
         """

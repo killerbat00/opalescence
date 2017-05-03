@@ -21,32 +21,33 @@ class CreationError(Exception):
     """
     Raised when we encounter problems creating a torrent
     """
-    pass
 
 
-"""
-An individual file within a torrent
-"""
-FileItem = NamedTuple("FileItem", [("path", str), ("size", int)])
+class FileItem(NamedTuple):
+    """
+    An individual file within a torrent.
+    """
+    path: str
+    size: int
 
 
 def _pc(piece_string: bytes, *, length: int = 20, start: int = 0):
     """
-    pieces a bytestring into pieces of specified length.
-    by default pieces into 20byte (160 bit) pieces
-    typically used to piece the hashlist contained within the torrent info's pieces key
+    Pieces a bytestring into pieces of specified length.
 
     :param piece_string: string to piece
     :param length:       piece length
-    :return:             generator expression yielding pieces of specified length
+    :return:             generator expression yielding pieces
     """
-    return (piece_string[0 + i:length + i] for i in range(start, len(piece_string), length))
+    return (piece_string[0 + i:length + i] for i in
+            range(start, len(piece_string), length))
 
 
 def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
     """
-    Verifies a given decoded dictionary contains valid keys to describe a torrent we can do something with.
-    Currently only checks for the minimum required torrent keys for torrents describing files and directories.
+    Verifies a given decoded dictionary contains valid keys.
+
+    Currently only checks for the minimum required torrent keys.
     If a dictionary contains all valid keys + extra keys, it will be validated.
 
     :param decoded_dict: dict representing bencoded .torrent file
@@ -57,7 +58,8 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
     min_info_req_keys = [b"piece length", b"pieces", b"name"]
     min_files_req_keys = [b"length", b"path"]
 
-    logger.debug("Validating torrent metainfo dictionary {d}".format(d=decoded_dict))
+    logger.debug(
+        "Validating torrent metainfo dictionary {d}".format(d=decoded_dict))
 
     dict_keys = list(decoded_dict.keys())
 
@@ -65,18 +67,22 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
         log_and_raise("No valid keys in dictionary.", logger, CreationError)
     for key in min_req_keys:
         if key not in dict_keys:
-            log_and_raise(f"Required key not found: {key}", logger, CreationError)
+            log_and_raise(f"Required key not found: {key}", logger,
+                          CreationError)
 
     info_keys = list(decoded_dict[b"info"].keys())
 
     if not info_keys:
-        log_and_raise("No valid keys in info dictionary.", logger, CreationError)
+        log_and_raise("No valid keys in info dictionary.", logger,
+                      CreationError)
     for key in min_info_req_keys:
         if key not in info_keys:
-            log_and_raise(f"Required key not found: {key}", logger, CreationError)
+            log_and_raise(f"Required key not found: {key}", logger,
+                          CreationError)
 
     if len(decoded_dict[b"info"][b"pieces"]) % 20 != 0:
-        log_and_raise("Piece length not a multiple of 20.", logger, CreationError)
+        log_and_raise("Piece length not a multiple of 20.", logger,
+                      CreationError)
 
     multiple_files = b"files" in info_keys
 
@@ -88,15 +94,17 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
         for f in file_list:
             for key in min_files_req_keys:
                 if key not in f.keys():
-                    log_and_raise(f"Required key not found: {key}", logger, CreationError)
+                    log_and_raise(f"Required key not found: {key}", logger,
+                                  CreationError)
     else:
         if b"length" not in info_keys:
-            log_and_raise("Required key not found: b'length'", logger, CreationError)
+            log_and_raise("Required key not found: b'length'", logger,
+                          CreationError)
     # we made it!
     return True
 
 
-class Torrent:
+class MetaInfoFile:
     """
     Wrapper around the torrent's metainfo. Doesn't include any download state.
     Torrents are created from files.
@@ -106,17 +114,13 @@ class Torrent:
     """
 
     def __init__(self):
-        """
-        Creates the lightweight representation of the torrent's metainfo and validates it
-        """
-        self.filename = None
         self.files = []
         self.meta_info = None
         self.info_hash = None
         self.pieces = []
 
     @classmethod
-    def from_file(cls, filename: str) -> "Torrent":
+    def from_file(cls, filename: str) -> "MetaInfoFile":
         """
         Class method to create a torrent object from a .torrent metainfo file
 
@@ -125,10 +129,13 @@ class Torrent:
         :return: Torrent instance
         """
         torrent = cls()
-        torrent.filename = filename
 
-        if not os.path.exists(torrent.filename):
-            log_and_raise(f"Path does not exist {filename}", logger, CreationError)
+        if not os.path.exists(filename):
+            logger.error(f"Path does not exist {filename}")
+            raise CreationError
+            logger.info("")
+            log_and_raise(f"Path does not exist {filename}", logger,
+                          CreationError)
 
         try:
             with open(torrent.filename, 'rb') as f:
@@ -147,7 +154,8 @@ class Torrent:
 
     @classmethod
     def from_path(cls, path: str, trackers: list, *,
-                  comment: str = "", piece_size: int = 16384, private: bool = False) -> "Torrent":
+                  comment: str = "", piece_size: int = 16384,
+                  private: bool = False) -> "MetaInfoFile":
         """
         Class method to create a torrent object from a specified filepath. The path can be
         a single file or a directory
@@ -169,38 +177,6 @@ class Torrent:
         :raises CreationError:
         """
         raise NotImplementedError
-        # if not self.base_location:
-        #    logger.error("Unable to create_torrent torrent. No base path specified. This is a programmer error.")
-        #    raise CreationError
-
-        # base_path = self.base_location
-        # left_in_piece = 0
-        # next_pc = b""
-
-        ## how can I make this better? it'd be nice to have a generator that
-        ## abstracts away the file handling and just gives me the
-        ## sha1 digest of a self.piece_length chunk of the file
-        # for file_itm in self.files:
-        #    with open(os.path.join(base_path, file_itm.path[0]), mode="rb") as f:
-        #        current_pos = 0
-        #        if left_in_piece > 0:
-        #            next_pc += f.read(left_in_piece)
-        #            self.pieces.append(hashlib.sha1(next_pc).digest().decode("ISO-8859-1"))
-        #            current_pos = left_in_piece
-        #            next_pc = b""
-        #            left_in_piece = 0
-
-        #        while True:
-        #            if current_pos + self.piece_length <= file_itm.size:
-        #                self.pieces.append(hashlib.sha1(f.read(self.piece_length)).digest().decode("ISO-8859-1"))
-        #                current_pos += self.piece_length
-        #            else:
-        #                remainder_to_read = file_itm.size - current_pos
-        #                if remainder_to_read < 0:
-        #                    break
-        #                next_pc += f.read(remainder_to_read)
-        #                left_in_piece = self.piece_length - remainder_to_read
-        #                break
 
     @classmethod
     def from_path(cls, path: str, trackers: list, *, comment: str = "",
@@ -217,37 +193,6 @@ class Torrent:
         :return:           Torrent object
         """
         raise NotImplementedError
-        # files = []
-
-        # if not os.path.exists(path):
-        #    logger.error("Path does not exist {path}".format(path=path))
-        #    raise CreationError
-
-        ## gather files
-        # if os.path.isfile(path):
-        #    base_path = os.path.dirname(path)
-        #    name = os.path.basename(path)
-        #    size = os.path.getsize(path)
-        #    files.append(FileItem(name, size))
-        # elif os.path.isdir(path):
-        #    base_path = path
-        #    name = os.path.basename(path)
-
-        #    # os.listdir returns paths in arbitrary order - possible danger here
-        #    for f in os.listdir(path):
-        #        size = os.path.getsize(os.path.join(path, f))
-        #        fi = FileItem(f, size)
-        #        fi.path = [fi.path]
-        #        files.append(fi)
-        # else:
-        #    logger.error("Error creating Torrent instance. Invalid file keys in metainfo dictionary.")
-        #    raise CreationError
-
-        # logger.debug("Creating Torrent instance from path {path}".format(path=path))
-        # torrent = cls(trackers, files, name, location=base_path, comment=comment, private=private,
-        #              piece_length=piece_size)
-        # logger.debug("Created Torrent instance from path {path} {torrent}".format(path=path, torrent=torrent.info_hash))
-        # return torrent
 
     def to_file(self, output_filename: str):
         """
@@ -257,7 +202,8 @@ class Torrent:
         :raises CreationError:
         """
         if not output_filename:
-            log_and_raise("Torrent must have an output filename.", logger, CreationError)
+            log_and_raise("Torrent must have an output filename.", logger,
+                          CreationError)
 
         with open(output_filename, 'wb+') as f:
             try:
@@ -272,7 +218,7 @@ class Torrent:
         """
         Gathers the files located in the torrent
         """
-        # TODO: filepaths are a list containing string elements that represent the path and filename
+        # TODO: filepaths are a list containing string elements
         if b"files" in self.meta_info[b"info"]:
             for f in self.meta_info[b"info"][b"files"]:
                 path = None
@@ -284,19 +230,23 @@ class Torrent:
 
         else:
             self.files.append(
-                FileItem(self.meta_info[b"info"][b"name"].decode("UTF-8"), self.meta_info[b"info"][b"length"]))
+                FileItem(self.meta_info[b"info"][b"name"].decode("UTF-8"),
+                         self.meta_info[b"info"][b"length"]))
 
     @property
     def multi_file(self) -> bool:
         """
         TODO: proper handling of multi-file torrents.
-        For a single file torrent, the meta_info["info"]["name"] is the torrent's content's file basename and
-                                       meta_info["info"]["length"] is its size
+        For a single file torrent,
+            the meta_info["info"]["name"] is the torrent's
+            content's file basename and meta_info["info"]["length"] is its size
 
-        For multiple file torrents, the meta_info["info"]["name"] is the torrent's content's directory name and
-                                        meta_info["info"]["files"] contains the content's file basename
-                                        meta_info["info"]["files"]["length"] is the file's size
-                                        meta_info["info"]["length"] doesn't contribute anything here
+        For multiple file torrents,
+            the meta_info["info"]["name"] is the torrent's
+            content's directory name and
+            meta_info["info"]["files"] contains the content's file basename
+            meta_info["info"]["files"]["length"] is the file's size
+            meta_info["info"]["length"] doesn't contribute anything here
         """
         return b"files" in self.meta_info[b"info"]
 
@@ -304,8 +254,8 @@ class Torrent:
     def announce_urls(self) -> list:
         """
         The announce URL of the tracker.
-        According to BEP 0012 (http://bittorrent.org/beps/bep_0012.html), if announce-list is present, it is used
-        instead of announce.
+        According to BEP 0012 (http://bittorrent.org/beps/bep_0012.html),
+        if announce-list is present, it is used instead of announce.
         :return: a list of announce URLs for the tracker
         """
         urls = []
@@ -371,14 +321,13 @@ class Torrent:
     @property
     def name(self) -> int:
         """
-        :return: the torrent's name; either the single filename or the directory name.
+        :return: the torrent's name; either the single filename or the directory
+        name.
         """
         return self.meta_info[b"info"][b"name"].decode("UTF-8")
 
     def __str__(self):
-        """
-        Returns a readable string representing the torrent
+        return f"{self.name}:{self.info_hash}"
 
-        :return: readable string of data
-        """
-        return "<Torrent object: {name} : {info_hash}>{".format(name=self.name, info_hash=self.info_hash)
+    def __repr__(self):
+        return f"<Torrent: {self.name}:{self.info_hash}"
