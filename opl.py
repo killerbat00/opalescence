@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Opalescence is a simple torrent client.
+Opalescence is a simple torrent client written using Python3.6.
 """
 
 import argparse
@@ -44,27 +44,23 @@ _LoggingConfig = {
 }
 
 
-def create_logger():
-    """
-    Creates and configures the application's root logger.
-    Configuration is stored in a dictionary
-    Configuration is pulled from config/logging.ini
-    """
-    logging.config.dictConfig(_LoggingConfig)
-
-
 def create_argparser() -> argparse.ArgumentParser:
     """
-    Initializes the root argument parser and all relevant subparsers for supported commands.
-    :return:    argparse.ArgumentParser instance that's ready to make things happen
+    Initializes the root argument parser and any necessary
+    subparsers for supported subcommands.
+    :return:    argparse.ArgumentParser instance
     """
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers()
     test_parser = subparsers.add_parser("test", help="Run the test suite")
     test_parser.set_defaults(func=run_tests)
-    download_parser = subparsers.add_parser("download", help="Download a .torrent file")
-    download_parser.add_argument('torrent_file')
-    download_parser.add_argument('destination')
+
+    download_parser = subparsers.add_parser("download",
+                                            help="Download a .torrent file.")
+    download_parser.add_argument('torrent_file',
+                                 help="Path to the .torrent file to download.")
+    download_parser.add_argument('destination',
+                                 help="File destination path.")
     download_parser.set_defaults(func=download_file)
     return parser
 
@@ -73,7 +69,7 @@ def main():
     """
     Main entry-point into Opalescence.
     """
-    create_logger()
+    logging.config.dictConfig(_LoggingConfig)
     logging.info("Initializing argument parser and subparsers")
     argparser = create_argparser()
 

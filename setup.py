@@ -14,21 +14,18 @@ with open("VERSION") as version_file:
     version = version_file.read()
 
 requirements = [
-    "requests", 'aiohttp', 'bitstring'
+    "requests", "aiohttp", "bitstring"
 ]
 
 setup(
     name="opalescence",
     version=version,
-    description="Torrent client offering basic functionality.",
+    description="A torrent client written using Python 3.6 and asyncio",
     long_description=readme,
     author="brian houston morrow",
     author_email="bhm@brianmorrow.net",
     url="https://github.com/killerbat00/opalescence",
-    packages=[
-        "opalescence"
-    ],
-    package_dir={"opalescence": "opalescence"},
+    packages=["opalescence"],
     install_requires=requirements,
     license="MIT license",
     zip_safe=False,
