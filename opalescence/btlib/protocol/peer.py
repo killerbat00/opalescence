@@ -126,12 +126,9 @@ class Peer:
                             logger.debug(
                                 f"Cancelling piece {message.index}:{message.begin}:{message.length} from {self}")
 
-        # TODO: Narrow down exceptions that are safely consumed
-        # Eat exceptions here so we'll move to the next protocol.
-        # We'll eventually try this protocol again anyway if the number of peers is low
-        except Exception as e:
-            logger.debug(f"{self}: Unable to open connection.\n{e}")
-            raise PeerError from e
+        except OSError as oe:
+            logger.debug(f"{self}: Exception with connection.\n{oe}")
+            raise PeerError from oe
 
     async def handshake(self) -> bytes:
         """
