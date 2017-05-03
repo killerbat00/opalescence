@@ -1,12 +1,12 @@
-.idea/*
 *.torrent
 *.txt
+*.pyc
+# Setuptools distribution folder.
+/dist/
+# Python egg metadata
+/*.egg-info
 test_torrent_dir/*
 /tests/test_torrent_data/
 .idea/
 __pycache__/
-config.pyc
-opalescence/__pycache__/*
-opalescence/btlib/__pycache__/*
-opalescence/btlib/protocol/__pycache__/*
-tests/__pycache__/*
+

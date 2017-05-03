@@ -39,4 +39,5 @@ setup(
         "Programming Language :: Python :: 3.6"
     ],
     test_suite="tests",
+    include_package_data=True,
 )
