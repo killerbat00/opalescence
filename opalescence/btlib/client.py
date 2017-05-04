@@ -7,7 +7,6 @@ The client is responsible for orchestrating communication with the tracker and b
 import asyncio
 import logging
 
-from . import log_and_raise
 from .metainfo import MetaInfoFile
 from .protocol.peer import PeerError, Peer
 from .protocol.piece_handler import Requester
@@ -67,8 +66,9 @@ class ClientTorrent:
                 self.peer_list = p
 
         except TrackerError as te:
-            log_and_raise(f"Unable to make announce call to {self.tracker} for {self.torrent.name}", logger,
-                          ClientError, te)
+            logger.error(f"Unable to announce to {self.tracker}.")
+            logger.info(te, exc_info=True)
+            raise ClientError from te
 
     def assign_peers(self) -> None:
         """
