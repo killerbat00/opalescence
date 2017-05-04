@@ -12,8 +12,8 @@ from typing import Union, Dict, List
 
 import bitstring as bitstring
 
-from .messages import Request, Block, Piece, Cancel
-from ..torrent import Torrent
+from .messages import Request, Block, Piece
+from ..metainfo import MetaInfoFile
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class Writer:
     Will eventually flush data to the disk.
     """
 
-    def __init__(self, torrent: Torrent):
+    def __init__(self, torrent: MetaInfoFile):
         self.filename = os.path.join(os.path.abspath(os.path.dirname(__file__)), torrent.name)
         self.piece_length = torrent.piece_length
         self.buffer = io.BytesIO()
@@ -54,7 +54,7 @@ class Requester:
     We currently use a naive sequential strategy.
     """
 
-    def __init__(self, torrent: Torrent):
+    def __init__(self, torrent: MetaInfoFile):
         self.torrent = torrent
         self.piece_length = torrent.piece_length
         self.piece_writer = Writer(torrent)
@@ -62,7 +62,6 @@ class Requester:
         self.downloaded_pieces: Dict(int, Piece) = {}
         self.downloading_pieces: Dict(int, Union(Piece, None)) = {i: None for i in range(len(self.torrent.pieces))}
         self.pending_requests: List(Request) = []
-        self.cancelling_requests: List(Cancel) = []
 
     def add_available_piece(self, peer_id: str, index: int) -> None:
         """
@@ -108,7 +107,6 @@ class Requester:
         r = Request(block.index, block.begin)
         if r in self.pending_requests:
             index = self.pending_requests.index(r)
-            self.cancelling_requests.append(self.pending_requests[index])
             del self.pending_requests[index]
 
         piece = self.downloading_pieces.get(block.index)
@@ -183,13 +181,6 @@ class Requester:
         :param peer_id: The remote peer who's asking for a new request's id
         :return: A new request, or None if that isn't possible.
         """
-        # First, check if we need to cancel any requests to the peer
-        indices = [self.cancelling_requests.index(r) for r in self.cancelling_requests if r.peer_id == peer_id]
-        if indices:
-            r = self.cancelling_requests[indices[0]]
-            del self.cancelling_requests[indices[0]]
-            return Cancel.from_request(r)
-
         # Find the next piece index for which the peer has an available piece
         piece_index = self._next_piece_index_for_peer(peer_id)
         if piece_index is None:

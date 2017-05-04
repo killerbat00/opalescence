@@ -12,7 +12,7 @@ from unittest import TestCase
 
 from requests import get
 
-from tests.context import torrent, bencode
+from tests.context import metainfo, bencode
 
 
 class TestTorrent(TestCase):
@@ -41,15 +41,17 @@ class TestTorrent(TestCase):
         """
         invalid_path = "Doesn't exist"
         with self.subTest(msg="Invalid path"):
-            with self.assertRaises(torrent.CreationError):
-                torrent.Torrent.from_file(invalid_path)
+            with self.assertRaises(metainfo.CreationError):
+                metainfo.MetaInfoFile.from_file(invalid_path)
 
     def test_valid_path(self):
         """
         Test that we get a torrent object from a valid path.
         """
         with self.subTest(msg="Valid path"):
-            self.assertIsInstance(torrent.Torrent.from_file(self.external_torrent_path), torrent.Torrent)
+            self.assertIsInstance(
+                metainfo.MetaInfoFile.from_file(self.external_torrent_path),
+                metainfo.MetaInfoFile)
 
     def test_invalid_torrent_metainfo(self):
         """
@@ -64,8 +66,8 @@ class TestTorrent(TestCase):
             f.truncate(file_size // 2)
 
         # the metainfo dictionary is entirely corrupted now, so we should expect a CreationError
-        with self.assertRaises(torrent.CreationError):
-            torrent.Torrent.from_file(copy_file_name)
+        with self.assertRaises(metainfo.CreationError):
+            metainfo.MetaInfoFile.from_file(copy_file_name)
 
         os.remove(copy_file_name)
 
@@ -73,7 +75,8 @@ class TestTorrent(TestCase):
         """
         Test that we gathered files appropriately.
         """
-        external_torrent = torrent.Torrent.from_file(self.external_torrent_path)
+        external_torrent = metainfo.MetaInfoFile.from_file(
+            self.external_torrent_path)
         filename = ".".join(os.path.basename(self.external_torrent_path).split(".")[:-1])
         for f in external_torrent.files:
             self.assertEqual(f.path, filename)
@@ -83,7 +86,7 @@ class TestTorrent(TestCase):
         Tests the properties of the torrent metainfo file.
         """
         announce_urls = [["http://torrent.ubuntu.com:6969/announce"], ["http://ipv6.torrent.ubuntu.com:6969/announce"]]
-        t = torrent.Torrent.from_file(self.external_torrent_path)
+        t = metainfo.MetaInfoFile.from_file(self.external_torrent_path)
         for f in announce_urls:
             self.assertIn(f, t.announce_urls)
         comment = "Ubuntu CD releases.ubuntu.com"
@@ -101,7 +104,7 @@ class TestTorrent(TestCase):
         Tests that the torrent's info hash property returns the correct info hash.
         """
         infohash_digest = b"\xdaw^J\xafV5\xefrX:9\x19w\xe5\xedo\x14a~"
-        t = torrent.Torrent.from_file(self.external_torrent_path)
+        t = metainfo.MetaInfoFile.from_file(self.external_torrent_path)
         self.assertEqual(infohash_digest, t.info_hash)
 
     def test_decode_recode_compare(self):
@@ -129,7 +132,8 @@ class TestTorrent(TestCase):
         Tests that we can open an externally created .torrent file, decode it, create a torrent instance,
         then rewrite it into another file. The resulting two files should be equal.
         """
-        external_torrent = torrent.Torrent.from_file(self.external_torrent_path)
+        external_torrent = metainfo.MetaInfoFile.from_file(
+            self.external_torrent_path)
         file_copy = os.path.abspath(os.path.join(os.path.dirname(__file__), "copy.torrent"))
         external_torrent.to_file(file_copy)
         self.assertTrue(cmp(self.external_torrent_path, file_copy))
@@ -140,11 +144,13 @@ class TestTorrent(TestCase):
         Decodes a torrent file created using an external program, reencodes that file to a .torrent,
         decodes the resulting torrent and compares its dictionary with the original decoded dictionary.
         """
-        external_torrent = torrent.Torrent.from_file(self.external_torrent_path)
+        external_torrent = metainfo.MetaInfoFile.from_file(
+            self.external_torrent_path)
         original_data = external_torrent.meta_info
         temp_output_filename = os.path.abspath(os.path.join(os.path.dirname(__file__), "copy.torrent"))
         external_torrent.to_file(temp_output_filename)
-        new_data = torrent.Torrent.from_file(temp_output_filename).meta_info
+        new_data = metainfo.MetaInfoFile.from_file(
+            temp_output_filename).meta_info
         self.assertEqual(original_data, new_data)
         os.remove(temp_output_filename)
 
@@ -172,5 +178,5 @@ class TestTorrent(TestCase):
                     invalid_file_list]
         for b in bad_data:
             with self.subTest(b=b):
-                with self.assertRaises(torrent.CreationError):
-                    torrent._validate_torrent_dict(b)
+                with self.assertRaises(metainfo.CreationError):
+                    metainfo._validate_torrent_dict(b)

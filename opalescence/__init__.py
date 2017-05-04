@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
 
 """
-Package containing the main opalescence logic
+Package containing the main opalescence application logic.
 """
 
-from .btlib import *
-
 __author__ = """Brian Houston Morrow"""
-___email___ = "bhm@brianmorrow.net"
-__version__ = "0.1.2"
-
+__email__ = "bhm@brianmorrow.net"
+__version__ = "0.2.1"

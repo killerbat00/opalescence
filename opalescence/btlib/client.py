@@ -7,10 +7,9 @@ The client is responsible for orchestrating communication with the tracker and b
 import asyncio
 import logging
 
-from . import log_and_raise
+from .metainfo import MetaInfoFile
 from .protocol.peer import PeerError, Peer
 from .protocol.piece_handler import Requester
-from .torrent import Torrent
 from .tracker import Tracker, TrackerError
 
 logger = logging.getLogger(__name__)
@@ -27,7 +26,8 @@ class ClientTorrent:
     A torrent currently being handled by the client. This wraps the tracker, requester, and peers into a single
     API.
     """
-    def __init__(self, torrent: Torrent):
+
+    def __init__(self, torrent: MetaInfoFile):
         self.torrent = torrent
         self.tracker = Tracker(self.torrent)
         self.requester = Requester(self.torrent)
@@ -66,8 +66,9 @@ class ClientTorrent:
                 self.peer_list = p
 
         except TrackerError as te:
-            log_and_raise(f"Unable to make announce call to {self.tracker} for {self.torrent.name}", logger,
-                          ClientError, te)
+            logger.error(f"Unable to announce to {self.tracker}.")
+            logger.info(te, exc_info=True)
+            raise ClientError from te
 
     def assign_peers(self) -> None:
         """
@@ -107,7 +108,7 @@ class Client:
         self.tasks = []
         self.torrents = {}
 
-    def download(self, torrent: Torrent):
+    def download(self, torrent: MetaInfoFile):
         """
         Starts downloading the torrent. Multiple torrents can be downloaded simultaneously.
         :param torrent: Torrent to download.
@@ -115,7 +116,7 @@ class Client:
         if torrent not in self.torrents:
             self.torrents[torrent] = ClientTorrent(torrent)
 
-    async def stop(self, torrent: Torrent = None):
+    async def stop(self, torrent: MetaInfoFile = None):
         """
         Stops downloading the specified torrent, or all torrents if none specified.
         :param torrent: torrent to stop downloading. Default = None = ALL torrents

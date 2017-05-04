@@ -17,8 +17,8 @@ install using pip
 ## using opalescence
 download a torrent
 
-`python3 <path-to-opalescence>/main.py download <.torrent-file> <destination>`
+`python3 <path-to-opalescence>/opl.py download <.torrent-file> <destination>`
 
 ## testing opalescence
-`python3 <path-to-opalescence>/main.py test`
+`python3 <path-to-opalescence>/opl.py test`
 
