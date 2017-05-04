@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
 """
-Support for representing a .torrent file as a python class and creating a Torrent class (or .torrent file) from
-a specified file or directory.
+Support for representing a .torrent file as a python class and
+creating a Torrent class (or .torrent file) from a specified file or directory.
 """
 
 import hashlib
@@ -11,7 +11,6 @@ import os
 from collections import OrderedDict
 from typing import NamedTuple, Union
 
-from . import log_and_raise
 from .bencode import Decoder, Encoder, DecodeError, EncodeError
 
 logger = logging.getLogger(__name__)
@@ -64,25 +63,28 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
     dict_keys = list(decoded_dict.keys())
 
     if not dict_keys:
-        log_and_raise("No valid keys in dictionary.", logger, CreationError)
+        logger.error("No valid keys in dictionary.")
+        raise CreationError
+
     for key in min_req_keys:
         if key not in dict_keys:
-            log_and_raise(f"Required key not found: {key}", logger,
-                          CreationError)
+            logger.error(f"Required key not found: {key}")
+            raise CreationError
 
     info_keys = list(decoded_dict[b"info"].keys())
 
     if not info_keys:
-        log_and_raise("No valid keys in info dictionary.", logger,
-                      CreationError)
+        logger.error("No valid keys in info dictionary.")
+        raise CreationError
+
     for key in min_info_req_keys:
         if key not in info_keys:
-            log_and_raise(f"Required key not found: {key}", logger,
-                          CreationError)
+            logger.error(f"Required key not found: {key}")
+            raise CreationError
 
     if len(decoded_dict[b"info"][b"pieces"]) % 20 != 0:
-        log_and_raise("Piece length not a multiple of 20.", logger,
-                      CreationError)
+        logger.error("Piece length not a multiple of 20.")
+        raise CreationError
 
     multiple_files = b"files" in info_keys
 
@@ -90,16 +92,19 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
         file_list = decoded_dict[b"info"][b"files"]
 
         if not file_list:
-            log_and_raise("No file list.", logger, CreationError)
+            logger.error("No file list.")
+            raise CreationError
+
         for f in file_list:
             for key in min_files_req_keys:
                 if key not in f.keys():
-                    log_and_raise(f"Required key not found: {key}", logger,
-                                  CreationError)
+                    logger.error(f"Required key not found: {key}")
+                    raise CreationError
     else:
         if b"length" not in info_keys:
-            log_and_raise("Required key not found: b'length'", logger,
-                          CreationError)
+            logger.error("Required key not found: b'length'")
+            raise CreationError
+
     # we made it!
     return True
 
@@ -133,9 +138,6 @@ class MetaInfoFile:
         if not os.path.exists(filename):
             logger.error(f"Path does not exist {filename}")
             raise CreationError
-            # logger.info("")
-            # log_and_raise(f"Path does not exist {filename}", logger,
-            #              CreationError)
 
         try:
             with open(filename, 'rb') as f:
@@ -145,6 +147,8 @@ class MetaInfoFile:
                 info = Encoder(torrent.meta_info[b"info"]).encode()
                 torrent.info_hash = hashlib.sha1(info).digest()
         except (EncodeError, DecodeError, IOError) as e:
+            logger.error(f"Encountered error creating MetaInfoFile.")
+            logger.info(e, exc_info=True)
             raise CreationError from e
 
         torrent._gather_files()
@@ -202,14 +206,16 @@ class MetaInfoFile:
         :raises CreationError:
         """
         if not output_filename:
-            log_and_raise("Torrent must have an output filename.", logger,
-                          CreationError)
+            logger.error("No output filename provided.")
+            raise CreationError
 
         with open(output_filename, 'wb+') as f:
             try:
                 data = Encoder(self.meta_info).encode()
                 f.write(data)
             except EncodeError as ee:
+                logger.error("Unable to write metainfo file {output_filename}")
+                logger.info(ee, exc_info=True)
                 raise CreationError from ee
 
         logger.debug(f"Wrote .torrent file: {output_filename}")
