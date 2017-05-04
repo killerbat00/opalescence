@@ -6,16 +6,15 @@ Support for communication with an external tracker.
 
 import asyncio
 import logging
-import random
 import socket
 import struct
-from typing import Union
+from random import randint
+from typing import Union, Optional
 from urllib.parse import urlencode
 
 import aiohttp
 
 from opalescence.btlib import bencode
-from . import log_and_raise
 from .metainfo import MetaInfoFile
 
 logger = logging.getLogger(__name__)
@@ -31,7 +30,8 @@ class TrackerError(Exception):
 class Tracker:
     """
     Communication with the tracker.
-    Does not currently support the announce-list extension from BEP 0012: http://bittorrent.org/beps/bep_0012.html
+    Does not currently support the announce-list extension from
+    BEP 0012: http://bittorrent.org/beps/bep_0012.html
     Does not support the scrape convention.
     """
 
@@ -42,7 +42,8 @@ class Tracker:
     def __init__(self, torrent: MetaInfoFile):
         self.torrent = torrent
         self.http_client = aiohttp.ClientSession(loop=asyncio.get_event_loop())
-        self.peer_id = ("-OP0001-" + ''.join([str(random.randint(0, 9)) for _ in range(12)])).encode("UTF-8")
+        self.peer_id = ("-OP0001-" + ''.join(str(randint(0, 9)) for _ in
+                                             range(12))).encode("UTF-8")
         self.tracker_id = None
         self.port = 6881
         self.uploaded = 0
@@ -54,31 +55,37 @@ class Tracker:
         """
         Makes an announce request to the tracker.
 
-        :raises TrackerError: if the tracker's HTTP code is not 200, the tracker sent a failure, or we
+        :raises TrackerError: if the tracker's HTTP code is not 200,
+                              the tracker sent a failure, or we
                               are unable to bdecode the tracker's response.
         :returns: Response object representing the tracker's response
         """
         url = self._make_url()
-        decoded_data = None
 
-        logger.debug(f"Making {self.event} announce to: {url}")
         async with self.http_client.get(url) as r:
             data = await r.read()
             if r.status != 200:
-                log_and_raise(f"Unable to connect to the tracker.\n{data}", logger, TrackerError)
+                logger.error(f"{url}: Unable to connect to tracker.")
+                raise TrackerError
 
-            try:
-                decoded_data = bencode.Decoder(data).decode()
-            except bencode.DecodeError as e:
-                log_and_raise(f"Unable to decode tracker response.\n{data}", logger, TrackerError, e)
+        try:
+            decoded_data = bencode.Decoder(data).decode()
+        except bencode.DecodeError as e:
+            logger.error(f"{url}: Unable to decode tracker response.")
+            logger.info(e, exc_info=True)
+            raise TrackerError
 
-            tr = Response(decoded_data)
-            if tr.failed:
-                log_and_raise(f"Failed announce call to tracker {url}\n{tr.failure_reason}", logger, TrackerError)
+        tr = Response(decoded_data)
+        if tr.failed:
+            logger.error(f"{url}: Failed announce call to tracker.")
+            raise TrackerError
 
-            if self.event:
-                self.event = ""
-            return Response(decoded_data)
+        logger.debug(f"Made {self.event} announce to: {url}")
+
+        if self.event:
+            self.event = ""
+
+        return Response(decoded_data)
 
     async def cancel(self) -> None:
         """
@@ -87,7 +94,6 @@ class Tracker:
         """
         self.event = "stopped"
         await self.announce()
-        return
 
     async def completed(self) -> None:
         """
@@ -96,7 +102,6 @@ class Tracker:
         """
         self.event = "completed"
         await self.announce()
-        return
 
     def _make_url(self) -> str:
         """
@@ -104,14 +109,15 @@ class Tracker:
         Currently only uses the announce key
 
         :raises TrackerError:
-        :return: tracker's announce url with correctly escaped and encoded parameters
+        :return: tracker's announce url with urlencoded parameters
         """
         # TODO: implement proper announce-list handling
-        return self.torrent.meta_info[b"announce"].decode("UTF-8") + "?" + urlencode(self._make_params())
+        return self.torrent.meta_info[b"announce"].decode("UTF-8") + \
+               "?" + urlencode(self._make_params())
 
     def _make_params(self) -> dict:
         """
-        Builds the parameter dictionary the tracker expects for announce requests.
+        Builds the parameters the tracker expects for announce requests.
 
         :return: dictionary of properly encoded parameters
         """
@@ -161,12 +167,12 @@ class Response:
     @property
     def min_interval(self) -> int:
         """
-        :return: the minimum interval, if specified we can't make requests more frequently than this
+        :return: the minimum interval
         """
         return self.data.get(b"min interval", 0)
 
     @property
-    def tracker_id(self) -> Union[str, None]:  # or maybe bytes?
+    def tracker_id(self) -> Optional[str]:  # or maybe bytes?
         """
         :return: the tracker id
         """
@@ -190,10 +196,11 @@ class Response:
         return self.data.get(b"incomplete", 0)
 
     @property
-    def peers(self) -> Union[list, None]:
+    def peers(self) -> Optional[list]:
         """
         :raises TrackerError:
-        :return: the list of peers. The response can be given as a list of dictionaries about the peers, or a string
+        :return: the list of peers. The response can be given as a
+        list of dictionaries about the peers, or a string
         encoding the ip address and ports for the peers
         """
         peers = self.data.get(b"peers")
@@ -202,11 +209,15 @@ class Response:
             return
 
         if isinstance(peers, bytes):
-            logger.debug("Decoding binary model peers.")
             split_peers = [peers[i:i + 6] for i in range(0, len(peers), 6)]
-            return [(socket.inet_ntoa(p[:4]), struct.unpack(">H", p[4:])[0]) for p in split_peers]
+            p = [(socket.inet_ntoa(p[:4]), struct.unpack(">H", p[4:])[0]) for
+                 p in split_peers]
+            logger.debug("Decoded binary model peers.")
+            return p
         elif isinstance(peers, list):
-            logger.debug("Decoding dictionary model peers.")
-            return [(p[b"ip"].decode("UTF-8"), p[b"port"]) for p in peers]
+            p = [(p[b"ip"].decode("UTF-8"), p[b"port"]) for p in peers]
+            logger.debug("Decoded dictionary model peers.")
+            return p
         else:
-            log_and_raise(f"Unable to decode peers {peers}", logger, TrackerError)
+            logger.error(f"Unable to decode peers {peers}")
+            raise TrackerError
