@@ -13,7 +13,7 @@ import unittest
 
 import opalescence
 from ..btlib.client import Client
-from ..btlib.torrent import MetaInfoFile
+from ..btlib.metainfo import MetaInfoFile
 
 _LoggingConfig = {
     "version": 1,
@@ -99,7 +99,7 @@ def test(_) -> None:
     Runs the test suite found in the tests/ directory
     :param _: unused
     """
-    logging.info(f"Running the test suite on the files in development.")
+    logger.info(f"Running the test suite on the files in development.")
 
     loader = unittest.defaultTestLoader()
     runner = unittest.TextTestRunner()
@@ -113,8 +113,8 @@ def download(file_path) -> None:
     Downloads a .torrent file
     :param file_path: .torrent filepath argparse.Namespace object
     """
-    logging.info(f"Downloading {file_path.torrent_file} to "
-                 f"{file_path.destination}")
+    logger.info(f"Downloading {file_path.torrent_file} to "
+                f"{file_path.destination}")
 
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
@@ -125,7 +125,7 @@ def download(file_path) -> None:
     try:
         loop.run_forever()
     except asyncio.CancelledError:
-        logging.warning("Event loop was cancelled")
+        logger.warning("Event loop was cancelled")
     except KeyboardInterrupt:
         logger.warning("Keyboard Interrupt received.")
     finally:

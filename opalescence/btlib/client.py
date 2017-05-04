@@ -8,9 +8,9 @@ import asyncio
 import logging
 
 from . import log_and_raise
+from .metainfo import MetaInfoFile
 from .protocol.peer import PeerError, Peer
 from .protocol.piece_handler import Requester
-from .torrent import MetaInfoFile
 from .tracker import Tracker, TrackerError
 
 logger = logging.getLogger(__name__)

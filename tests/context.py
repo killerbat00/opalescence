@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 # noinspection PyUnresolvedReferences
 from opalescence.btlib import bencode
 # noinspection PyUnresolvedReferences
-from opalescence.btlib import torrent
+from opalescence.btlib import metainfo
 # noinspection PyUnresolvedReferences
 from opalescence.btlib import tracker
 # noinspection PyUnresolvedReferences

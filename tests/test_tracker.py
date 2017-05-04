@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 
 from requests import get
 
-from tests.context import torrent
+from tests.context import metainfo
 from tests.context import tracker
 from tests.utils import async_run, create_async_mock
 
@@ -36,7 +36,7 @@ class TestTracker(TestCase):
                 file_data = r.content
                 with open(cls.external_torrent_path, "wb+") as f:
                     f.write(file_data)
-        cls.torrent = torrent.MetaInfoFile.from_file(cls.external_torrent_path)
+        cls.torrent = metainfo.MetaInfoFile.from_file(cls.external_torrent_path)
 
     def test_creation(self):
         """

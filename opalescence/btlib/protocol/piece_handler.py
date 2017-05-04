@@ -13,7 +13,7 @@ from typing import Union, Dict, List
 import bitstring as bitstring
 
 from .messages import Request, Block, Piece
-from ..torrent import Torrent
+from ..metainfo import MetaInfoFile
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class Writer:
     Will eventually flush data to the disk.
     """
 
-    def __init__(self, torrent: Torrent):
+    def __init__(self, torrent: MetaInfoFile):
         self.filename = os.path.join(os.path.abspath(os.path.dirname(__file__)), torrent.name)
         self.piece_length = torrent.piece_length
         self.buffer = io.BytesIO()
@@ -54,7 +54,7 @@ class Requester:
     We currently use a naive sequential strategy.
     """
 
-    def __init__(self, torrent: Torrent):
+    def __init__(self, torrent: MetaInfoFile):
         self.torrent = torrent
         self.piece_length = torrent.piece_length
         self.piece_writer = Writer(torrent)

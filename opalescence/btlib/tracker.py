@@ -16,7 +16,7 @@ import aiohttp
 
 from opalescence.btlib import bencode
 from . import log_and_raise
-from .torrent import Torrent
+from .metainfo import MetaInfoFile
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class Tracker:
     # TODO: implement scrape convention support.
     DEFAULT_INTERVAL = 60  # 1 minute
 
-    def __init__(self, torrent: Torrent):
+    def __init__(self, torrent: MetaInfoFile):
         self.torrent = torrent
         self.http_client = aiohttp.ClientSession(loop=asyncio.get_event_loop())
         self.peer_id = ("-OP0001-" + ''.join([str(random.randint(0, 9)) for _ in range(12)])).encode("UTF-8")

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Module containing library code for the BitTorrent protocol
+Library code for the bittorrent protocol.
 """
 import logging
 

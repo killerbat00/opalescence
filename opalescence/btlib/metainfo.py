@@ -133,12 +133,12 @@ class MetaInfoFile:
         if not os.path.exists(filename):
             logger.error(f"Path does not exist {filename}")
             raise CreationError
-            logger.info("")
-            log_and_raise(f"Path does not exist {filename}", logger,
-                          CreationError)
+            # logger.info("")
+            # log_and_raise(f"Path does not exist {filename}", logger,
+            #              CreationError)
 
         try:
-            with open(torrent.filename, 'rb') as f:
+            with open(filename, 'rb') as f:
                 data = f.read()
                 torrent.meta_info = Decoder(data).decode()
                 _validate_torrent_dict(torrent.meta_info)
