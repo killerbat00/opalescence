@@ -4,14 +4,12 @@
 """
 setuptools script for opalescence
 """
-
 from setuptools import setup
+
+import opalescence
 
 with open("README.md") as readme_file:
     readme = readme_file.read()
-
-with open("VERSION") as version_file:
-    version = version_file.read()
 
 requirements = [
     "requests", "aiohttp", "bitstring"
@@ -19,7 +17,7 @@ requirements = [
 
 setup(
     name="opalescence",
-    version=version,
+    version=opalescence.__version__,
     description="A torrent client written using Python 3.6 and asyncio",
     long_description=readme,
     author="brian houston morrow",

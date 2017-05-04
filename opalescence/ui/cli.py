@@ -11,6 +11,7 @@ import logging.config
 import os
 import unittest
 
+import opalescence
 from ..btlib.client import Client
 from ..btlib.torrent import MetaInfoFile
 
@@ -42,7 +43,6 @@ _LoggingConfig = {
     }
 }
 
-VERSION = None
 logger = None
 
 
@@ -70,7 +70,8 @@ def create_argparser() -> argparse.ArgumentParser:
     :return:    argparse.ArgumentParser instance
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--version", action="version", version=VERSION)
+    parser.add_argument("--version", action="version",
+                        version=opalescence.__version__)
     parser.add_argument("-d", "--debug", help="Print debug-level output.",
                         action="store_const", dest="loglevel",
                         const=logging.DEBUG, default=logging.WARNING)
