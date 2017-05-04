@@ -3,22 +3,12 @@
 """
 Provides support for decoding a bencoded string into a python OrderedDict,
 bencoding a decoded OrderedDict, and pretty printing said OrderedDict.
-
-public classes:
-    Encoder()
-    Decoder()
-
-public Exceptions:
-    BencodeRecursionError()
-    DecodeError()
-    EncodeError()
 """
+
 import logging
 from collections import OrderedDict
 from io import BytesIO
-from typing import Union
-
-from . import log_and_raise
+from typing import Union, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +33,7 @@ class EncodeError(Exception):
 
 class BencodeDelimiters:
     """
-    Delimiters used for bencoding
+    Delimiters used in the bencoding spec.
     """
     dict_start = b'd'
     end = b'e'
@@ -51,27 +41,31 @@ class BencodeDelimiters:
     num_start = b'i'
     divider = b':'
     digits = [b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9']
-    eof = b"!"
+    eof = b"!"  # custom eof marker used to break out of empty containers
 
 
 class Decoder:
     """
-    Decodes a bencoded bytestring, returning it's equivalent python object representation.
+    Decodes a bencoded bytestring, returning its equivalent python
+    representation.
     """
 
-    def __init__(self, data: bytes, recursion_limit: int = 99999):
+    def __init__(self, data: bytes, *, recursion_limit: int = 99999):
         """
         Creates a new Decoder object.
 
         :param data:            the bencoded bytes to decode
-        :param recursion_limit: the number of times we'll recursively call into the decoding methods
+        :param recursion_limit: recursion limit for decoding methods
         :raises DecodeError:    if recursion limit is < 0 or no data received
         """
         if recursion_limit <= 0:
-            log_and_raise("Recursion limit should be greater than 0.", logger, DecodeError)
+            logger.error(f"Cannot decode. Recursion limit should be greater "
+                         f"than 0.")
+            raise DecodeError
 
         if not data:
-            log_and_raise("No data received.", logger, DecodeError)
+            logger.error(f"Cannot decode. No data received.")
+            raise DecodeError
 
         self._recursion_limit = recursion_limit
         self._current_iter = 0
@@ -80,7 +74,8 @@ class Decoder:
     def _set_data(self, data: bytes) -> None:
         """
         Sets the data used by the decoder.
-        Warning: _set_data does not check if the data passed in as an argument exists.
+        Warning: _set_data does not check if the data passed in as an argument
+        exists.
         calling decode() after setting no data will return None.
 
         :param data: bytes of data to decode
@@ -89,7 +84,9 @@ class Decoder:
             self.data = BytesIO(data)
             self._current_iter = 0
         except TypeError as te:
-            log_and_raise(f"Cannot set data. Invalid type of {type(data)}", logger, DecodeError, te)
+            logger.error(f"Expected bytes, received {type(data)}")
+            logger.info(te, exc_info=True)
+            raise DecodeError from te
 
     def decode(self) -> Union[OrderedDict, list, bytes, int, None]:
         """
@@ -111,17 +108,18 @@ class Decoder:
         :return: torrent info decoded into a python object
         """
         if self._current_iter > self._recursion_limit:
-            log_and_raise("Recursion limit reached.", logger, BencodeRecursionError)
+            logger.error(f"Recursion limit reached.")
+            raise BencodeRecursionError
         else:
             self._current_iter += 1
 
         char = self.data.read(1)
 
         if not char:
-            # ends the recursive madness. eof is used to signal we've decoded as far as we can go
+            # eof is used to signal we've decoded as far as we can go
             return BencodeDelimiters.eof
         if char == BencodeDelimiters.end:
-            # extraneous end delimiters are ignored -> d3:num3:valee = {"num", "val"}
+            # extra end delimiters are ignored -> d3:num3:valee = {"num", "val"}
             return BencodeDelimiters.eof
         elif char == BencodeDelimiters.num_start:
             return self._decode_int()
@@ -132,7 +130,8 @@ class Decoder:
         elif char == BencodeDelimiters.list_start:
             return self._decode_list()
         else:
-            log_and_raise(f"Unable to bdecode {char}. Invalid bencoding key.", logger, DecodeError)
+            logger.error(f"Unable to bdecode {char}. Invalid bencoding key.")
+            raise DecodeError
 
     def _decode_dict(self) -> OrderedDict:
         """
@@ -151,21 +150,25 @@ class Decoder:
             if key == BencodeDelimiters.eof:
                 break
             if not isinstance(key, bytes):
-                log_and_raise(f"Dictionary key must be bytes. Not {type(key)}.", logger, DecodeError)
+                logger.error(f"Dictionary key must be bytes. Not {type(key)}")
+                raise DecodeError
+
             val = self._decode()
 
             decoded_dict.setdefault(key, val)
             keys.append(key)
 
         if keys != sorted(keys):
-            log_and_raise(f"Invalid dictionary. Keys {keys} are not sorted.", logger, DecodeError)
+            logger.error(f"Invalid dictionary. Keys {keys} not sorted.")
+            raise DecodeError
 
         return decoded_dict
 
     def _decode_list(self) -> list:
         """
         Decodes a bencoded list into a python list
-        lists can contain any other bencoded types (bytestring, integer, list, dictionary)
+        lists can contain any other bencoded types:
+            (bytestring, integer, list, dictionary)
 
         :return: list of decoded data
         """
@@ -188,24 +191,26 @@ class Decoder:
     def _decode_bytestr(self) -> bytes:
         """
         decodes a bencoded string from the BytesIO buffer.
-        whitespace only strings are allowed if there is the proper number of whitespace characters to read.
+        whitespace only strings are allowed if there is
+        the proper number of whitespace characters to read.
 
         :raises DecodeError: if we are unable to read enough data for the string
         :return:             decoded string
         """
-        # we've already consumed the byte that will start the string length, go back and get it
+        # we've already consumed the string length, go back and get it
         self.data.seek(-1, 1)
         string_len = self._parse_num(BencodeDelimiters.divider)
         string_val = self.data.read(string_len)
 
         if len(string_val) != string_len:
-            log_and_raise(f"Unable to read specified string length {string_len}", logger, DecodeError)
+            logger.error(f"Unable to read specified string {string_len}")
+            raise DecodeError
 
         return string_val
 
     def _parse_num(self, delimiter: bytes) -> int:
         """
-        parses an bencoded integer up to specified delimiter from the BytesIO buffer.
+        parses an bencoded integer up to specified delimiter from the buffer.
 
         :param delimiter:    delimiter do indicate the end of the number
         :raises DecodeError: when an invalid character occurs
@@ -214,20 +219,25 @@ class Decoder:
         parsed_num = bytes()
         while True:
             char = self.data.read(1)
-            if char in BencodeDelimiters.digits + [b"-"]:  # allow negative integers
+            # allow negative integers
+            if char in BencodeDelimiters.digits + [b"-"]:
                 parsed_num += char
             else:
                 if char != delimiter:
-                    log_and_raise(f"Invalid character while parsing int {char}. Expected {delimiter}", logger,
-                                  DecodeError)
+                    logger.error(f"Invalid character while parsing int"
+                                 f"{char}. Expected {delimiter}")
+                    raise DecodeError
                 break
 
         num_str = parsed_num.decode("UTF-8")
 
         if len(num_str) == 0:
-            log_and_raise("Empty strings are not allowed for int keys.", logger, DecodeError)
+            logger.error("Empty strings are not allowed for int keys.")
+            raise DecodeError
         elif len(num_str) > 1 and (num_str[0] == '0' or num_str[:2] == '-0'):
-            log_and_raise("Leading or negative zeros are not allowed for int keys.", logger, DecodeError)
+            logger.error("Leading or negative zeros are not allowed for int "
+                         "keys.")
+            raise DecodeError
 
         return int(num_str)
 
@@ -245,7 +255,8 @@ class Encoder:
         :raises EncodeError: when null data received
         """
         if not data:
-            log_and_raise("No data received.", logger, EncodeError)
+            logger.error("Cannot encode. No data received.")
+            raise EncodeError
 
         self._set_data(data)
 
@@ -258,7 +269,7 @@ class Encoder:
         """
         self.data = data
 
-    def encode(self) -> Union[bytes, None]:
+    def encode(self) -> Optional[bytes]:
         """
         Bencodes a python object and returns the bencoded string.
 
@@ -285,16 +296,18 @@ class Encoder:
         elif isinstance(obj, bytes):
             return self._encode_bytestr(obj)
         elif isinstance(obj, bool):
-            log_and_raise("Boolean values not supported.", logger, EncodeError)
+            logger.error("Boolean values not supported.")
+            raise EncodeError
         elif isinstance(obj, int):
             return self._encode_int(obj)
         else:
-            log_and_raise(f"Unexpected object found {obj}", logger, EncodeError)
+            logger.error(f"Unexpected object found {obj}")
+            raise EncodeError
 
     def _encode_dict(self, obj: dict) -> bytes:
         """
-        bencodes a python dictionary.
-        Keys may only be bytestrings and they must be in ascending order according to their bytes.
+        bencodes a python dictionary. Keys may only be bytestrings and they
+        must be in ascending order according to their bytes.
 
         :param obj: dictionary to encode
         :raises EncodeError:
@@ -304,14 +317,16 @@ class Encoder:
         keys = []
         for k, v in obj.items():
             if not isinstance(k, bytes):
-                log_and_raise(f"Dictionary keys must be bytes. Not {type(k)}", logger, EncodeError)
+                logger.error(f"Dictionary keys must be bytes. Not {type(k)}")
+                raise EncodeError
             keys.append(k)
             key = self._encode_bytestr(k)
             contents += key
             contents += self._encode(v)
         contents += BencodeDelimiters.end
         if keys != sorted(keys):
-            log_and_raise(f"Invalid dictionary. Keys {keys} not sorted.", logger, EncodeError)
+            logger.error(f"Invalid dictionary. Keys {keys} are not sorted.")
+            raise EncodeError
         return contents
 
     def _encode_list(self, obj: list) -> bytes:
