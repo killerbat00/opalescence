@@ -7,12 +7,9 @@ The coordination with peers is handled in ../client.py
 
 No data is currently sent to the remote protocol.
 """
-import asyncio
 import logging
 
-from opalescence.btlib import log_and_raise
-from .messages import Handshake, KeepAlive, Choke, Unchoke, Interested, NotInterested, Have, Bitfield, \
-    Request, Block, Cancel, MessageReader
+from .messages import *
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +110,8 @@ class Peer:
                     else:
                         message = self.requester.next_request(self.peer_id)
                         if not message:
-                            logger.debug(f"{self}: No requests available. Closing connection.")
+                            logger.debug(
+                                f"{self}: No requests available. Closing connection.")
                             self.cancel()
                             return
 
@@ -146,14 +144,14 @@ class Peer:
         while len(data) < Handshake.msg_len:
             data = await self.reader.read(MessageReader.CHUNK_SIZE)
             if not data:
-                log_and_raise(f"{self}: Unable to initiate handshake", logger,
-                              PeerError)
+                logger.error(f"{self}: Unable to initiate handshake")
+                raise PeerError
 
         rcvd = Handshake.decode(data[:Handshake.msg_len])
 
         if rcvd.info_hash != self.info_hash:
-            log_and_raise(f"{self}: Incorrect info hash received.", logger,
-                          PeerError)
+            logger.error(f"{self}: Incorrect info hash received.")
+            raise PeerError
 
         logger.debug(f"{self}: Successfully negotiated handshake.")
         return data[Handshake.msg_len:]
