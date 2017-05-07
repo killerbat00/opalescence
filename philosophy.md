@@ -3,7 +3,7 @@
 2. Classes should provide a clean API.
 3. Don't hide functionality.
 4. Don't store state for one object in another object.
-5. Log events after they've occurred.
+5. Log events before they occur so failueres are more easily debugged.
 6. Only catch the most relevant Exceptions.
 
 ## Philosophy of Architecture

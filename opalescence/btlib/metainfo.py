@@ -133,6 +133,7 @@ class MetaInfoFile:
         :raises CreationError:
         :return: Torrent instance
         """
+        logger.debug(f"Creating a torrent from {filename}")
         torrent = cls()
 
         if not os.path.exists(filename):
@@ -153,7 +154,6 @@ class MetaInfoFile:
 
         torrent._gather_files()
         torrent.pieces = list(_pc(torrent.meta_info[b"info"][b"pieces"]))
-        logger.debug(f"Created a torrent from {filename}")
         return torrent
 
     @classmethod
@@ -205,6 +205,8 @@ class MetaInfoFile:
         :param output_filename: The output filename of the torrent
         :raises CreationError:
         """
+        logger.debug(f"Writing .torrent file: {output_filename}")
+
         if not output_filename:
             logger.error("No output filename provided.")
             raise CreationError
@@ -217,8 +219,6 @@ class MetaInfoFile:
                 logger.error("Unable to write metainfo file {output_filename}")
                 logger.info(ee, exc_info=True)
                 raise CreationError from ee
-
-        logger.debug(f"Wrote .torrent file: {output_filename}")
 
     def _gather_files(self):
         """

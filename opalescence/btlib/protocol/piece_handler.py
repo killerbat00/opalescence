@@ -8,7 +8,7 @@ import hashlib
 import io
 import logging
 import os
-from typing import Union, Dict, List
+from typing import Union, Dict, List, Optional
 
 import bitstring as bitstring
 
@@ -120,7 +120,7 @@ class Requester:
         piece_hash = hashlib.sha1(piece_data).digest()
         if piece_hash != self.torrent.pieces[piece.index]:
             logger.debug(
-                f"Hash for received piece {piece.index} doesn't match expected hash\n"
+                f"Hash for received piece {piece.index} doesn't match\n"
                 f"Received: {piece_hash}\n"
                 f"Expected: {self.torrent.pieces[piece.index]}")
             piece.reset()
@@ -129,19 +129,24 @@ class Requester:
             self.downloading_pieces[piece.index] = None
             self.piece_writer.write(piece)
 
-    def _next_piece_index_for_peer(self, peer_id: str, start: int = -1) -> Union[int, None]:
+    def _next_piece_index_for_peer(self, peer_id: str, start: int = -1) -> \
+    Optional[int]:
         """
-        Finds the next piece index that the peer has available that we can request.
+        Finds the next piece index that the peer has available that we can
+        request.
+
         Works like this:
-        1. Check the incomplete pieces we are downloading to see if a peer has any one of those.
-        2. If there are not any incomplete pieces, the peer can give us, request the next piece it can give us.
-        3. Look through the available pieces to find one that is not complete and that the peer has
+        1. Check the incomplete pieces we are downloading to see if peer has one
+        2. If there are no incomplete pieces the peer can give us, request
+           the next piece it can give us.
+        3. Look through the available pieces to find one the peer has
         4. If none available, the peer is useless to us.
         :param peer_id: peer requesting a piece
-        :param start: index to start at when searching through currently downloading and available pieces
+        :param start: index to start at when searching through currently
+                      downloading and available pieces
         :return: piece's index or None if not available
         """
-        # Find the next piece index in the pieces we are currently downloading that the
+        # Find the next piece index in the pieces we are downloading that the
         # peer said it could send us
         for i, v in self.downloading_pieces.items():
             if v:
@@ -149,8 +154,9 @@ class Requester:
                     if peer_id in self.available_pieces[i]:
                         return i
 
-        # We couldn't find an incomplete piece index. This means the peer can't give us any pieces that
-        # we are currently downloading. So, we start requesting the next piece that hasn't been complete.
+        # We couldn't find an incomplete piece index. This means the peer
+        # can't give us any pieces that we are currently downloading. So,
+        # we start requesting the next piece that hasn't been complete.
         for i, peer_set in self.available_pieces.items():
             if i > start:
                 if i not in self.downloaded_pieces:
@@ -164,7 +170,7 @@ class Requester:
     def _try_get_downloading_piece(self, piece_index: int) -> Piece:
         """
         :param piece_index: index for the piece
-        :return: A downloading piece, adding it to the list if it wasn't already there
+        :return: A downloading piece, adding it to the list
         """
         piece = self.downloading_pieces[piece_index]
         if not piece:
@@ -172,11 +178,12 @@ class Requester:
             self.downloading_pieces[piece_index] = piece
         return piece
 
-    def next_request(self, peer_id: str) -> Union[Request, None]:
+    def next_request(self, peer_id: str) -> Optional[Request]:
         """
-        Requests the next block we need. The current strategy is a naive strategy that requests pieces and blocks
-        sequentially from remote peers.
-        We only request pieces from a peer if that peer has told us it has those pieces.
+        Requests the next block we need. The current strategy is a naive
+        strategy that requests pieces and blocks sequentially from remote peers.
+        We only request pieces from a peer if that peer has told
+        us it has those pieces.
 
         :param peer_id: The remote peer who's asking for a new request's id
         :return: A new request, or None if that isn't possible.
@@ -186,7 +193,8 @@ class Requester:
         if piece_index is None:
             return
 
-        # After we've found the next index the peer has, check to see we've already started downloading it.
+        # After we've found the next index the peer has,
+        # check to see we've already started downloading it.
         piece = self._try_get_downloading_piece(piece_index)
 
         # Find where the next request for a block should begin

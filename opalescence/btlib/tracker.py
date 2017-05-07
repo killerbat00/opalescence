@@ -61,6 +61,7 @@ class Tracker:
         :returns: Response object representing the tracker's response
         """
         url = self._make_url()
+        logger.debug(f"Making {self.event} announce to: {url}")
 
         async with self.http_client.get(url) as r:
             data = await r.read()
@@ -79,8 +80,6 @@ class Tracker:
         if tr.failed:
             logger.error(f"{url}: Failed announce call to tracker.")
             raise TrackerError
-
-        logger.debug(f"Made {self.event} announce to: {url}")
 
         if self.event:
             self.event = ""
@@ -209,14 +208,14 @@ class Response:
             return
 
         if isinstance(peers, bytes):
+            logger.debug("Decoding binary model peers.")
             split_peers = [peers[i:i + 6] for i in range(0, len(peers), 6)]
             p = [(socket.inet_ntoa(p[:4]), struct.unpack(">H", p[4:])[0]) for
                  p in split_peers]
-            logger.debug("Decoded binary model peers.")
             return p
         elif isinstance(peers, list):
+            logger.debug("Decoding dictionary model peers.")
             p = [(p[b"ip"].decode("UTF-8"), p[b"port"]) for p in peers]
-            logger.debug("Decoded dictionary model peers.")
             return p
         else:
             logger.error(f"Unable to decode peers {peers}")
