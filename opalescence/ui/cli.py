@@ -34,7 +34,8 @@ _LoggingConfig = {
     "loggers": {
         "opalescence": {
             "level": "DEBUG",
-            "handlers": ["stdout"]
+            "handlers": ["stdout"],
+            "propagate": False
         }
     },
     "root": {
