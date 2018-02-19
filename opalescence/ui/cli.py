@@ -9,10 +9,11 @@ import asyncio
 import logging
 import logging.config
 import os
+import signal
 import unittest
 
 import opalescence
-from ..btlib.client import Client
+from ..btlib.client import Client, ClientTorrent
 from ..btlib.metainfo import MetaInfoFile
 
 _LoggingConfig = {
@@ -119,12 +120,18 @@ def download(file_path) -> None:
 
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
-    torrent = MetaInfoFile.from_file(file_path.torrent_file)
-    client = Client()
-    client.download(torrent)
+    torrent = ClientTorrent(MetaInfoFile.from_file(file_path.torrent_file))
+    task = loop.create_task(torrent.start())
+
+    def signal_handler(*_):
+        logging.info("Exiting, shutting down everything.")
+        task.cancel()
+        loop.close()
+
+    signal.signal(signal.SIGINT, signal_handler)
 
     try:
-        loop.run_forever()
+        loop.run_until_complete(task)
     except asyncio.CancelledError:
         logger.warning("Event loop was cancelled")
     except KeyboardInterrupt:

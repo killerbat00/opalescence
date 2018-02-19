@@ -7,6 +7,8 @@ The client is responsible for orchestrating communication with the tracker and b
 import asyncio
 import logging
 
+from asyncio import Queue
+
 from .metainfo import MetaInfoFile
 from .protocol.peer import PeerError, Peer
 from .protocol.piece_handler import Requester
@@ -30,13 +32,13 @@ class ClientTorrent:
     def __init__(self, torrent: MetaInfoFile):
         self.torrent = torrent
         self.tracker = Tracker(self.torrent)
+        self.available_peers = Queue()
         self.requester = Requester(self.torrent)
         self.current_peers = []
         self.peer_list = []
         self.interval = self.tracker.DEFAULT_INTERVAL
         self.last_ping = 0
         self.loop = asyncio.get_event_loop()
-        self.future = asyncio.ensure_future(self.start())
 
     async def cancel(self):
         """
@@ -44,8 +46,7 @@ class ClientTorrent:
         """
         logger.debug(f"Cancelling download of {self.torrent.name}.")
         await self.tracker.cancel()
-        if not self.future.done():
-            self.future.cancel()
+        self.tracker.close()
 
     async def _ping(self):
         """
@@ -105,34 +106,3 @@ class ClientTorrent:
             except ClientError as e:
                 raise e
             await asyncio.sleep(self.interval)
-
-
-class Client:
-    """
-    The client manages multiple client torrents.
-    """
-
-    def __init__(self):
-        self.tasks = []
-        self.torrents = {}
-
-    def download(self, torrent: MetaInfoFile):
-        """
-        Starts downloading the torrent. Multiple torrents can be downloaded simultaneously.
-        :param torrent: Torrent to download.
-        """
-        if torrent not in self.torrents:
-            self.torrents[torrent] = ClientTorrent(torrent)
-
-    async def stop(self, torrent: MetaInfoFile = None):
-        """
-        Stops downloading the specified torrent, or all torrents if none specified.
-        :param torrent: torrent to stop downloading. Default = None = ALL torrents
-        """
-        if torrent:
-            await self.torrents[torrent].cancel()
-        else:
-            tasks = []
-            for t, ct in self.torrents.items():
-                tasks.append(ct.cancel)
-            asyncio.gather(*[x() for x in tasks])

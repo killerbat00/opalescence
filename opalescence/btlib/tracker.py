@@ -20,6 +20,14 @@ from .metainfo import MetaInfoFile
 logger = logging.getLogger(__name__)
 
 
+def _generate_peer_id():
+    """
+    Generates a 20 byte long unique identifier for our peer.
+    :return: our unique peer ID
+    """
+    return ("-OP0001-" + ''.join(str(randint(0,9)) for _ in range(12))).encode("UTF-8")
+
+
 class TrackerError(Exception):
     """
     Raised when we encounter an error while communicating with the tracker.
@@ -42,9 +50,7 @@ class Tracker:
     def __init__(self, torrent: MetaInfoFile):
         self.torrent = torrent
         self.http_client = aiohttp.ClientSession(loop=asyncio.get_event_loop())
-        self.peer_id = ("-OP0001-" + ''.join(str(randint(0, 9)) for _ in
-                                             range(12))).encode("UTF-8")
-        self.tracker_id = None
+        self.peer_id = _generate_peer_id()
         self.port = 6881
         self.uploaded = 0
         self.downloaded = 0
@@ -64,27 +70,27 @@ class Tracker:
         logger.debug(f"Making {self.event} announce to: {url}")
 
         async with self.http_client.get(url) as r:
-            data = await r.read()
-            if r.status != 200:
+            if not r.status == 200:
                 logger.error(f"{url}: Unable to connect to tracker.")
                 raise TrackerError
+            data = await r.read()
 
         try:
             decoded_data = bencode.Decoder(data).decode()
         except bencode.DecodeError as e:
             logger.error(f"{url}: Unable to decode tracker response.")
             logger.info(e, exc_info=True)
-            raise TrackerError
+            raise TrackerError from e
 
-        tr = Response(decoded_data)
-        if tr.failed:
+        tracker_resp = Response(decoded_data)
+        if tracker_resp.failed:
             logger.error(f"{url}: Failed announce call to tracker.")
             raise TrackerError
 
         if self.event:
             self.event = ""
 
-        return Response(decoded_data)
+        return tracker_resp
 
     async def cancel(self) -> None:
         """
@@ -94,12 +100,14 @@ class Tracker:
         self.event = "stopped"
         await self.announce()
 
-    async def completed(self) -> None:
+    async def completed(self, already_complete: bool=False) -> None:
         """
         Informs the tracker we have completed downloading this torrent
+        :param already_complete: True if already completed (won't send complete event to tracker)
         :raises TrackerError:
         """
-        self.event = "completed"
+        if not already_complete:
+            self.event = "completed"
         await self.announce()
 
     def _make_url(self) -> str:
@@ -121,9 +129,6 @@ class Tracker:
         :return: dictionary of properly encoded parameters
         """
         params = {"info_hash": self.torrent.info_hash,
-                  # opentracker sends us back our peer ip:port after announcing if we send it
-                  # this currently causes a bug as we try to connect to ourselves.
-
                   "peer_id": self.peer_id,
                   "port": self.port,
                   "uploaded": self.uploaded,
@@ -138,7 +143,7 @@ class Tracker:
         """
         Closes the http_client session
         """
-        self.http_client.loop.run_until_complete(self.http_client.close())
+        asyncio.get_event_loop().run_until_complete(self.http_client.close())
 
 
 class Response:
