@@ -22,6 +22,9 @@ class Message:
     def __hash__(self):
         return hash(str(self))
 
+    def __eq__(self, other):
+        return type(self) == type(other)
+
 
 class Handshake(Message):
     """
@@ -32,6 +35,9 @@ class Handshake(Message):
     def __init__(self, info_hash: bytes, peer_id: bytes):
         self.info_hash = info_hash
         self.peer_id = peer_id
+
+    def __eq__(self, other):
+        return self.info_hash == other.info_hash and self.peer_id == other.peer_id
 
     def __str__(self):
         return f"{self.info_hash}:{self.peer_id}"
@@ -139,11 +145,14 @@ class Have(Message):
     """
     msg_id = 4
 
-    def __str__(self):
-        return f"{self.index}"
-
     def __init__(self, index: int):
         self.index = index
+
+    def __eq__(self, other):
+        return self.index == other.index
+
+    def __str__(self):
+        return f"Have: {self.index}"
 
     def encode(self) -> bytes:
         """
@@ -168,11 +177,14 @@ class Bitfield(Message):
     """
     msg_id = 5
 
-    def __str__(self):
-        return f"{self.bitfield}"
-
     def __init__(self, bitfield: bytes):
         self.bitfield = bitstring.BitArray(bytes=bitfield)
+
+    def __eq__(self, other):
+        return self.bitfield == other.bitfield
+
+    def __str__(self):
+        return f"Bitfield: {self.bitfield}"
 
     def encode(self) -> bytes:
         """
@@ -200,17 +212,17 @@ class Request(Message):
     msg_id = 6
     size = 2 ** 14
 
-    def __eq__(self, other):
-        return self.index == other.index and self.begin == other.begin
-
-    def __str__(self):
-        return f"{self.index}:{self.begin}:{self.length}"
-
     def __init__(self, index: int, begin: int, length: int = size, peer_id: str = ""):
         self.index = index
         self.begin = begin
         self.length = length
         self.peer_id = peer_id
+
+    def __eq__(self, other):
+        return self.index == other.index and self.begin == other.begin
+
+    def __str__(self):
+        return f"Request: {self.index}:{self.begin}:{self.length}"
 
     def encode(self) -> bytes:
         """
@@ -237,13 +249,16 @@ class Block(Message):
     """
     msg_id = 7
 
-    def __str__(self):
-        return f"{self.index}:{self.begin}:{self.data}"
-
     def __init__(self, index: int, begin: int, data: bytes):
         self.index = index  # index of the actual piece
         self.begin = begin  # offset into the piece
         self.data = data
+
+    def __eq__(self, other):
+        return self.index == other.index and self.begin == other.begin and self.data == other.data
+
+    def __str__(self):
+        return f"Block: {self.index}:{self.begin}:{self.data}"
 
     def encode(self) -> bytes:
         """
@@ -278,11 +293,11 @@ class Piece:
         self._length = length
         self._next_block_offset = 0
 
-    def __str__(self):
-        return f"Piece: {self.index}:{self._length}: {self.data}"
-
     def __eq__(self, other):
         return self.index == other.index and self.data == other.data and self._blocks == other._blocks and self._length == other._length
+
+    def __str__(self):
+        return f"Piece: {self.index}:{self._length}: {self.data}"
 
     def add_block(self, block: Block):
         """
@@ -341,13 +356,16 @@ class Cancel(Message):
     msg_id = 8
     size = 2 ** 14
 
-    def __str__(self):
-        return f"{self.index}:{self.begin}:{self.length}"
-
     def __init__(self, index: int, begin: int, length: int = size):
         self.index = index
         self.begin = begin
         self.length = length
+
+    def __eq__(self, other):
+        return self.index == other.index and self.begin == other.begin and self.length == other.length
+
+    def __str__(self):
+        return f"Cancel: {self.index}:{self.begin}:{self.length}"
 
     def encode(self) -> bytes:
         """

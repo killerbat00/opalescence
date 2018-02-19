@@ -13,7 +13,7 @@ import signal
 import unittest
 
 import opalescence
-from ..btlib.client import Client, ClientTorrent
+from ..btlib.client import ClientTorrent
 from ..btlib.metainfo import MetaInfoFile
 
 _LoggingConfig = {
@@ -125,6 +125,7 @@ def download(file_path) -> None:
 
     def signal_handler(*_):
         logging.info("Exiting, shutting down everything.")
+        loop.run_until_complete(torrent.cancel())
         task.cancel()
         loop.close()
 

@@ -17,7 +17,7 @@ def async_run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-def create_async_mock(data: bytes = None, status: int = None):
+def create_async_mock(data: bytes = None, status: int = None) -> mock.MagicMock:
     """
     Creates a subclassed MagicMock that will behaves like an async coroutine and that can be used
     to replace an object used in an async with statement
