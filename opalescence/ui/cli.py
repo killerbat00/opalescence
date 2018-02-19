@@ -78,7 +78,7 @@ def create_argparser() -> argparse.ArgumentParser:
                         const=logging.DEBUG, default=logging.WARNING)
     parser.add_argument("-v", "--verbose", help="Print verbose output (but "
                                                 "still less verbose than "
-                                                "debug-level.",
+                                                "debug-level.)",
                         action="store_const", dest="loglevel",
                         const=logging.INFO)
 

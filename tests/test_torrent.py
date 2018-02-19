@@ -12,7 +12,7 @@ from unittest import TestCase
 
 from requests import get
 
-from tests.context import metainfo, bencode
+from tests.context import metainfo, bencode, torrent_url
 
 
 class TestTorrent(TestCase):
@@ -20,7 +20,7 @@ class TestTorrent(TestCase):
     Tests the Torrent representation.
     """
     external_torrent_path = os.path.abspath(os.path.dirname(__file__))
-    torrent_url = "http://releases.ubuntu.com/16.04/ubuntu-16.04.2-desktop-amd64.iso.torrent"
+    torrent_url = torrent_url
 
     @classmethod
     def setUpClass(cls):
@@ -92,7 +92,7 @@ class TestTorrent(TestCase):
         comment = "Ubuntu CD releases.ubuntu.com"
         self.assertEqual(comment, t.comment)
         self.assertIsNone(t.created_by)
-        creation_date = 1487289444
+        creation_date = 1501766097
         self.assertEqual(creation_date, t.creation_date)
         self.assertFalse(t.private)
         piece_length = 524288
@@ -103,7 +103,7 @@ class TestTorrent(TestCase):
         """
         Tests that the torrent's info hash property returns the correct info hash.
         """
-        infohash_digest = b"\xdaw^J\xafV5\xefrX:9\x19w\xe5\xedo\x14a~"
+        infohash_digest = b"\x14\x88\xd4T\x91]\x86\x05)\x90;a\xad\xb57\x01*\x0f\xe7\xc8"
         t = metainfo.MetaInfoFile.from_file(self.external_torrent_path)
         self.assertEqual(infohash_digest, t.info_hash)
 

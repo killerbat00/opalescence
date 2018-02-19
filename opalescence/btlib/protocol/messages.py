@@ -19,6 +19,9 @@ class Message:
     def __str__(self):
         return str(type(self))
 
+    def __hash__(self):
+        return hash(str(self))
+
 
 class Handshake(Message):
     """
@@ -274,6 +277,12 @@ class Piece:
         self._blocks = [0 for _ in range(math.ceil(length / Request.size))]
         self._length = length
         self._next_block_offset = 0
+
+    def __str__(self):
+        return f"Piece: {self.index}:{self._length}: {self.data}"
+
+    def __eq__(self, other):
+        return self.index == other.index and self.data == other.data and self._blocks == other._blocks and self._length == other._length
 
     def add_block(self, block: Block):
         """

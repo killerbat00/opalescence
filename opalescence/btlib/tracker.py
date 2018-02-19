@@ -121,6 +121,9 @@ class Tracker:
         :return: dictionary of properly encoded parameters
         """
         params = {"info_hash": self.torrent.info_hash,
+                  # opentracker sends us back our peer ip:port after announcing if we send it
+                  # this currently causes a bug as we try to connect to ourselves.
+
                   "peer_id": self.peer_id,
                   "port": self.port,
                   "uploaded": self.uploaded,
@@ -135,7 +138,7 @@ class Tracker:
         """
         Closes the http_client session
         """
-        self.http_client.close()
+        self.http_client.loop.run_until_complete(self.http_client.close())
 
 
 class Response:

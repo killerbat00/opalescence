@@ -182,22 +182,6 @@ class MetaInfoFile:
         """
         raise NotImplementedError
 
-    @classmethod
-    def from_path(cls, path: str, trackers: list, *, comment: str = "",
-                  piece_size: int = 16384, private: bool = False):
-        """
-        Creates a Torrent from a given path, gathering piece hashes from given files.
-        Supports creating torrents from single files and multiple files.
-        :param path:       path from which to create_torrent the Torrent
-        :param trackers:   tracker url
-        :param comment:    optional,torrent's comment,defaults to ""
-        :param piece_size: optional,piece size,defaults to default 16384
-        :param private:    optional,private torrent?,defaults to False
-        :raises CreationError:
-        :return:           Torrent object
-        """
-        raise NotImplementedError
-
     def to_file(self, output_filename: str):
         """
         Writes the torrent metainfo dictionary back to a .torrent file
@@ -283,7 +267,6 @@ class MetaInfoFile:
         """
         if b"comment" in self.meta_info:
             return self.meta_info[b"comment"].decode("UTF-8")
-        return
 
     @property
     def created_by(self) -> Union[str, None]:
@@ -292,7 +275,6 @@ class MetaInfoFile:
         """
         if b"created by" in self.meta_info:
             return self.meta_info[b"created by"].decode("UTF-8")
-        return
 
     @property
     def creation_date(self) -> Union[int, None]:
@@ -301,7 +283,6 @@ class MetaInfoFile:
         """
         if b"creation date" in self.meta_info:
             return self.meta_info[b"creation date"]
-        return
 
     @property
     def private(self) -> bool:
@@ -325,7 +306,7 @@ class MetaInfoFile:
         return sum([f.size for f in self.files])
 
     @property
-    def name(self) -> int:
+    def name(self) -> str:
         """
         :return: the torrent's name; either the single filename or the directory
         name.

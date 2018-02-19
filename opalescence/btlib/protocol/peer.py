@@ -39,7 +39,7 @@ class Peer:
         self.peer_choking = True
         self.peer_interested = False
         self.requester = requester
-        self.future = asyncio.ensure_future(self.start())
+        self.valid_ports = [x for x in range(6881,7000)]
 
     def __str__(self):
         return f"{self.ip}:{self.port}"
@@ -52,14 +52,18 @@ class Peer:
         logger.debug(f"{self}: Cancelling and closing connections.")
         self.requester.remove_peer(self.peer_id)
         self.writer.close()
-        if not self.future.done():
-            self.future.cancel()
 
     async def start(self):
         """
         Starts communication with the protocol and begins downloading a torrent.
         """
-        # TODO: scan valid bittorrent ports (6881-6889)
+        # TODO: scan valid bittorrent ports (6881-6999)
+        # TODO: Make scanning smarter
+        if self.port == 0:
+            self.port = self.valid_ports[0]
+        else:
+            self.port = self.valid_ports[self.valid_ports.index(self.port)+1]
+
         try:
             logger.debug(f"{self}: Opening connection.")
             self.reader, self.writer = await asyncio.open_connection(
@@ -78,28 +82,28 @@ class Peer:
                 if isinstance(msg, KeepAlive):
                     logger.debug(f"{self}: Sent {msg}")
                 elif isinstance(msg, Choke):
+                    logger.debug(f"{self}: Sent {msg}")
                     self.peer_choking = True
-                    logger.debug(f"{self}: Sent {msg}")
                 elif isinstance(msg, Unchoke):
+                    logger.debug(f"{self}: Sent {msg}")
                     self.peer_choking = False
-                    logger.debug(f"{self}: Sent {msg}")
                 elif isinstance(msg, Interested):
+                    logger.debug(f"{self}: Sent {msg}")
                     self.peer_interested = True
-                    logger.debug(f"{self}: Sent {msg}")
                 elif isinstance(msg, NotInterested):
-                    self.peer_interested = False
                     logger.debug(f"{self}: Sent {msg}")
+                    self.peer_interested = False
                 elif isinstance(msg, Have):
-                    self.requester.add_available_piece(self.peer_id, msg.index)
                     logger.debug(f"{self}: Has {msg}")
+                    self.requester.add_available_piece(self.peer_id, msg.index)
                 elif isinstance(msg, Bitfield):
-                    self.requester.add_peer_bitfield(self.peer_id, msg.bitfield)
                     logger.debug(f"{self}: Bitfield {msg.bitfield}")
+                    self.requester.add_peer_bitfield(self.peer_id, msg.bitfield)
                 elif isinstance(msg, Request):
                     logger.debug(f"{self}: Requested {msg}")
                 elif isinstance(msg, Block):
+                    logger.debug(f"{self}: Received Block {msg}")
                     self.requester.received_block(msg)
-                    logger.debug(f"{self}: Piece {msg}")
                 elif isinstance(msg, Cancel):
                     logger.debug(f"{self}: Canceled {msg}")
                 else:
@@ -129,8 +133,10 @@ class Peer:
                         self.writer.write(message.encode())
                         await self.writer.drain()
 
+            self.requester.write_last_piece()
         except OSError as oe:
             logger.debug(f"{self}: Exception with connection.\n{oe}")
+            await self.start()
             raise PeerError from oe
 
     async def handshake(self) -> bytes:

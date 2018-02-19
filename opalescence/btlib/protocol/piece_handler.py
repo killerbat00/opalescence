@@ -23,6 +23,7 @@ class Writer:
     Writes piece data to temp memory for now.
     Will eventually flush data to the disk.
     """
+    writing_pieces = []
 
     def __init__(self, torrent: MetaInfoFile):
         self.filename = os.path.join(os.path.abspath(os.path.dirname(__file__)), torrent.name)
@@ -33,15 +34,22 @@ class Writer:
         """
         Writes the piece's data to the buffer
         """
+        if piece in self.writing_pieces:
+            return
+        else:
+            self.writing_pieces.append(Piece)
         offset = piece.index * self.piece_length
         piece.data.seek(0)
         data = piece.data.read()
         try:
             with open(self.filename, "ab+") as f:
+                logger.debug(f"Writing piece: {piece}")
                 f.seek(offset, 0)
                 f.write(data)
                 f.flush()
+                del self.writing_pieces[self.writing_pieces.index(Piece)]
         except OSError as oe:
+            del self.writing_pieces[self.writing_pieces.index(Piece)]
             logger.debug(f"Encountered OSError when writing {piece.index}")
             raise oe
 
@@ -94,6 +102,12 @@ class Requester:
         for _, peer_set in self.available_pieces.items():
             peer_set.discard(peer_id)
 
+    def write_last_piece(self) -> None:
+        last_index = len(self.torrent.pieces) - 1
+        piece = self.downloading_pieces[last_index]
+        logger.debug(f"Writing last piece {piece}")
+        self.piece_writer.write(piece)
+
     def received_block(self, block: Block) -> None:
         """
         Called when we've received a block from the remote peer.
@@ -125,6 +139,7 @@ class Requester:
                 f"Expected: {self.torrent.pieces[piece.index]}")
             piece.reset()
         else:
+            logger.debug(f"Completed piece recieved: {piece}")
             self.downloaded_pieces[piece.index] = piece
             self.downloading_pieces[piece.index] = None
             self.piece_writer.write(piece)

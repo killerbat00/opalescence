@@ -5,11 +5,12 @@ Contains tests for the protocol functionality of btlib
 """
 import os
 from unittest import TestCase
+from unittest import skip
 
 from requests import get
 
 import opalescence.btlib.protocol.peer
-from tests.context import metainfo, tracker
+from tests.context import metainfo, tracker, torrent_url
 from tests.utils import async_run
 
 
@@ -18,7 +19,7 @@ class TestPeer(TestCase):
     Tests the protocol model used to communicate with peers
     """
     external_torrent_path = os.path.abspath(os.path.dirname(__file__))
-    torrent_url = "http://releases.ubuntu.com/16.04/ubuntu-16.04.2-desktop-amd64.iso.torrent"
+    torrent_url = torrent_url
     tracker = None
 
     @classmethod
@@ -43,6 +44,7 @@ class TestPeer(TestCase):
         """
         cls.tracker.close()
 
+    @skip
     def test_basic_comm(self):
         """
         """
@@ -50,10 +52,10 @@ class TestPeer(TestCase):
         peers = resp.peers
 
         for p in peers:
-            pp = opalescence.btlib.peer.peer.Peer(p[0], p[1], self.torrent.info_hash, self.tracker.peer_id)
+            pp = opalescence.btlib.protocol.peer.Peer(p[0], p[1], self.torrent.info_hash, self.tracker.peer_id)
             try:
-                async_run(pp._start())
-            except opalescence.btlib.peer.peer.PeerError:
+                async_run(pp.start())
+            except opalescence.btlib.protocol.peer.PeerError:
                 print("OSError")
                 continue
 

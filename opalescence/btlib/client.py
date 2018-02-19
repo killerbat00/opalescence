@@ -70,29 +70,37 @@ class ClientTorrent:
             logger.info(te, exc_info=True)
             raise ClientError from te
 
-    def assign_peers(self) -> None:
+    async def assign_peers(self) -> None:
         """
         Assigns the first 10 peers in the peer list to the active peers.
         """
+        await self._ping()
         for p in self.current_peers:
             self.requester.remove_peer(p)
 
         self.current_peers = []
 
-        for x in range(10):
+        for x in range(min(len(self.peer_list), 10)):
             p = self.peer_list.pop()
             self.current_peers.append(Peer(p[0], p[1], self.torrent, self.tracker.peer_id, self.requester))
+
+        try:
+            res = asyncio.gather(*[await p.start() for p in self.current_peers], loop=asyncio.get_event_loop(), return_exceptions=True)
+            logger.debug(res.result())
+        except BaseException as e:
+            if isinstance(e, PeerError):
+                await self.assign_peers()
 
     async def start(self):
         """
         Schedules the recurring announce call with the tracker.
+        TODO: needs work
         """
         while True:
             try:
-                await self._ping()
-                self.assign_peers()
+                await self.assign_peers()
             except PeerError:
-                self.assign_peers()
+                await self.assign_peers()
                 continue
             except ClientError as e:
                 raise e

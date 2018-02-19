@@ -12,8 +12,7 @@ from urllib.parse import urlencode
 
 from requests import get
 
-from tests.context import metainfo
-from tests.context import tracker
+from tests.context import metainfo, tracker, torrent_url
 from tests.utils import async_run, create_async_mock
 
 
@@ -22,7 +21,7 @@ class TestTracker(TestCase):
     Tests the request to the tracker.
     """
     external_torrent_path = os.path.abspath(os.path.dirname(__file__))
-    torrent_url = "http://releases.ubuntu.com/16.04/ubuntu-16.04.2-desktop-amd64.iso.torrent"
+    torrent_url = torrent_url
 
     @classmethod
     def setUpClass(cls):
