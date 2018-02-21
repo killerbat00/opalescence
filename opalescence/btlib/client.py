@@ -8,13 +8,17 @@ import asyncio
 import logging
 
 from asyncio import Queue
+from typing import List
 
+from opalescence.btlib.protocol.messages import Block
 from .metainfo import MetaInfoFile
 from .protocol.peer import PeerError, Peer
 from .protocol.piece_handler import Requester
 from .tracker import Tracker, TrackerError
 
 logger = logging.getLogger(__name__)
+
+MAX_PEER_CONNECTIONS = 5
 
 
 class ClientError(Exception):
@@ -30,79 +34,74 @@ class ClientTorrent:
     """
 
     def __init__(self, torrent: MetaInfoFile):
-        self.torrent = torrent
-        self.tracker = Tracker(self.torrent)
+        self.tracker = Tracker(torrent)
         self.available_peers = Queue()
-        self.requester = Requester(self.torrent)
-        self.current_peers = []
-        self.peer_list = []
-        self.interval = self.tracker.DEFAULT_INTERVAL
-        self.last_ping = 0
+        self.current_peers: List[Peer] = []
+        self.requester = Requester(torrent)
         self.loop = asyncio.get_event_loop()
+        self.abort = False
 
-    async def cancel(self):
+    def stop(self):
         """
-        Cancels this download.
+        Stop the download or seed.
         """
-        logger.debug(f"Cancelling download of {self.torrent.name}.")
-        await self.tracker.cancel()
+        logger.debug(f"Cancelling download/seed of {self.tracker.torrent.name}.")
+        self.abort = True
+        for peer in self.current_peers:
+            peer.stop()
+        #self.requester.close()
         self.tracker.close()
 
-    async def _ping(self):
-        """
-        Pings the tracker. Called periodically based on the interval requested by the tracker.
-        """
-        if self.last_ping and not ((self.loop.time() - self.interval) > self.last_ping):
-            return
-
-        try:
-            resp = await self.tracker.announce()
-            self.last_ping = self.loop.time()
-
-            if resp.interval:
-                self.interval = resp.interval
-
-            p = resp.peers
-            if p:
-                self.peer_list = p
-
-        except TrackerError as te:
-            logger.error(f"Unable to announce to {self.tracker}.")
-            logger.info(te, exc_info=True)
-            raise ClientError from te
-
-    async def assign_peers(self) -> None:
-        """
-        Assigns the first 10 peers in the peer list to the active peers.
-        """
-        await self._ping()
-        for p in self.current_peers:
-            self.requester.remove_peer(p)
-
-        self.current_peers = []
-
-        for x in range(min(len(self.peer_list), 10)):
-            p = self.peer_list.pop()
-            self.current_peers.append(Peer(p[0], p[1], self.torrent, self.tracker.peer_id, self.requester))
-
-        try:
-            res = asyncio.gather(*[await p.start() for p in self.current_peers], loop=asyncio.get_event_loop(), return_exceptions=True)
-            logger.debug(res.result())
-        except BaseException as e:
-            if isinstance(e, PeerError):
-                await self.assign_peers()
+    #async def cancel(self):
+    #    """
+    #    Cancels this download.
+    #    """
+    #    logger.debug(f"Cancelling download of {self.tracker.torrent.name}.")
+    #    await self.tracker.cancel()
+    #    self.tracker.close()
 
     async def start(self):
         """
         Schedules the recurring announce call with the tracker.
         TODO: needs work
         """
+        self.current_peers = [Peer(self.available_peers,
+                                   self.tracker.torrent.info_hash,
+                                   self.tracker.peer_id,
+                                   self.requester,
+                                   self._on_block_retrieved)
+                              for _ in range(MAX_PEER_CONNECTIONS)]
+
+        previous = None
+        interval = self.tracker.DEFAULT_INTERVAL
+
         while True:
-            try:
-                await self.assign_peers()
-            except PeerError:
-                await self.assign_peers()
-                continue
-            except ClientError as e:
-                raise e
-            await asyncio.sleep(self.interval)
+            if self.requester.complete:
+                logger.info(f"Torrent fully downloaded {self.tracker.torrent.name}")
+                break
+            if self.abort:
+                logger.info(f"Aborting download of {self.tracker.torrent.name}.")
+                break
+
+            current = self.loop.time()
+            if (not previous) or (previous + interval < current):
+                response = await self.tracker.announce()
+
+                if response:
+                    previous = current
+                    if response.interval:
+                        interval = response.interval
+                    self._empty_queue()
+                    for peer in response.peers:
+                        self.available_peers.put_nowait(peer)
+            else:
+                await asyncio.sleep(2)
+        self.stop()
+
+    def _empty_queue(self):
+        while not self.available_peers.empty():
+            self.available_peers.get_nowait()
+
+    def _on_block_retrieved(self, piece_index, block_offset, data):
+        block = Block(piece_index, block_offset, data)
+        self.requester.received_block(block)

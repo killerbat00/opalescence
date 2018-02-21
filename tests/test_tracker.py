@@ -70,7 +70,6 @@ class TestTracker(TestCase):
         tt = tracker.Tracker(self.torrent)
         expected_url = "http://torrent.ubuntu.com:6969/announce?" + urlencode(tt._make_params())
         self.assertEqual(tt._make_url(), expected_url)
-        tt.close()
 
     def test_announce(self):
         """
@@ -80,6 +79,7 @@ class TestTracker(TestCase):
         resp = async_run(t.announce())
         self.assertIsInstance(resp, tracker.Response)
         self.assertFalse(resp.failed)
+        async_run(t.http_client.close())
         t.close()
 
     def test_cancel(self):
@@ -90,6 +90,7 @@ class TestTracker(TestCase):
         t.announce = create_async_mock()
         async_run(t.cancel())
         self.assertEqual(t.event, "stopped")
+        async_run(t.http_client.close())
         t.announce.assert_called_once()
 
     def test_completed(self):
@@ -101,6 +102,7 @@ class TestTracker(TestCase):
         async_run(t.completed())
         self.assertEqual(t.event, "completed")
         t.announce.assert_called_once()
+        async_run(t.http_client.close())
 
     def test_invalid_request(self):
         """
@@ -111,6 +113,7 @@ class TestTracker(TestCase):
         with self.subTest(msg="Malformed URL"):
             self.assertRaises(ValueError, async_run, track.announce())
         track.close()
+        async_run(track.http_client.close())
 
         track = tracker.Tracker(self.torrent)
         with mock.patch("aiohttp.ClientSession.get",
@@ -119,7 +122,7 @@ class TestTracker(TestCase):
                 self.assertRaises(tracker.TrackerError, async_run, track.announce())
                 mocked_get.assert_called_once()
                 mocked_get.assert_called_once_with(track._make_url())
-
+        async_run(track.http_client.close())
         track.close()
 
     def test_invalid_params(self):
@@ -130,6 +133,7 @@ class TestTracker(TestCase):
         track._make_params = mock.MagicMock(return_value={})
         with self.subTest(msg="Empty params"):
             self.assertRaises(tracker.TrackerError, async_run, track.announce())
+        async_run(track.http_client.close())
         track.close()
 
     def test_valid_request_bad_data(self):
@@ -146,6 +150,7 @@ class TestTracker(TestCase):
                 self.assertRaises(tracker.TrackerError, async_run, track.announce())
                 mocked_get.assert_called_once()
                 mocked_get.assert_called_once_with(track._make_url())
+        async_run(track.http_client.close())
         track.close()
 
     def test_failed_response(self):
@@ -163,6 +168,7 @@ class TestTracker(TestCase):
                     async_run(track.announce())
                 mocked_get.assert_called_once()
                 mocked_get.assert_called_with(track._make_url())
+        async_run(track.http_client.close())
         track.close()
 
 

@@ -2,11 +2,13 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import io
+import logging
 import math
 import struct
 
 import bitstring as bitstring
 
+logger = logging.getLogger(__name__)
 
 class Message:
     """

@@ -143,6 +143,7 @@ class Tracker:
         """
         Closes the http_client session
         """
+        #TODO: Send cancel message when closing?
         asyncio.get_event_loop().run_until_complete(self.http_client.close())
 
 

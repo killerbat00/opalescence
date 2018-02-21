@@ -71,6 +71,10 @@ class Requester:
         self.downloading_pieces: Dict(int, Union(Piece, None)) = {i: None for i in range(len(self.torrent.pieces))}
         self.pending_requests: List(Request) = []
 
+    @property
+    def complete(self):
+        return len(self.downloaded_pieces) == len(self.torrent.pieces)
+
     def add_available_piece(self, peer_id: str, index: int) -> None:
         """
         Sent when a peer has a piece of the torrent.
@@ -124,6 +128,8 @@ class Requester:
             del self.pending_requests[index]
 
         piece = self.downloading_pieces.get(block.index)
+        if not piece:
+            return
         piece.add_block(block)
 
         if not piece.complete:
@@ -139,13 +145,13 @@ class Requester:
                 f"Expected: {self.torrent.pieces[piece.index]}")
             piece.reset()
         else:
-            logger.debug(f"Completed piece recieved: {piece}")
+            logger.debug(f"Completed piece received: {piece}")
             self.downloaded_pieces[piece.index] = piece
             self.downloading_pieces[piece.index] = None
             self.piece_writer.write(piece)
 
     def _next_piece_index_for_peer(self, peer_id: str, start: int = -1) -> \
-    Optional[int]:
+            Optional[int]:
         """
         Finds the next piece index that the peer has available that we can
         request.

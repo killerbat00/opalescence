@@ -125,7 +125,7 @@ def download(file_path) -> None:
 
     def signal_handler(*_):
         logging.info("Exiting, shutting down everything.")
-        loop.run_until_complete(torrent.cancel())
+        torrent.stop()
         task.cancel()
         loop.close()
 
@@ -137,5 +137,7 @@ def download(file_path) -> None:
         logger.warning("Event loop was cancelled")
     except KeyboardInterrupt:
         logger.warning("Keyboard Interrupt received.")
+    except BaseException as be:
+        logger.warning("Exception occured")
     finally:
         loop.close()
