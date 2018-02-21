@@ -64,6 +64,7 @@ class Requester:
     def __init__(self, torrent: MetaInfoFile):
         self.torrent = torrent
         self.piece_length = torrent.piece_length
+        self.last_piece_length = torrent.last_piece_length
         self.available_pieces: Dict(int, set) = {i: set() for i in range(len(self.torrent.pieces))}
         self.downloaded_pieces: Dict(int, Piece) = {}
         self.downloading_pieces: Dict(int, Union(Piece, None)) = {i: None for i in range(len(self.torrent.pieces))}
@@ -121,6 +122,7 @@ class Requester:
 
         piece = self.downloading_pieces.get(block.index)
         if not piece:
+            logger.debug(f"Disregarding. I already have {block}")
             return
         piece.add_block(block)
 
@@ -187,7 +189,10 @@ class Requester:
         """
         piece = self.downloading_pieces[piece_index]
         if not piece:
-            piece = Piece(piece_index, self.piece_length)
+            if piece_index == len(self.torrent.pieces) - 1:
+                piece = Piece(piece_index, self.last_piece_length)
+            else:
+                piece = Piece(piece_index, self.piece_length)
             self.downloading_pieces[piece_index] = piece
         return piece
 
@@ -220,7 +225,11 @@ class Requester:
             piece = self._try_get_downloading_piece(piece_index)
             next_block_begin = piece.next_block()
 
-        request = Request(piece.index, next_block_begin, peer_id=peer_id)
+        if piece.index == len(self.torrent.pieces) - 1 and next_block_begin + Request.size > piece._length:
+            request = Request(piece.index, next_block_begin, length=piece._length-next_block_begin)
+        else:
+            request = Request(piece.index, next_block_begin, peer_id=peer_id)
+
         piece_index = piece.index
         while request in self.pending_requests:
             next_block_begin = piece.next_block()
@@ -231,7 +240,11 @@ class Requester:
                     return
                 piece = self._try_get_downloading_piece(piece_index)
                 next_block_begin = piece.next_block()
-            request = Request(piece.index, next_block_begin, peer_id=peer_id)
+
+            if piece.index == len(self.torrent.pieces) - 1 and next_block_begin + Request.size > piece._length:
+                request = Request(piece.index, next_block_begin, length=piece._length-next_block_begin)
+            else:
+                request = Request(piece.index, next_block_begin, peer_id=peer_id)
 
         self.pending_requests.append(request)
         return request

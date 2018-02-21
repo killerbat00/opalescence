@@ -299,6 +299,13 @@ class MetaInfoFile:
         return self.meta_info[b"info"][b"piece length"]
 
     @property
+    def last_piece_length(self) -> int:
+        """
+        :return: Length in bytes of the last piece of the torrent
+        """
+        return (len(self.pieces)*self.piece_length) - self.total_size
+
+    @property
     def total_size(self) -> int:
         """
         :return: the total size of the file(s) in the torrent metainfo

@@ -292,7 +292,7 @@ class Piece:
     def __init__(self, index, length):
         self.index = index
         self.data = io.BytesIO()
-        self._blocks = [0 for _ in range(int(math.ceil(length // Request.size)))]
+        self._blocks = [0 for _ in range(int(math.ceil(length / Request.size)))]
         self._length = length
         self._next_block_offset = 0
 
