@@ -35,13 +35,15 @@ class Peer:
         self.remote_id = None
         self.reader = None
         self.writer = None
+        self.ip = None
+        self.port = None
         self.requester = requester
         self._on_block_cb = on_block_cb
         self.valid_ports = [x for x in range(6881,7000)]
         self.future = asyncio.ensure_future(self.start())
 
-    #def __str__(self):
-    #    return f"{self.ip}:{self.port}"
+    def __str__(self):
+        return f"{self.ip}:{self.port}"
 
     def cancel(self):
         """
@@ -54,6 +56,7 @@ class Peer:
             self.future.cancel()
         if self.writer:
             self.writer.close()
+        self.requester.cancel()
 
     def stop(self):
         self.my_state.append('stopped')
@@ -77,7 +80,6 @@ class Peer:
         logger.debug(f"{self}: Retrying on port: {self.valid_ports[port_index]}")
         return self.valid_ports[port_index]
 
-
     async def start(self):
         """
         Starts communication with the protocol and begins downloading a torrent.
@@ -87,12 +89,12 @@ class Peer:
                 #for port in self.valid_ports:
 
         try:
-            ip, port = await self.queue.get()
+            self.ip, self.port = await self.queue.get()
             #port = self.get_next_port(port)
 
             logger.debug(f"{self}: Opening connection.")
             self.reader, self.writer = await asyncio.open_connection(
-                host=ip, port=port)
+                host=self.ip, port=self.port)
 
             data = await self._handshake()
             self.my_state.append("choked")
@@ -104,6 +106,8 @@ class Peer:
             # and instead only send a request when we get a message back
             # from the peer. One option would be asking the requester for a
             # number of requests for this peer.
+            #TODO: Decouple message reading and sending. We should continue to send keepalive messages
+            #TODO: for a reasonable amount of time until we're sure the peer can't send us anything.
             async for msg in MessageReader(self.reader, data):
                 if "stopped" in self.my_state:
                     break
@@ -125,18 +129,18 @@ class Peer:
                     if "interested" in self.peer_state:
                         self.peer_state.remove("interested")
                 elif isinstance(msg, Have):
-                    logger.debug(f"{self}: Has {msg}")
-                    self.requester.add_available_piece(self.peer_id, msg.index)
+                    logger.debug(f"{self}: {msg}")
+                    self.requester.add_available_piece(self.remote_id, msg.index)
                 elif isinstance(msg, Bitfield):
-                    logger.debug(f"{self}: Bitfield {msg.bitfield}")
-                    self.requester.add_peer_bitfield(self.peer_id, msg.bitfield)
+                    logger.debug(f"{self}: {msg}")
+                    self.requester.add_peer_bitfield(self.remote_id, msg.bitfield)
                 elif isinstance(msg, Request):
                     logger.debug(f"{self}: Requested {msg}")
                 elif isinstance(msg, Block):
-                    logger.debug(f"{self}: Received Block {msg}")
-                    self.requester.received_block(msg)
+                    logger.debug(f"{self}: {msg}")
+                    self._on_block_cb(msg)
                 elif isinstance(msg, Cancel):
-                    logger.debug(f"{self}: Canceled {msg}")
+                    logger.debug(f"{self}: {msg}")
                 else:
                     raise PeerError("Unsupported message type.")
 
@@ -144,7 +148,7 @@ class Peer:
                     if "choking" in self.peer_state:
                         await self._interested()
                     else:
-                        message = self.requester.next_request(self.peer_id)
+                        message = self.requester.next_request(self.remote_id)
                         if not message:
                             logger.debug(
                                 f"{self}: No requests available. Waiting on last pieces to trickle in."
@@ -155,15 +159,7 @@ class Peer:
                                 # We're done?
                                 message = KeepAlive()
 
-                        if isinstance(message, Request):
-                            logger.debug(
-                                f"Requested piece {message.index}:"
-                                f"{message.begin}:{message.length} from {self}")
-                        else:
-                            logger.debug(
-                                f"Cancelling piece {message.index}:"
-                                f"{message.begin}:{message.length} from {self}")
-
+                        logger.debug(f"{self.peer_id}: {message}")
                         self.writer.write(message.encode())
                         await self.writer.drain()
 

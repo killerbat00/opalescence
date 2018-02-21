@@ -13,7 +13,7 @@ from typing import List
 from opalescence.btlib.protocol.messages import Block
 from .metainfo import MetaInfoFile
 from .protocol.peer import PeerError, Peer
-from .protocol.piece_handler import Requester
+from .protocol.piece_handler import Requester, Writer
 from .tracker import Tracker, TrackerError
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ class ClientTorrent:
     def __init__(self, torrent: MetaInfoFile):
         self.tracker = Tracker(torrent)
         self.available_peers = Queue()
+        self.writer = Writer(torrent)
         self.current_peers: List[Peer] = []
         self.requester = Requester(torrent)
         self.loop = asyncio.get_event_loop()
@@ -49,16 +50,16 @@ class ClientTorrent:
         self.abort = True
         for peer in self.current_peers:
             peer.stop()
-        #self.requester.close()
         self.tracker.close()
+        self.writer.fd.close()
 
-    #async def cancel(self):
-    #    """
-    #    Cancels this download.
-    #    """
-    #    logger.debug(f"Cancelling download of {self.tracker.torrent.name}.")
-    #    await self.tracker.cancel()
-    #    self.tracker.close()
+    async def cancel(self):
+        """
+        Cancels this download.
+        """
+        logger.debug(f"Cancelling download of {self.tracker.torrent.name}.")
+        await self.tracker.cancel()
+        self.tracker.close()
 
     async def start(self):
         """
@@ -102,6 +103,7 @@ class ClientTorrent:
         while not self.available_peers.empty():
             self.available_peers.get_nowait()
 
-    def _on_block_retrieved(self, piece_index, block_offset, data):
-        block = Block(piece_index, block_offset, data)
-        self.requester.received_block(block)
+    def _on_block_retrieved(self, block: Block) -> None:
+        piece = self.requester.received_block(block)
+        if piece:
+            self.writer.write(piece)

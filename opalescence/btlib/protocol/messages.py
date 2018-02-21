@@ -10,6 +10,7 @@ import bitstring as bitstring
 
 logger = logging.getLogger(__name__)
 
+
 class Message:
     """
     Base class for representing messages exchanged with the protocol
@@ -19,7 +20,7 @@ class Message:
     """
 
     def __str__(self):
-        return str(type(self))
+        return str(type(self).__name__)
 
     def __hash__(self):
         return hash(str(self))
@@ -42,7 +43,7 @@ class Handshake(Message):
         return self.info_hash == other.info_hash and self.peer_id == other.peer_id
 
     def __str__(self):
-        return f"{self.info_hash}:{self.peer_id}"
+        return f"Handshake: {self.peer_id}:{self.info_hash}"
 
     def encode(self) -> bytes:
         """
@@ -291,7 +292,7 @@ class Piece:
     def __init__(self, index, length):
         self.index = index
         self.data = io.BytesIO()
-        self._blocks = [0 for _ in range(math.ceil(length / Request.size))]
+        self._blocks = [0 for _ in range(int(math.ceil(length // Request.size)))]
         self._length = length
         self._next_block_offset = 0
 
@@ -299,7 +300,7 @@ class Piece:
         return self.index == other.index and self.data == other.data and self._blocks == other._blocks and self._length == other._length
 
     def __str__(self):
-        return f"Piece: {self.index}:{self._length}: {self.data}"
+        return f"Piece: {self.index}:{self._length}: {self.data.getvalue()}"
 
     def add_block(self, block: Block):
         """

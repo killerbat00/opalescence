@@ -27,6 +27,7 @@ class Writer:
 
     def __init__(self, torrent: MetaInfoFile):
         self.filename = os.path.join(os.path.abspath(os.path.dirname(__file__)), torrent.name)
+        self.fd = open(self.filename, "wb")
         self.piece_length = torrent.piece_length
         self.buffer = io.BytesIO()
 
@@ -39,15 +40,13 @@ class Writer:
         else:
             self.writing_pieces.append(Piece)
         offset = piece.index * self.piece_length
-        piece.data.seek(0)
-        data = piece.data.read()
+        data = piece.data.getvalue()
         try:
-            with open(self.filename, "ab+") as f:
-                logger.debug(f"Writing piece: {piece}")
-                f.seek(offset, 0)
-                f.write(data)
-                f.flush()
-                del self.writing_pieces[self.writing_pieces.index(Piece)]
+            logger.debug(f"Writing piece: {piece}")
+            self.fd.seek(offset, 0)
+            self.fd.write(data)
+            self.fd.flush()
+            del self.writing_pieces[self.writing_pieces.index(Piece)]
         except OSError as oe:
             del self.writing_pieces[self.writing_pieces.index(Piece)]
             logger.debug(f"Encountered OSError when writing {piece.index}")
@@ -65,7 +64,6 @@ class Requester:
     def __init__(self, torrent: MetaInfoFile):
         self.torrent = torrent
         self.piece_length = torrent.piece_length
-        self.piece_writer = Writer(torrent)
         self.available_pieces: Dict(int, set) = {i: set() for i in range(len(self.torrent.pieces))}
         self.downloaded_pieces: Dict(int, Piece) = {}
         self.downloading_pieces: Dict(int, Union(Piece, None)) = {i: None for i in range(len(self.torrent.pieces))}
@@ -106,13 +104,7 @@ class Requester:
         for _, peer_set in self.available_pieces.items():
             peer_set.discard(peer_id)
 
-    def write_last_piece(self) -> None:
-        last_index = len(self.torrent.pieces) - 1
-        piece = self.downloading_pieces[last_index]
-        logger.debug(f"Writing last piece {piece}")
-        self.piece_writer.write(piece)
-
-    def received_block(self, block: Block) -> None:
+    def received_block(self, block: Block) -> Union[None, Piece]:
         """
         Called when we've received a block from the remote peer.
         First, see if there are other blocks from that piece already downloaded.
@@ -148,7 +140,7 @@ class Requester:
             logger.debug(f"Completed piece received: {piece}")
             self.downloaded_pieces[piece.index] = piece
             self.downloading_pieces[piece.index] = None
-            self.piece_writer.write(piece)
+            return piece
 
     def _next_piece_index_for_peer(self, peer_id: str, start: int = -1) -> \
             Optional[int]:
