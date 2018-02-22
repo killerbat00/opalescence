@@ -337,6 +337,9 @@ class Piece:
         if self._next_block_offset >= self._length:
             return None
 
+        if self._length < Request.size:
+            return 0
+
         cur_offset = self._next_block_offset
         self._next_block_offset += Request.size
         return cur_offset
@@ -435,6 +438,9 @@ class MessageReader:
         return self
 
     async def __anext__(self) -> Message:
+        return await self._parse()
+
+    async def _parse(self):
         """
         Iterates through the data we have, requesting more
         from the protocol if necessary, and tries to decode and return

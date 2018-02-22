@@ -206,6 +206,7 @@ class Requester:
         :param peer_id: The remote peer who's asking for a new request's id
         :return: A new request, or None if that isn't possible.
         """
+
         # Find the next piece index for which the peer has an available piece
         piece_index = self._next_piece_index_for_peer(peer_id)
         if piece_index is None:
@@ -225,8 +226,8 @@ class Requester:
             piece = self._try_get_downloading_piece(piece_index)
             next_block_begin = piece.next_block()
 
-        if piece.index == len(self.torrent.pieces) - 1 and next_block_begin + Request.size > piece._length:
-            request = Request(piece.index, next_block_begin, length=piece._length-next_block_begin)
+        if piece.index == len(self.torrent.pieces) - 1:
+            request = Request(piece.index, next_block_begin, length=self.last_piece_length)
         else:
             request = Request(piece.index, next_block_begin, peer_id=peer_id)
 
@@ -241,8 +242,8 @@ class Requester:
                 piece = self._try_get_downloading_piece(piece_index)
                 next_block_begin = piece.next_block()
 
-            if piece.index == len(self.torrent.pieces) - 1 and next_block_begin + Request.size > piece._length:
-                request = Request(piece.index, next_block_begin, length=piece._length-next_block_begin)
+            if piece.index == len(self.torrent.pieces) - 1:
+                request = Request(piece.index, next_block_begin, length=self.last_piece_length)
             else:
                 request = Request(piece.index, next_block_begin, peer_id=peer_id)
 

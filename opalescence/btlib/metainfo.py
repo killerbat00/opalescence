@@ -303,7 +303,7 @@ class MetaInfoFile:
         """
         :return: Length in bytes of the last piece of the torrent
         """
-        return (len(self.pieces)*self.piece_length) - self.total_size
+        return self.total_size - ((len(self.pieces) - 1)*self.piece_length)
 
     @property
     def total_size(self) -> int:

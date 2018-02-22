@@ -51,12 +51,11 @@ class Peer:
         :return:
         """
         logger.debug(f"{self}: Cancelling and closing connections.")
-        #self.requester.remove_peer(self.peer_id)
+        self.requester.remove_peer(self.peer_id)
         if not self.future.done():
             self.future.cancel()
         if self.writer:
             self.writer.close()
-        self.requester.cancel()
 
     def stop(self):
         self.my_state.append('stopped')
@@ -87,6 +86,7 @@ class Peer:
         # TODO: scan valid bittorrent ports (6881-6999)
             #if port == 0:
                 #for port in self.valid_ports:
+        first = True
 
         try:
             self.ip, self.port = await self.queue.get()
@@ -108,7 +108,8 @@ class Peer:
             # number of requests for this peer.
             #TODO: Decouple message reading and sending. We should continue to send keepalive messages
             #TODO: for a reasonable amount of time until we're sure the peer can't send us anything.
-            async for msg in MessageReader(self.reader, data):
+            mr = MessageReader(self.reader, data)
+            async for msg in mr:
                 if "stopped" in self.my_state:
                     break
                 if isinstance(msg, KeepAlive):
