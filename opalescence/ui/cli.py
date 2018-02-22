@@ -13,6 +13,7 @@ import signal
 import unittest
 
 import opalescence
+from .. import __version__
 from ..btlib.client import ClientTorrent
 from ..btlib.metainfo import MetaInfoFile
 
@@ -119,23 +120,30 @@ def download(file_path) -> None:
                 f"{file_path.destination}")
 
     loop = asyncio.get_event_loop()
-    loop.set_debug(True)
+    loop.set_debug(__debug__)
     torrent = ClientTorrent(MetaInfoFile.from_file(file_path.torrent_file))
-    task = loop.create_task(torrent.start())
+    start_task = loop.create_task(torrent.start())
 
     def signal_handler(*_):
-        logging.info("Exiting, shutting down everything.")
-        loop.run_until_complete(torrent.cancel())
-        task.cancel()
-        loop.close()
+        logger.info("SIGINT received.")
+        start_task.cancel()
+        asyncio.ensure_future(torrent.cancel())
+        loop.stop()
 
     signal.signal(signal.SIGINT, signal_handler)
 
     try:
-        loop.run_until_complete(task)
-    except asyncio.CancelledError:
-        logger.warning("Event loop was cancelled")
+        # Main entrypoint
+        loop.run_until_complete(start_task)
+    except asyncio.CancelledError as ce:
+        logger.error(
+            "asyncio.CancelledError propagated all the way to the main entrypoint. This may or may not be an issue.")
+        logger.info(ce, exc_info=True)
     except KeyboardInterrupt:
-        logger.warning("Keyboard Interrupt received.")
-    finally:
-        loop.close()
+        pass
+    except Exception as ex:
+        logger.error(f"Unknown exception received: {type(ex).__name__}")
+        logger.info(ex, exc_info=True)
+
+    loop.close()
+    logger.info(f"Shutting down. Thank you for using opalescense v{__version__}.")
