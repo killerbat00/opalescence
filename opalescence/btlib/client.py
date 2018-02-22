@@ -49,7 +49,6 @@ class ClientTorrent:
         self.abort = True
         for peer in self.current_peers:
             peer.stop()
-        self.tracker.close()
         self.writer.fd.close()
 
     async def cancel(self):
@@ -58,7 +57,6 @@ class ClientTorrent:
         """
         logger.debug(f"Cancelling download of {self.tracker.torrent.name}.")
         await self.tracker.cancel()
-        self.tracker.close()
 
     async def start(self):
         """

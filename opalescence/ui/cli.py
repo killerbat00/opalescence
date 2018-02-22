@@ -125,7 +125,7 @@ def download(file_path) -> None:
     start_task = loop.create_task(torrent.start())
 
     def signal_handler(*_):
-        logger.info("SIGINT received.")
+        logger.debug("SIGINT received.")
         start_task.cancel()
         asyncio.ensure_future(torrent.cancel())
         loop.stop()
@@ -135,15 +135,14 @@ def download(file_path) -> None:
     try:
         # Main entrypoint
         loop.run_until_complete(start_task)
-    except asyncio.CancelledError as ce:
-        logger.error(
+    except asyncio.CancelledError:
+        logger.debug(
             "asyncio.CancelledError propagated all the way to the main entrypoint. This may or may not be an issue.")
-        logger.info(ce, exc_info=True)
     except KeyboardInterrupt:
         pass
     except Exception as ex:
         logger.error(f"Unknown exception received: {type(ex).__name__}")
-        logger.info(ex, exc_info=True)
+        logger.debug(ex, exc_info=True)
 
     loop.close()
     logger.info(f"Shutting down. Thank you for using opalescense v{__version__}.")
