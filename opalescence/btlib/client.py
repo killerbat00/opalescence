@@ -6,19 +6,18 @@ The client is responsible for orchestrating communication with the tracker and b
 """
 import asyncio
 import logging
-
 from asyncio import Queue
 from typing import List
 
-from opalescence.btlib.protocol.messages import Block
 from .metainfo import MetaInfoFile
-from .protocol.peer import PeerError, Peer
+from .protocol.messages import Block
+from .protocol.peer import Peer
 from .protocol.piece_handler import Requester, Writer
-from .tracker import Tracker, TrackerError
+from .tracker import Tracker
 
 logger = logging.getLogger(__name__)
 
-MAX_PEER_CONNECTIONS = 5
+MAX_PEER_CONNECTIONS = 1
 
 
 class ClientError(Exception):

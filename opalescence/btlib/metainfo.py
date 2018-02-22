@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class CreationError(Exception):
     """
-    Raised when we encounter problems creating a torrent
+    Raised when we encounter problems creating a torrent.
     """
 
 
@@ -111,18 +111,22 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
 
 class MetaInfoFile:
     """
-    Wrapper around the torrent's metainfo. Doesn't include any download state.
-    Torrents are created from files.
+    Represents the metainfo for a torrent. Doesn't include any download state.
 
     Unsupported metainfo keys:
         encoding
     """
-
     def __init__(self):
         self.files = []
         self.meta_info = None
         self.info_hash = None
         self.pieces = []
+
+    def __str__(self):
+        return f"{self.name}:{self.info_hash}"
+
+    def __repr__(self):
+        return f"<MetaInfoFile: {self.name}:{self.info_hash}"
 
     @classmethod
     def from_file(cls, filename: str) -> "MetaInfoFile":
@@ -158,7 +162,7 @@ class MetaInfoFile:
 
     @classmethod
     def from_path(cls, path: str, trackers: list, *,
-                  comment: str = "", piece_size: int = 16384,
+                  comment: str = "", piece_size: int = 32768,
                   private: bool = False) -> "MetaInfoFile":
         """
         Class method to create a torrent object from a specified filepath. The path can be
@@ -303,7 +307,7 @@ class MetaInfoFile:
         """
         :return: Length in bytes of the last piece of the torrent
         """
-        return self.total_size - ((len(self.pieces) - 1)*self.piece_length)
+        return self.total_size - ((self.num_pieces - 1)*self.piece_length)
 
     @property
     def total_size(self) -> int:
@@ -313,15 +317,16 @@ class MetaInfoFile:
         return sum([f.size for f in self.files])
 
     @property
+    def num_pieces(self) -> int:
+        """
+        :return: the total number of pieces in the torrent
+        """
+        return len(self.pieces)
+
+    @property
     def name(self) -> str:
         """
         :return: the torrent's name; either the single filename or the directory
         name.
         """
         return self.meta_info[b"info"][b"name"].decode("UTF-8")
-
-    def __str__(self):
-        return f"{self.name}:{self.info_hash}"
-
-    def __repr__(self):
-        return f"<Torrent: {self.name}:{self.info_hash}"

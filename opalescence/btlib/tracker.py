@@ -99,6 +99,7 @@ class Tracker:
         """
         self.event = "stopped"
         await self.announce()
+        await self.http_client.close()
 
     async def completed(self, already_complete: bool=False) -> None:
         """
@@ -130,7 +131,7 @@ class Tracker:
         """
         params = {"info_hash": self.torrent.info_hash,
                   "peer_id": self.peer_id,
-                  "port": self.port,
+                  "port": self.port, #TODO: We tell the tracker this, but don't actually listen on this port.
                   "uploaded": self.uploaded,
                   "downloaded": self.downloaded,
                   "left": self.left,
@@ -138,13 +139,6 @@ class Tracker:
         if self.event:
             params["event"] = self.event
         return params
-
-    def close(self):
-        """
-        Closes the http_client session
-        """
-        #TODO: Send cancel message when closing?
-        asyncio.get_event_loop().run_until_complete(self.http_client.close())
 
 
 class Response:
@@ -157,13 +151,12 @@ class Response:
         self.failed = b"failure reason" in self.data
 
     @property
-    def failure_reason(self) -> Union[str, None]:
+    def failure_reason(self) -> Optional[str]:
         """
         :return: the failure reason
         """
         if self.failed:
             return self.data[b"failure reason"].decode("UTF-8")
-        return None
 
     @property
     def interval(self) -> int:
@@ -180,14 +173,13 @@ class Response:
         return self.data.get(b"min interval", 0)
 
     @property
-    def tracker_id(self) -> Optional[str]:  # or maybe bytes?
+    def tracker_id(self) -> Optional[str]:
         """
         :return: the tracker id
         """
         tracker_id = self.data.get(b"tracker id")
         if tracker_id:
             return tracker_id.decode("UTF-8")
-        return
 
     @property
     def complete(self) -> int:
