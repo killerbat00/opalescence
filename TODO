@@ -1,0 +1,4 @@
+Big List of things To Do:
+1. Actually bind to the port we tell the tracker we're listening on.
+2. Use async_timeout context managers.
+3. 

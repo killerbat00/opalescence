@@ -9,7 +9,7 @@ import hashlib
 import logging
 import os
 from collections import OrderedDict
-from typing import NamedTuple, Union
+from typing import NamedTuple, Union, List, Generator, Optional
 
 from .bencode import Decoder, Encoder, DecodeError, EncodeError
 
@@ -53,14 +53,14 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
     :return:             True if valid
     :raises:             CreationError
     """
-    min_req_keys = [b"info", b"announce"]
-    min_info_req_keys = [b"piece length", b"pieces", b"name"]
-    min_files_req_keys = [b"length", b"path"]
+    min_req_keys: List[bytes] = [b"info", b"announce"]
+    min_info_req_keys: List[bytes] = [b"piece length", b"pieces", b"name"]
+    min_files_req_keys: List[bytes] = [b"length", b"path"]
 
     logger.debug(
         "Validating torrent metainfo dictionary {d}".format(d=decoded_dict))
 
-    dict_keys = list(decoded_dict.keys())
+    dict_keys: List = list(decoded_dict.keys())
 
     if not dict_keys:
         logger.error("No valid keys in dictionary.")
@@ -71,7 +71,7 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
             logger.error(f"Required key not found: {key}")
             raise CreationError
 
-    info_keys = list(decoded_dict[b"info"].keys())
+    info_keys: List = list(decoded_dict[b"info"].keys())
 
     if not info_keys:
         logger.error("No valid keys in info dictionary.")
@@ -86,7 +86,7 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
         logger.error("Piece length not a multiple of 20.")
         raise CreationError
 
-    multiple_files = b"files" in info_keys
+    multiple_files: bool = b"files" in info_keys
 
     if multiple_files:
         file_list = decoded_dict[b"info"][b"files"]
@@ -116,11 +116,12 @@ class MetaInfoFile:
     Unsupported metainfo keys:
         encoding
     """
+
     def __init__(self):
-        self.files = []
-        self.meta_info = None
-        self.info_hash = None
-        self.pieces = []
+        self.files: List[FileItem] = []
+        self.meta_info: Optional[OrderedDict] = None
+        self.info_hash: bytes = None
+        self.pieces: List[bytes] = []
 
     def __str__(self):
         return f"{self.name}:{self.info_hash}"
@@ -138,7 +139,7 @@ class MetaInfoFile:
         :return: Torrent instance
         """
         logger.debug(f"Creating a torrent from {filename}")
-        torrent = cls()
+        torrent: MetaInfoFile = cls()
 
         if not os.path.exists(filename):
             logger.error(f"Path does not exist {filename}")
@@ -146,18 +147,24 @@ class MetaInfoFile:
 
         try:
             with open(filename, 'rb') as f:
-                data = f.read()
+                data: bytes = f.read()
                 torrent.meta_info = Decoder(data).decode()
+
+            if torrent.meta_info and isinstance(torrent.meta_info, OrderedDict):
                 _validate_torrent_dict(torrent.meta_info)
-                info = Encoder(torrent.meta_info[b"info"]).encode()
+                info: bytes = Encoder(torrent.meta_info[b"info"]).encode()
                 torrent.info_hash = hashlib.sha1(info).digest()
+                torrent._gather_files()
+                torrent.pieces = list(_pc(torrent.meta_info[b"info"][b"pieces"]))
+            else:
+                logger.error(f"Unable to create empty MetaInfoFile.")
+                raise CreationError
+
         except (EncodeError, DecodeError, IOError) as e:
             logger.error(f"Encountered error creating MetaInfoFile.")
             logger.info(e, exc_info=True)
             raise CreationError from e
 
-        torrent._gather_files()
-        torrent.pieces = list(_pc(torrent.meta_info[b"info"][b"pieces"]))
         return torrent
 
     @classmethod
@@ -201,7 +208,7 @@ class MetaInfoFile:
 
         with open(output_filename, 'wb+') as f:
             try:
-                data = Encoder(self.meta_info).encode()
+                data: bytes = Encoder(self.meta_info).encode()
                 f.write(data)
             except EncodeError as ee:
                 logger.error("Unable to write metainfo file {output_filename}")
@@ -213,7 +220,7 @@ class MetaInfoFile:
         Gathers the files located in the torrent
         """
         # TODO: filepaths are a list containing string elements
-        if b"files" in self.meta_info[b"info"]:
+        if self.multi_file:
             for f in self.meta_info[b"info"][b"files"]:
                 path = None
                 if isinstance(f[b"path"], list):
@@ -245,18 +252,18 @@ class MetaInfoFile:
         return b"files" in self.meta_info[b"info"]
 
     @property
-    def announce_urls(self) -> list:
+    def announce_urls(self) -> Union[List[List[str]], List[str]]:
         """
         The announce URL of the tracker.
         According to BEP 0012 (http://bittorrent.org/beps/bep_0012.html),
         if announce-list is present, it is used instead of announce.
         :return: a list of announce URLs for the tracker
         """
-        urls = []
+        urls: Union[List[List[str]], List[str]] = []
         if b"announce-list" in self.meta_info:
             # announce list is a list of lists of strings
             for url_list in self.meta_info[b"announce-list"]:
-                inner_list = []
+                inner_list: List[str] = []
                 for url in url_list:
                     inner_list.append(url.decode("UTF-8"))
                 urls.append(inner_list)
@@ -265,7 +272,7 @@ class MetaInfoFile:
         return urls
 
     @property
-    def comment(self) -> Union[str, None]:
+    def comment(self) -> Optional[str]:
         """
         :return: the torrent's comment
         """
@@ -273,7 +280,7 @@ class MetaInfoFile:
             return self.meta_info[b"comment"].decode("UTF-8")
 
     @property
-    def created_by(self) -> Union[str, None]:
+    def created_by(self) -> Optional[str]:
         """
         :return: the torrent's creation program
         """
@@ -281,7 +288,7 @@ class MetaInfoFile:
             return self.meta_info[b"created by"].decode("UTF-8")
 
     @property
-    def creation_date(self) -> Union[int, None]:
+    def creation_date(self) -> Optional[int]:
         """
         :return: the torrent's creation date
         """
@@ -307,7 +314,7 @@ class MetaInfoFile:
         """
         :return: Length in bytes of the last piece of the torrent
         """
-        return self.total_size - ((self.num_pieces - 1)*self.piece_length)
+        return self.total_size - ((self.num_pieces - 1) * self.piece_length)
 
     @property
     def total_size(self) -> int:

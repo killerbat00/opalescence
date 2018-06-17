@@ -41,7 +41,7 @@ class TestDecoder(TestCase):
         self.assertIsInstance(decoder, bencode.Decoder)
         self.assertEqual(decoder._recursion_limit, 99999)
         self.assertEqual(decoder._current_iter, 0)
-        self.assertEqual(decoder.data.read(), data)
+        self.assertEqual(decoder._data.read(), data)
 
     def test__set_data(self):
         """
@@ -52,11 +52,11 @@ class TestDecoder(TestCase):
         new_data = b"8:new data"
         empty_data = b""
         decoder = bencode.Decoder(old_data)
-        self.assertEqual(decoder.data.read(), old_data)
+        self.assertEqual(decoder._data.read(), old_data)
         decoder._set_data(new_data)
-        self.assertEqual(decoder.data.read(), new_data)
+        self.assertEqual(decoder._data.read(), new_data)
         decoder._set_data(empty_data)
-        self.assertEqual(decoder.data.read(), empty_data)
+        self.assertEqual(decoder._data.read(), empty_data)
         decoder._set_data(empty_data)
         self.assertIsNone(decoder.decode())
 
@@ -76,7 +76,7 @@ class TestDecoder(TestCase):
         decoder = bencode.Decoder(b"l")
 
         with self.subTest(msg="Testing _decode with nothing in the buffer."):
-            decoder.data.read(1)  # exhaust the buffer
+            decoder._data.read(1)  # exhaust the buffer
             self.assertEqual(decoder._decode(), eof)
 
         with self.subTest(msg="Testing _decode with only the end of a dictionary (or list, or int)."):
@@ -175,20 +175,20 @@ class TestDecoder(TestCase):
         decoder = bencode.Decoder(data)
         with self.subTest(msg="Invalid string length."):
             with self.assertRaises(bencode.DecodeError):
-                decoder.data.read(1)
+                decoder._data.read(1)
                 decoder._decode_bytestr()
 
         data = b"3-val"
         with self.subTest(msg="Invalid delimiter."):
             with self.assertRaises(bencode.DecodeError):
                 decoder._set_data(data)
-                decoder.data.read(1)
+                decoder._data.read(1)
                 decoder._decode_bytestr()
 
         data = b"34:string with spaces and bytes \x00 \x12 \x24"
         with self.subTest(msg="Valid string."):
             decoder._set_data(data)
-            decoder.data.read(1)
+            decoder._data.read(1)
             self.assertEqual(decoder._decode_bytestr(), data[3:])
 
     def test__parse_num(self):
@@ -246,20 +246,6 @@ class TestEncoder(TestCase):
         for good_data in [[1, 2, 3], 1, b"string", b"12", {b"key": 3}]:
             with self.subTest(msg=f"Good data {good_data}."):
                 self.assertIsInstance(bencode.Encoder(good_data), bencode.Encoder)
-
-    def test__set_data(self):
-        """
-        Test that we can reset the data the encoder is using.
-        """
-        old_data = [1, 2, 3]
-        new_data = 12
-        encoder = bencode.Encoder(old_data)
-        self.assertEqual(encoder.data, old_data)
-        encoder._set_data(new_data)
-        self.assertEqual(encoder.data, new_data)
-        encoder._set_data(None)
-        self.assertEqual(encoder.data, None)
-        self.assertEqual(encoder.encode(), None)
 
     def test__encode(self):
         """

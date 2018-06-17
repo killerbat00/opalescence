@@ -43,9 +43,9 @@ class ClientTorrent:
 
     def stop(self):
         """
-        Stop the download or seed.
+        Immediately stops the download or seed.
         """
-        logger.debug(f"Cancelling download/seed of {self.tracker.torrent.name}.")
+        logger.debug(f"Stopping {self.tracker.torrent.name}.")
         self.abort = True
         for peer in self.current_peers:
             peer.stop()
@@ -55,12 +55,14 @@ class ClientTorrent:
         """
         Cancels this download.
         """
-        logger.debug(f"Cancelling download of {self.tracker.torrent.name}.")
+        logger.debug(f"Cancelling {self.tracker.torrent.name}.")
         await self.tracker.cancel()
+        self.stop()
 
     async def start(self):
         """
-        Schedules the recurring announce call with the tracker.
+        Creates peer connections, attempts to connect to peers, calls the tracker, and
+        serves as the main entrypoint for a torrent.
         TODO: needs work
         """
         self.current_peers = [Peer(self.available_peers,

@@ -8,9 +8,11 @@ bencoding a decoded OrderedDict, and pretty printing said OrderedDict.
 import logging
 from collections import OrderedDict
 from io import BytesIO
-from typing import Union, Optional
+from typing import Union, Optional, List
 
 logger = logging.getLogger(__name__)
+
+BencodingTypes = Union[OrderedDict, List, bytes, int]
 
 
 class BencodeRecursionError(Exception):
@@ -35,13 +37,13 @@ class BencodeDelimiters:
     """
     Delimiters used in the bencoding spec.
     """
-    dict_start = b'd'
-    end = b'e'
-    list_start = b'l'
-    num_start = b'i'
-    divider = b':'
-    digits = [b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9']
-    eof = b"!"  # custom eof marker used to break out of empty containers
+    dict_start: bytes = b'd'
+    end: bytes = b'e'
+    list_start: bytes = b'l'
+    num_start: bytes = b'i'
+    divider: bytes = b':'
+    digits: List[bytes] = [b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9']
+    eof: bytes = b"!"  # custom eof marker used to break out of empty containers
 
 
 class Decoder:
@@ -67,8 +69,8 @@ class Decoder:
             logger.error(f"Cannot decode. No data received.")
             raise DecodeError
 
-        self._recursion_limit = recursion_limit
-        self._current_iter = 0
+        self._recursion_limit: int = recursion_limit
+        self._current_iter: int = 0
         self._set_data(data)
 
     def _set_data(self, data: bytes) -> None:
@@ -81,25 +83,31 @@ class Decoder:
         :param data: bytes of data to decode
         """
         try:
-            self.data = BytesIO(data)
+            self._data: BytesIO = BytesIO(data)
             self._current_iter = 0
         except TypeError as te:
             logger.error(f"Expected bytes, received {type(data)}")
             logger.info(te, exc_info=True)
             raise DecodeError from te
 
-    def decode(self) -> Union[OrderedDict, list, bytes, int, None]:
+    def decode(self) -> Optional[BencodingTypes]:
         """
         Decodes a bencoded bytestring, returning the data as python objects
 
         :return: decoded torrent info, or None if empty data received
         """
-        decoded = self._decode()
+        try:
+            decoded: BencodingTypes = self._decode()
+            self._data.close()
+        except (BencodeRecursionError, DecodeError) as de:
+            logger.info(de, exc_info=True)
+            raise DecodeError from de
+
         if decoded == BencodeDelimiters.eof:
             return
         return decoded
 
-    def _decode(self) -> Union[OrderedDict, list, bytes, int]:
+    def _decode(self) -> BencodingTypes:
         """
         Recursively decodes a BytesIO buffer of bencoded data
 
@@ -113,7 +121,7 @@ class Decoder:
         else:
             self._current_iter += 1
 
-        char = self.data.read(1)
+        char: bytes = self._data.read(1)
 
         if not char:
             # eof is used to signal we've decoded as far as we can go
@@ -142,11 +150,11 @@ class Decoder:
         :raises DecodeError:
         :return: decoded dictionary as OrderedDict
         """
-        decoded_dict = OrderedDict()
-        keys = []
+        decoded_dict: OrderedDict = OrderedDict()
+        keys: List[bytes] = []
 
         while True:
-            key = self._decode()
+            key: BencodingTypes = self._decode()
             if key == BencodeDelimiters.eof:
                 break
             if not isinstance(key, bytes):
@@ -164,7 +172,7 @@ class Decoder:
 
         return decoded_dict
 
-    def _decode_list(self) -> list:
+    def _decode_list(self) -> List:
         """
         Decodes a bencoded list into a python list
         lists can contain any other bencoded types:
@@ -172,9 +180,9 @@ class Decoder:
 
         :return: list of decoded data
         """
-        decoded_list = []
+        decoded_list: List[BencodingTypes] = []
         while True:
-            item = self._decode()
+            item: BencodingTypes = self._decode()
             if item == BencodeDelimiters.eof:
                 break
             decoded_list.append(item)
@@ -198,9 +206,9 @@ class Decoder:
         :return:             decoded string
         """
         # we've already consumed the string length, go back and get it
-        self.data.seek(-1, 1)
-        string_len = self._parse_num(BencodeDelimiters.divider)
-        string_val = self.data.read(string_len)
+        self._data.seek(-1, 1)
+        string_len: int = self._parse_num(BencodeDelimiters.divider)
+        string_val: bytes = self._data.read(string_len)
 
         if len(string_val) != string_len:
             logger.error(f"Unable to read specified string {string_len}")
@@ -216,9 +224,9 @@ class Decoder:
         :raises DecodeError: when an invalid character occurs
         :return:             decoded number
         """
-        parsed_num = bytes()
+        parsed_num: bytes = bytes()
         while True:
-            char = self.data.read(1)
+            char: bytes = self._data.read(1)
             # allow negative integers
             if char in BencodeDelimiters.digits + [b"-"]:
                 parsed_num += char
@@ -229,7 +237,7 @@ class Decoder:
                     raise DecodeError
                 break
 
-        num_str = parsed_num.decode("UTF-8")
+        num_str: str = parsed_num.decode("UTF-8")
 
         if len(num_str) == 0:
             logger.error("Empty strings are not allowed for int keys.")
@@ -247,7 +255,7 @@ class Encoder:
     Encodes a python object and returns the bencoded bytes
     """
 
-    def __init__(self, data: Union[dict, list, bytes, int]):
+    def __init__(self, data: BencodingTypes):
         """
         Creates an Encoder instance with the specified data.
 
@@ -258,16 +266,7 @@ class Encoder:
             logger.error("Cannot encode. No data received.")
             raise EncodeError
 
-        self._set_data(data)
-
-    def _set_data(self, data: Union[dict, list, bytes, int]) -> None:
-        """
-        Sets the data being used by the encoder
-        Warning: the length or existence of data is not checked here
-
-        :param data: python object to set as data
-        """
-        self.data = data
+        self._data: BencodingTypes = data
 
     def encode(self) -> Optional[bytes]:
         """
@@ -276,12 +275,17 @@ class Encoder:
         :raises EncodeError:
         :return: bencoded bytes or None if empty data received
         """
-        if not self.data:
+        if not self._data:
             return
+        try:
+            encoded_data: bytes = self._encode(self._data)
+        except EncodeError as ee:
+            logger.info(ee, exc_info=True)
+            raise EncodeError from ee
 
-        return self._encode(self.data)
+        return encoded_data
 
-    def _encode(self, obj: Union[dict, list, bytes, int]) -> bytes:
+    def _encode(self, obj: BencodingTypes) -> bytes:
         """
         Recursively bencodes a python object
 
@@ -313,14 +317,14 @@ class Encoder:
         :raises EncodeError:
         :return: bencoded string of the decoded dictionary
         """
-        contents = BencodeDelimiters.dict_start
-        keys = []
+        contents: bytes = BencodeDelimiters.dict_start
+        keys: List[bytes] = []
         for k, v in obj.items():
             if not isinstance(k, bytes):
                 logger.error(f"Dictionary keys must be bytes. Not {type(k)}")
                 raise EncodeError
             keys.append(k)
-            key = self._encode_bytestr(k)
+            key: bytes = self._encode_bytestr(k)
             contents += key
             contents += self._encode(v)
         contents += BencodeDelimiters.end
@@ -336,9 +340,9 @@ class Encoder:
         :param obj: list to encode
         :return: bencoded string of the decoded list
         """
-        contents = BencodeDelimiters.list_start
+        contents: bytes = BencodeDelimiters.list_start
         for item in obj:
-            val = self._encode(item)
+            val: Optional[BencodingTypes] = self._encode(item)
             if val:
                 contents += val
         contents += BencodeDelimiters.end

@@ -9,7 +9,7 @@ import logging
 import socket
 import struct
 from random import randint
-from typing import Union, Optional
+from typing import Optional
 from urllib.parse import urlencode
 
 import aiohttp
@@ -25,7 +25,7 @@ def _generate_peer_id():
     Generates a 20 byte long unique identifier for our peer.
     :return: our unique peer ID
     """
-    return ("-OP0001-" + ''.join(str(randint(0,9)) for _ in range(12))).encode("UTF-8")
+    return ("-OP0001-" + ''.join(str(randint(0, 9)) for _ in range(12))).encode("UTF-8")
 
 
 class TrackerError(Exception):
@@ -45,17 +45,17 @@ class Tracker:
 
     # TODO: implement announce-list extension support.
     # TODO: implement scrape convention support.
-    DEFAULT_INTERVAL = 60  # 1 minute
+    DEFAULT_INTERVAL: int = 60  # 1 minute
 
     def __init__(self, torrent: MetaInfoFile):
-        self.torrent = torrent
-        self.http_client = aiohttp.ClientSession(loop=asyncio.get_event_loop())
-        self.peer_id = _generate_peer_id()
-        self.port = 6881
-        self.uploaded = 0
-        self.downloaded = 0
-        self.left = 0
-        self.event = "started"
+        self.torrent: MetaInfoFile = torrent
+        self.http_client: aiohttp.ClientSession = aiohttp.ClientSession(loop=asyncio.get_event_loop())
+        self.peer_id: bytes = _generate_peer_id()
+        self.port: int = 6881
+        self.uploaded: int = 0
+        self.downloaded: int = 0
+        self.left: int = 0
+        self.event: str = "started"
 
     async def announce(self) -> "Response":
         """
@@ -66,14 +66,14 @@ class Tracker:
                               are unable to bdecode the tracker's response.
         :returns: Response object representing the tracker's response
         """
-        url = self._make_url()
+        url: str = self._make_url()
         logger.debug(f"Making {self.event} announce to: {url}")
 
         async with self.http_client.get(url) as r:
             if not r.status == 200:
                 logger.error(f"{url}: Unable to connect to tracker.")
                 raise TrackerError
-            data = await r.read()
+            data: bytes = await r.read()
 
         try:
             decoded_data = bencode.Decoder(data).decode()
@@ -101,7 +101,7 @@ class Tracker:
         await self.announce()
         await self.http_client.close()
 
-    async def completed(self, already_complete: bool=False) -> None:
+    async def completed(self, already_complete: bool = False) -> None:
         """
         Informs the tracker we have completed downloading this torrent
         :param already_complete: True if already completed (won't send complete event to tracker)
@@ -131,7 +131,7 @@ class Tracker:
         """
         params = {"info_hash": self.torrent.info_hash,
                   "peer_id": self.peer_id,
-                  "port": self.port, #TODO: We tell the tracker this, but don't actually listen on this port.
+                  "port": self.port,  # TODO: We tell the tracker this, but don't actually listen on this port.
                   "uploaded": self.uploaded,
                   "downloaded": self.downloaded,
                   "left": self.left,

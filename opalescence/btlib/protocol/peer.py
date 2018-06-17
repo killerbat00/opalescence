@@ -39,7 +39,6 @@ class Peer:
         self.port = None
         self.requester = requester
         self._on_block_cb = on_block_cb
-        self.valid_ports = [x for x in range(6881,7000)]
         self.future = asyncio.ensure_future(self.start())
 
     def __str__(self):
@@ -62,35 +61,13 @@ class Peer:
         if not self.future.done():
             self.future.cancel()
 
-    def get_next_port(self, port):
-        if port == 0:
-            logger.debug(f"{self}: Port 0 returned by tracker, scanning valid bittorrent ports.")
-            return self.valid_ports[0]
-
-        try:
-            port_index = self.valid_ports.index(port) + 1
-        except ValueError:
-            port_index = 0
-
-        if port_index > len(self.valid_ports):
-            logger.debug(f"{self}: No more bittorrent ports to try.")
-            raise PeerError
-
-        logger.debug(f"{self}: Retrying on port: {self.valid_ports[port_index]}")
-        return self.valid_ports[port_index]
-
     async def start(self):
         """
         Starts communication with the protocol and begins downloading a torrent.
         """
         # TODO: scan valid bittorrent ports (6881-6999)
-            #if port == 0:
-                #for port in self.valid_ports:
-        first = True
-
         try:
             self.ip, self.port = await self.queue.get()
-            #port = self.get_next_port(port)
 
             logger.debug(f"{self}: Opening connection.")
             self.reader, self.writer = await asyncio.open_connection(
@@ -164,6 +141,9 @@ class Peer:
                         self.writer.write(message.encode())
                         await self.writer.drain()
 
+        except asyncio.CancelledError as ce:
+            self.cancel()
+            raise asyncio.CancelledError from ce
         except Exception as oe:
             logger.debug(f"{self}: Exception with connection.\n{oe}")
             self.cancel()

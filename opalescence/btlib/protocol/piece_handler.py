@@ -65,7 +65,7 @@ class Requester:
         self.torrent = torrent
         self.piece_length = torrent.piece_length
         self.last_piece_length = torrent.last_piece_length
-        self.available_pieces: Dict(int, set) = {i: set() for i in range(len(self.torrent.pieces))}
+        self.piece_peer_map: Dict(int, set) = {i: set() for i in range(len(self.torrent.pieces))}
         self.downloaded_pieces: Dict(int, Piece) = {}
         self.downloading_pieces: Dict(int, Union(Piece, None)) = {i: None for i in range(len(self.torrent.pieces))}
         self.pending_requests: List(Request) = []
@@ -81,7 +81,7 @@ class Requester:
         :param peer_id: The peer that has the piece
         :param index: The index of the piece
         """
-        self.available_pieces[index].add(peer_id)
+        self.piece_peer_map[index].add(peer_id)
 
     def add_peer_bitfield(self, peer_id: str, bitfield: bitstring.BitArray) -> None:
         """
@@ -93,7 +93,7 @@ class Requester:
         """
         for i, b in enumerate(bitfield):
             if b:
-                self.available_pieces[i].add(peer_id)
+                self.piece_peer_map[i].add(peer_id)
 
     def remove_peer(self, peer_id: str) -> None:
         """
@@ -102,7 +102,7 @@ class Requester:
 
         :param peer_id: peer to remove
         """
-        for _, peer_set in self.available_pieces.items():
+        for _, peer_set in self.piece_peer_map.items():
             peer_set.discard(peer_id)
 
     def received_block(self, block: Block) -> Union[None, Piece]:
@@ -166,13 +166,13 @@ class Requester:
         for i, v in self.downloading_pieces.items():
             if v:
                 if i > start:
-                    if peer_id in self.available_pieces[i]:
+                    if peer_id in self.piece_peer_map[i]:
                         return i
 
         # We couldn't find an incomplete piece index. This means the peer
         # can't give us any pieces that we are currently downloading. So,
         # we start requesting the next piece that hasn't been complete.
-        for i, peer_set in self.available_pieces.items():
+        for i, peer_set in self.piece_peer_map.items():
             if i > start:
                 if i not in self.downloaded_pieces:
                     if peer_id in peer_set:

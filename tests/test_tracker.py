@@ -45,7 +45,6 @@ class TestTracker(TestCase):
         self.assertIsInstance(tt, tracker.Tracker)
         self.assertEqual(tt.torrent, self.torrent)
         self.assertEqual(len(tt.peer_id), 20)
-        tt.close()
 
     def test__make_params(self):
         """
@@ -61,7 +60,6 @@ class TestTracker(TestCase):
         tt = tracker.Tracker(self.torrent)
         expected_params["peer_id"] = tt.peer_id
         self.assertDictEqual(tt._make_params(), expected_params)
-        tt.close()
 
     def test__make_url(self):
         """
@@ -80,7 +78,6 @@ class TestTracker(TestCase):
         self.assertIsInstance(resp, tracker.Response)
         self.assertFalse(resp.failed)
         async_run(t.http_client.close())
-        t.close()
 
     def test_cancel(self):
         """
@@ -112,7 +109,6 @@ class TestTracker(TestCase):
         track._make_url = mock.MagicMock(return_value="malformed url")
         with self.subTest(msg="Malformed URL"):
             self.assertRaises(ValueError, async_run, track.announce())
-        track.close()
         async_run(track.http_client.close())
 
         track = tracker.Tracker(self.torrent)
@@ -123,7 +119,6 @@ class TestTracker(TestCase):
                 mocked_get.assert_called_once()
                 mocked_get.assert_called_once_with(track._make_url())
         async_run(track.http_client.close())
-        track.close()
 
     def test_invalid_params(self):
         """
@@ -134,7 +129,6 @@ class TestTracker(TestCase):
         with self.subTest(msg="Empty params"):
             self.assertRaises(tracker.TrackerError, async_run, track.announce())
         async_run(track.http_client.close())
-        track.close()
 
     def test_valid_request_bad_data(self):
         """
@@ -151,7 +145,6 @@ class TestTracker(TestCase):
                 mocked_get.assert_called_once()
                 mocked_get.assert_called_once_with(track._make_url())
         async_run(track.http_client.close())
-        track.close()
 
     def test_failed_response(self):
         """
@@ -169,7 +162,6 @@ class TestTracker(TestCase):
                 mocked_get.assert_called_once()
                 mocked_get.assert_called_with(track._make_url())
         async_run(track.http_client.close())
-        track.close()
 
 
 class TestResponse(TestCase):

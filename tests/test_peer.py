@@ -37,13 +37,6 @@ class TestPeer(TestCase):
         cls.torrent = metainfo.MetaInfoFile.from_file(cls.external_torrent_path)
         cls.tracker = tracker.Tracker(cls.torrent)
 
-    @classmethod
-    def tearDownClass(cls):
-        """
-        Closes the tracker's http client session
-        """
-        cls.tracker.close()
-
     @skip
     def test_basic_comm(self):
         """
