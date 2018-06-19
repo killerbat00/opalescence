@@ -10,7 +10,8 @@ from unittest import skip
 from requests import get
 
 import opalescence.btlib.protocol.peer
-from tests.context import metainfo, tracker, torrent_url
+from tests.context import torrent_url
+from opalescence.btlib import metainfo, tracker
 from tests.utils import async_run
 
 
@@ -35,7 +36,7 @@ class TestPeer(TestCase):
                 with open(cls.external_torrent_path, "wb+") as f:
                     f.write(file_data)
         cls.torrent = metainfo.MetaInfoFile.from_file(cls.external_torrent_path)
-        cls.tracker = tracker.Tracker(cls.torrent)
+        cls.tracker = tracker.Tracker(info_hash=cls.torrent.info_hash, announce_urls=cls.torrent.announce_urls)
 
     @skip
     def test_basic_comm(self):

@@ -13,12 +13,12 @@ from typing import Union, Dict, List, Optional
 import bitstring as bitstring
 
 from .messages import Request, Block, Piece
-from ..metainfo import MetaInfoFile
+from opalescence.btlib.metainfo import MetaInfoFile
 
 logger = logging.getLogger(__name__)
 
 
-class Writer:
+class FileWriter:
     """
     Writes piece data to temp memory for now.
     Will eventually flush data to the disk.

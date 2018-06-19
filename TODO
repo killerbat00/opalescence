@@ -1,4 +1,6 @@
 Big List of things To Do:
 1. Actually bind to the port we tell the tracker we're listening on.
 2. Use async_timeout context managers.
-3. 
+3. Best way for callbacks to fire when the loop ends? (cleanup/close *IO classes without needing references to them at
+the point we know the loop closes)
+4. Convert peer communication to an asyncio.Protocol class.

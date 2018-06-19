@@ -6,7 +6,7 @@ Tests functionality related to bencoding and becoding bytes.
 from collections import OrderedDict
 from unittest import TestCase
 
-from tests.context import bencode
+from opalescence.btlib import bencode
 
 
 class TestDecoder(TestCase):

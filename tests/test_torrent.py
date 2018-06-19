@@ -12,7 +12,8 @@ from unittest import TestCase
 
 from requests import get
 
-from tests.context import metainfo, bencode, torrent_url
+from tests.context import torrent_url
+from opalescence.btlib import bencode, metainfo
 
 
 class TestTorrent(TestCase):
@@ -85,14 +86,14 @@ class TestTorrent(TestCase):
         """
         Tests the properties of the torrent metainfo file.
         """
-        announce_urls = [["http://torrent.ubuntu.com:6969/announce"], ["http://ipv6.torrent.ubuntu.com:6969/announce"]]
+        announce_urls = ["http://torrent.ubuntu.com:6969/announce", "http://ipv6.torrent.ubuntu.com:6969/announce"]
         t = metainfo.MetaInfoFile.from_file(self.external_torrent_path)
         for f in announce_urls:
             self.assertIn(f, t.announce_urls)
         comment = "Ubuntu CD releases.ubuntu.com"
         self.assertEqual(comment, t.comment)
         self.assertIsNone(t.created_by)
-        creation_date = 1501766097
+        creation_date = 1519934077
         self.assertEqual(creation_date, t.creation_date)
         self.assertFalse(t.private)
         piece_length = 524288
@@ -103,7 +104,7 @@ class TestTorrent(TestCase):
         """
         Tests that the torrent's info hash property returns the correct info hash.
         """
-        infohash_digest = b"\x14\x88\xd4T\x91]\x86\x05)\x90;a\xad\xb57\x01*\x0f\xe7\xc8"
+        infohash_digest= b"w\x8c\xe2\x80\xb5\x95\xe5w\x80\xff\x08?.\xb6\xf8\x97\xdf\xa4\xa4\xee"
         t = metainfo.MetaInfoFile.from_file(self.external_torrent_path)
         self.assertEqual(infohash_digest, t.info_hash)
 

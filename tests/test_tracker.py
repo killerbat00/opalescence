@@ -12,7 +12,8 @@ from urllib.parse import urlencode
 
 from requests import get
 
-from tests.context import metainfo, tracker, torrent_url
+from tests.context import torrent_url
+from opalescence.btlib import metainfo, tracker
 from tests.utils import async_run, create_async_mock
 
 
@@ -41,9 +42,10 @@ class TestTracker(TestCase):
         """
         Tests we can create tracker object from a torrent
         """
-        tt = tracker.Tracker(self.torrent)
+        tt = tracker.Tracker(info_hash=self.torrent.info_hash, announce_urls=self.torrent.announce_urls)
         self.assertIsInstance(tt, tracker.Tracker)
-        self.assertEqual(tt.torrent, self.torrent)
+        self.assertEqual(tt.info_hash, self.torrent.info_hash)
+        self.assertEqual(tt.announce_urls, self.torrent.announce_urls)
         self.assertEqual(len(tt.peer_id), 20)
 
     def test__make_params(self):
@@ -57,7 +59,7 @@ class TestTracker(TestCase):
                            "left": 0,
                            "compact": 1,
                            "event": "started"}
-        tt = tracker.Tracker(self.torrent)
+        tt = tracker.Tracker(info_hash=self.torrent.info_hash, announce_urls=self.torrent.announce_urls)
         expected_params["peer_id"] = tt.peer_id
         self.assertDictEqual(tt._make_params(), expected_params)
 
@@ -65,7 +67,7 @@ class TestTracker(TestCase):
         """
         tests that we properly construct the url for the announce call
         """
-        tt = tracker.Tracker(self.torrent)
+        tt = tracker.Tracker(info_hash=self.torrent.info_hash, announce_urls=self.torrent.announce_urls)
         expected_url = "http://torrent.ubuntu.com:6969/announce?" + urlencode(tt._make_params())
         self.assertEqual(tt._make_url(), expected_url)
 
@@ -73,7 +75,7 @@ class TestTracker(TestCase):
         """
         Tests the announce method of a tracker
         """
-        t = tracker.Tracker(self.torrent)
+        t = tracker.Tracker(info_hash=self.torrent.info_hash, announce_urls=self.torrent.announce_urls)
         resp = async_run(t.announce())
         self.assertIsInstance(resp, tracker.Response)
         self.assertFalse(resp.failed)
@@ -83,7 +85,7 @@ class TestTracker(TestCase):
         """
         Tests the cancel announce call to the tracker
         """
-        t = tracker.Tracker(self.torrent)
+        t = tracker.Tracker(info_hash=self.torrent.info_hash, announce_urls=self.torrent.announce_urls)
         t.announce = create_async_mock()
         async_run(t.cancel())
         self.assertEqual(t.event, "stopped")
@@ -94,7 +96,7 @@ class TestTracker(TestCase):
         """
         Tests the completed announce call to the tracker
         """
-        t = tracker.Tracker(self.torrent)
+        t = tracker.Tracker(info_hash=self.torrent.info_hash, announce_urls=self.torrent.announce_urls)
         t.announce = create_async_mock()
         async_run(t.completed())
         self.assertEqual(t.event, "completed")
@@ -105,13 +107,13 @@ class TestTracker(TestCase):
         """
         Tests that announce fails with an invalid request
         """
-        track = tracker.Tracker(self.torrent)
+        track = tracker.Tracker(info_hash=self.torrent.info_hash, announce_urls=self.torrent.announce_urls)
         track._make_url = mock.MagicMock(return_value="malformed url")
         with self.subTest(msg="Malformed URL"):
             self.assertRaises(ValueError, async_run, track.announce())
         async_run(track.http_client.close())
 
-        track = tracker.Tracker(self.torrent)
+        track = tracker.Tracker(info_hash=self.torrent.info_hash, announce_urls=self.torrent.announce_urls)
         with mock.patch("aiohttp.ClientSession.get",
                         new_callable=create_async_mock(data=b"", status=404)) as mocked_get:
             with self.subTest(msg="Non 200 HTTP response"):
@@ -124,7 +126,7 @@ class TestTracker(TestCase):
         """
         Tests that a TrackerError is thrown when we send the tracker invalid parameters
         """
-        track = tracker.Tracker(self.torrent)
+        track = tracker.Tracker(info_hash=self.torrent.info_hash, announce_urls=self.torrent.announce_urls)
         track._make_params = mock.MagicMock(return_value={})
         with self.subTest(msg="Empty params"):
             self.assertRaises(tracker.TrackerError, async_run, track.announce())
@@ -137,7 +139,7 @@ class TestTracker(TestCase):
         """
         data = b"Not bencoded."
         code = 200
-        track = tracker.Tracker(self.torrent)
+        track = tracker.Tracker(info_hash=self.torrent.info_hash, announce_urls=self.torrent.announce_urls)
         with mock.patch("aiohttp.ClientSession.get",
                         new_callable=create_async_mock(data=data, status=code)) as mocked_get:
             with self.subTest(msg="Valid 200 HTTP response, invalid data."):
@@ -153,7 +155,7 @@ class TestTracker(TestCase):
         """
         data = b"d14:failure reason14:mock mock mocke"
         status = 200
-        track = tracker.Tracker(self.torrent)
+        track = tracker.Tracker(info_hash=self.torrent.info_hash, announce_urls=self.torrent.announce_urls)
         with self.subTest(msg="Failure reason key"):
             with mock.patch("aiohttp.ClientSession.get",
                             new_callable=create_async_mock(data=data, status=status)) as mocked_get:

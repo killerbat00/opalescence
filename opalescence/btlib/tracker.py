@@ -46,7 +46,7 @@ class Tracker:
     # TODO: implement scrape convention support.
     DEFAULT_INTERVAL: int = 60  # 1 minute
 
-    def __init__(self, *, info_hash: bytes, announce_urls: List(str)):
+    def __init__(self, *, info_hash: bytes, announce_urls: List[str]):
         self.info_hash: bytes = info_hash
         self.announce_urls: List[str] = announce_urls
         self.http_client: aiohttp.ClientSession = aiohttp.ClientSession(loop=asyncio.get_event_loop())
@@ -81,7 +81,7 @@ class Tracker:
 
             tracker_resp = Response(decoded_data)
             if tracker_resp.failed:
-                logger.error(f"{url}: Failed announce call to tracker.")
+                logger.error(f"{url}: Failed. {tracker_resp.failure_reason}")
                 raise TrackerError
 
             if self.event:

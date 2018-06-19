@@ -15,7 +15,7 @@ import unittest
 import opalescence
 from .. import __version__
 from ..btlib.client import ClientTorrent
-from ..btlib.metainfo import MetaInfoFile
+from opalescence.btlib.metainfo import MetaInfoFile
 
 _LoggingConfig = {
     "version": 1,
@@ -137,12 +137,13 @@ def download(file_path) -> None:
         loop.run_until_complete(start_task)
     except asyncio.CancelledError:
         logger.debug(
-            "asyncio.CancelledError propagated all the way to the main entrypoint. This may or may not be an issue.")
+            "asyncio.CancelledError propagated all the way to the main entrypoint. This may or may not be an issue, but"
+            "it probably is.")
     except KeyboardInterrupt:
-        pass
+        logger.debug("Keyboard interrupt received.")
     except Exception as ex:
         logger.error(f"Unknown exception received: {type(ex).__name__}")
         logger.debug(ex, exc_info=True)
-
-    loop.close()
-    logger.info(f"Shutting down. Thank you for using opalescense v{__version__}.")
+    finally:
+        loop.close()
+        logger.info(f"Shutting down. Thank you for using opalescense v{__version__}.")
