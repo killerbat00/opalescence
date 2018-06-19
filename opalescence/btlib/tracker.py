@@ -9,13 +9,12 @@ import logging
 import socket
 import struct
 from random import randint
-from typing import Optional
+from typing import Optional, List
 from urllib.parse import urlencode
 
 import aiohttp
 
 from opalescence.btlib import bencode
-from .metainfo import MetaInfoFile
 
 logger = logging.getLogger(__name__)
 
@@ -47,14 +46,12 @@ class Tracker:
     # TODO: implement scrape convention support.
     DEFAULT_INTERVAL: int = 60  # 1 minute
 
-    def __init__(self, torrent: MetaInfoFile):
-        self.torrent: MetaInfoFile = torrent
+    def __init__(self, *, info_hash: bytes, announce_urls: List(str)):
+        self.info_hash: bytes = info_hash
+        self.announce_urls: List[str] = announce_urls
         self.http_client: aiohttp.ClientSession = aiohttp.ClientSession(loop=asyncio.get_event_loop())
         self.peer_id: bytes = _generate_peer_id()
         self.port: int = 6881
-        self.uploaded: int = 0
-        self.downloaded: int = 0
-        self.left: int = 0
         self.event: str = "started"
 
     async def announce(self) -> "Response":
@@ -75,22 +72,22 @@ class Tracker:
                 raise TrackerError
             data: bytes = await r.read()
 
-        try:
-            decoded_data = bencode.Decoder(data).decode()
-        except bencode.DecodeError as e:
-            logger.error(f"{url}: Unable to decode tracker response.")
-            logger.info(e, exc_info=True)
-            raise TrackerError from e
+            try:
+                decoded_data = bencode.Decoder(data).decode()
+            except bencode.DecodeError as e:
+                logger.error(f"{url}: Unable to decode tracker response.")
+                logger.info(e, exc_info=True)
+                raise TrackerError from e
 
-        tracker_resp = Response(decoded_data)
-        if tracker_resp.failed:
-            logger.error(f"{url}: Failed announce call to tracker.")
-            raise TrackerError
+            tracker_resp = Response(decoded_data)
+            if tracker_resp.failed:
+                logger.error(f"{url}: Failed announce call to tracker.")
+                raise TrackerError
 
-        if self.event:
-            self.event = ""
+            if self.event:
+                self.event = ""
 
-        return tracker_resp
+            return tracker_resp
 
     async def cancel(self) -> None:
         """
@@ -120,8 +117,7 @@ class Tracker:
         :return: tracker's announce url with urlencoded parameters
         """
         # TODO: implement proper announce-list handling
-        return self.torrent.meta_info[b"announce"].decode("UTF-8") + \
-               "?" + urlencode(self._make_params())
+        return f"{self.announce_urls[0]}?{urlencode(self._make_params())}"
 
     def _make_params(self) -> dict:
         """
@@ -129,12 +125,12 @@ class Tracker:
 
         :return: dictionary of properly encoded parameters
         """
-        params = {"info_hash": self.torrent.info_hash,
+        params = {"info_hash": self.info_hash,
                   "peer_id": self.peer_id,
                   "port": self.port,  # TODO: We tell the tracker this, but don't actually listen on this port.
-                  "uploaded": self.uploaded,
-                  "downloaded": self.downloaded,
-                  "left": self.left,
+                  "uploaded": 0,
+                  "downloaded": 0,
+                  "left": 0,
                   "compact": 1}
         if self.event:
             params["event"] = self.event

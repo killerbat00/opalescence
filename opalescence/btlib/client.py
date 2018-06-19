@@ -9,11 +9,11 @@ import logging
 from asyncio import Queue
 from typing import List
 
-from .metainfo import MetaInfoFile
+from opalescence.btlib.metainfo import MetaInfoFile
 from .protocol.messages import Block
 from .protocol.peer import Peer
-from .protocol.piece_handler import Requester, Writer
-from .tracker import Tracker
+from .protocol.piece_handler import Requester, FileWriter
+from opalescence.btlib.tracker import Tracker
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +33,9 @@ class ClientTorrent:
     """
 
     def __init__(self, torrent: MetaInfoFile):
-        self.tracker = Tracker(torrent)
+        self.tracker = Tracker(info_hash=torrent.info_hash, announce_urls=torrent.announce_urls)
         self.available_peers = Queue()
-        self.writer = Writer(torrent)
+        self.writer = FileWriter(torrent)
         self.current_peers: List[Peer] = []
         self.requester = Requester(torrent)
         self.loop = asyncio.get_event_loop()
@@ -66,7 +66,7 @@ class ClientTorrent:
         TODO: needs work
         """
         self.current_peers = [Peer(self.available_peers,
-                                   self.tracker.torrent.info_hash,
+                                   self.tracker.info_hash,
                                    self.tracker.peer_id,
                                    self.requester,
                                    self._on_block_retrieved)

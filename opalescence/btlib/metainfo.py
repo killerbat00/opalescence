@@ -9,9 +9,9 @@ import hashlib
 import logging
 import os
 from collections import OrderedDict
-from typing import NamedTuple, Union, List, Generator, Optional
+from typing import NamedTuple, List, Optional
 
-from .bencode import Decoder, Encoder, DecodeError, EncodeError
+from opalescence.btlib.bencode import Decoder, Encoder, DecodeError, EncodeError
 
 logger = logging.getLogger(__name__)
 
@@ -252,21 +252,21 @@ class MetaInfoFile:
         return b"files" in self.meta_info[b"info"]
 
     @property
-    def announce_urls(self) -> Union[List[List[str]], List[str]]:
+    def announce_urls(self) -> List[str]:
         """
         The announce URL of the tracker.
         According to BEP 0012 (http://bittorrent.org/beps/bep_0012.html),
         if announce-list is present, it is used instead of announce.
         :return: a list of announce URLs for the tracker
         """
-        urls: Union[List[List[str]], List[str]] = []
+        urls: List[str] = []
         if b"announce-list" in self.meta_info:
             # announce list is a list of lists of strings
             for url_list in self.meta_info[b"announce-list"]:
                 inner_list: List[str] = []
                 for url in url_list:
                     inner_list.append(url.decode("UTF-8"))
-                urls.append(inner_list)
+                urls += inner_list
         else:
             urls.append(self.meta_info[b"announce"].decode("UTF-8"))
         return urls

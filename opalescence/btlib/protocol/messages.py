@@ -404,8 +404,8 @@ class MessageReader:
     CHUNK_SIZE = 10 * 1024
 
     def __init__(self, reader: asyncio.StreamReader, data: bytes):
-        self.data_buffer = data
-        self.reader = reader
+        self._data = data
+        self._reader = reader
 
     async def _fetch(self) -> bytes:
         """
@@ -415,9 +415,9 @@ class MessageReader:
         :raises StopAsyncIteration:
         :return: data from the StreamReader
         """
-        data = await self.reader.read(self.CHUNK_SIZE)
+        data = await self._reader.read(self.CHUNK_SIZE)
         if not data:
-            raise StopAsyncIteration()
+            raise StopAsyncIteration
         return data
 
     async def _consume(self, num: int) -> bytes:
@@ -427,11 +427,11 @@ class MessageReader:
         :param num: number of bytes to consume
         :return: bytes consumed from the buffer
         """
-        while len(self.data_buffer) < num:
-            self.data_buffer += await self._fetch()
+        while len(self._data) < num:
+            self._data += await self._fetch()
 
-        consumed = self.data_buffer[:num]
-        self.data_buffer = self.data_buffer[num:]
+        consumed = self._data[:num]
+        self._data = self._data[num:]
         return consumed
 
     async def __aiter__(self):
@@ -481,4 +481,4 @@ class MessageReader:
             cancel = await self._consume(msg_len)
             return Cancel.decode(cancel)
         else:
-            raise StopAsyncIteration()
+            raise StopAsyncIteration
