@@ -61,6 +61,7 @@ def main():
         _LoggingConfig["root"]["level"] = args.loglevel
         logging.config.dictConfig(_LoggingConfig)
         logger = logging.getLogger("opalescence")
+        logging.getLogger('asyncio').setLevel(logging.DEBUG)
         args.func(args)
     except AttributeError:
         argparser.print_help()
@@ -126,9 +127,7 @@ def download(file_path) -> None:
 
     def signal_handler(*_):
         logger.debug("SIGINT received.")
-        start_task.cancel()
-        asyncio.ensure_future(torrent.cancel())
-        loop.stop()
+        start_task.cancel() #raises the CancelledError below
 
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -136,9 +135,7 @@ def download(file_path) -> None:
         # Main entrypoint
         loop.run_until_complete(start_task)
     except asyncio.CancelledError:
-        logger.debug(
-            "asyncio.CancelledError propagated all the way to the main entrypoint. This may or may not be an issue, but"
-            "it probably is.")
+        loop.run_until_complete(torrent.cancel())
     except KeyboardInterrupt:
         logger.debug("Keyboard interrupt received.")
     except Exception as ex:
@@ -147,3 +144,4 @@ def download(file_path) -> None:
     finally:
         loop.close()
         logger.info(f"Shutting down. Thank you for using opalescense v{__version__}.")
+        loop.stop()

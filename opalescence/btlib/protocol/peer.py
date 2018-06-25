@@ -8,6 +8,7 @@ The coordination with peers is handled in ../client.py
 No data is currently sent to the remote peer
 """
 import logging
+import socket
 
 from .messages import *
 
@@ -26,9 +27,11 @@ class Peer:
     """
 
     # TODO: Add support for sending pieces to the peer
-    def __init__(self, queue, info_hash, peer_id, requester, on_block_cb=None):#ip, port, torrent, peer_id, requester):
-        self.my_state = []
-        self.peer_state = []
+    def __init__(self, queue, info_hash, peer_id, requester, *,
+                 on_conn_made_cb = None, on_conn_close_cb = None,
+                 on_block_cb=None):
+        self.my_state = set()
+        self.peer_state = set()
         self.queue = queue
         self.info_hash = info_hash
         self.peer_id = peer_id
@@ -39,53 +42,62 @@ class Peer:
         self.port = None
         self.requester = requester
         self._on_block_cb = on_block_cb
+        self.on_conn_close_cb = on_conn_close_cb
+        self.on_conn_made_cb = on_conn_made_cb
         self.future = asyncio.ensure_future(self.start())
+        self.started = True
 
     def __str__(self):
         return f"{self.ip}:{self.port}"
 
-    def cancel(self):
+    def __hash__(self):
+        return hash(str(self))
+
+    def __eq__(self, other):
+        return self.peer_id == other.peer_id and self.port == other.port and self.ip == other.ip and self.info_hash == other.info_hash
+
+    def cancel(self, fire_cb):
         """
         Cancels this peer's execution
         :return:
         """
         logger.debug(f"{self}: Cancelling and closing connections.")
         self.requester.remove_peer(self.peer_id)
-        if not self.future.done():
-            self.future.cancel()
+        self.started = False
         if self.writer:
             self.writer.close()
+        if self.on_conn_close_cb and fire_cb:
+            self.on_conn_close_cb(self)
 
-    def stop(self):
-        self.my_state.append('stopped')
-        if not self.future.done():
-            self.future.cancel()
+    def restart(self):
+        if not self.started:
+            self.future = asyncio.ensure_future(self.start())
 
     async def start(self):
         """
         Starts communication with the protocol and begins downloading a torrent.
         """
-        # TODO: scan valid bittorrent ports (6881-6999)
         try:
             self.ip, self.port = await self.queue.get()
 
             logger.debug(f"{self}: Opening connection.")
             self.reader, self.writer = await asyncio.open_connection(
-                host=self.ip, port=self.port)
+                host=self.ip, port=self.port)#, local_addr=('localhost', self.local_port))
 
-            data = await self._handshake()
-            self.my_state.append("choked")
+            if not await self._handshake():
+                self.cancel(True)
+                return
+
+            self.on_conn_made_cb(self)
+
+            self.my_state.add("choked")
             await self._interested()
 
-            # Remove the messagereader here. Although it uses async for,
-            # it waits for a message before executing the body. This means
-            # that we can't currently blast the peer with requests
-            # and instead only send a request when we get a message back
-            # from the peer. One option would be asking the requester for a
-            # number of requests for this peer.
+            asyncio.ensure_future(self.send_msgs())
+
             #TODO: Decouple message reading and sending. We should continue to send keepalive messages
             #TODO: for a reasonable amount of time until we're sure the peer can't send us anything.
-            mr = MessageReader(self.reader, data)
+            mr = MessageReader(self.reader)
             async for msg in mr:
                 if "stopped" in self.my_state:
                     break
@@ -94,14 +106,15 @@ class Peer:
                     pass
                 elif isinstance(msg, Choke):
                     logger.debug(f"{self}: Sent {msg}")
-                    self.my_state.append("choking")
+                    self.my_state.add("choked")
                 elif isinstance(msg, Unchoke):
                     logger.debug(f"{self}: Sent {msg}")
-                    if "choking" in self.my_state:
-                        self.my_state.remove("choking")
+                    if "choked" in self.my_state:
+                        self.my_state.remove("choked")
                 elif isinstance(msg, Interested):
+                    # we don't do anything with this right now
                     logger.debug(f"{self}: Sent {msg}")
-                    self.peer_state.append("interested")
+                    self.peer_state.add("interested")
                 elif isinstance(msg, NotInterested):
                     logger.debug(f"{self}: Sent {msg}")
                     if "interested" in self.peer_state:
@@ -122,34 +135,41 @@ class Peer:
                 else:
                     raise PeerError("Unsupported message type.")
 
-                if "interested" in self.my_state:
-                    if "choking" in self.peer_state:
-                        await self._interested()
-                    else:
-                        message = self.requester.next_request(self.remote_id)
-                        if not message:
-                            logger.debug(
-                                f"{self}: No requests available. Waiting on last pieces to trickle in."
-                                f"Schedule connection close in 10s.")
-                            if self.requester.pending_requests:
-                                message = self.requester.pending_requests[0]
-                            else:
-                                # We're done?
-                                message = KeepAlive()
-
-                        logger.debug(f"{self.peer_id}: {message}")
-                        self.writer.write(message.encode())
-                        await self.writer.drain()
-
         except asyncio.CancelledError as ce:
-            self.cancel()
+            self.cancel(False)
             raise asyncio.CancelledError from ce
         except Exception as oe:
             logger.debug(f"{self}: Exception with connection.\n{oe}")
-            self.cancel()
+            self.cancel(True)
             raise PeerError from oe
 
-    async def _handshake(self) -> bytes:
+    async def send_msgs(self):
+        while self.started:
+            try:
+                if "interested" in self.my_state and not "choked" in self.my_state:
+                    message = self.requester.next_request(self.remote_id)
+                    if message:
+                        logger.debug(f"{self.peer_id}: {message}")
+                        self.writer.write(message.encode())
+                        await self.writer.drain()
+                    #if not message:
+                    #    logger.debug(
+                    #        f"{self}: No requests available. Waiting on last pieces to trickle in."
+                    #        f"Schedule connection close in 10s.")
+                    #    if self.requester.pending_requests:
+                    #        message = self.requester.pending_requests[0]
+                    #    else:
+                    #        # We're done?
+                    #        message = KeepAlive()
+            except asyncio.CancelledError as ce:
+                self.cancel(False)
+                raise asyncio.CancelledError from ce
+            except Exception as oe:
+                logger.debug(f"{self}: Exception with connection.\n{oe}")
+                self.cancel(True)
+                raise PeerError from oe
+
+    async def _handshake(self) -> bool:
         """
         Negotiates the initial handshake with the peer.
 
@@ -161,12 +181,11 @@ class Peer:
         self.writer.write(sent_handshake.encode())
         await self.writer.drain()
 
-        data = b''
-        while len(data) < Handshake.msg_len:
-            data = await self.reader.read(MessageReader.CHUNK_SIZE)
-            if not data:
-                logger.error(f"{self}: Unable to initiate handshake, no data received from peer.")
-                raise PeerError
+        try:
+            data = await self.reader.readexactly(Handshake.msg_len)
+        except asyncio.IncompleteReadError as ire:
+            logger.error(f"{self}: Unable to initiate handshake, no data received from peer.")
+            return False
 
         rcvd = Handshake.decode(data[:Handshake.msg_len])
 
@@ -175,12 +194,7 @@ class Peer:
             raise PeerError
 
         self.remote_id = rcvd.peer_id
-        #TODO: only do this check if we received dictionary model peers
-        #if self.id != self.remote_id:
-        #    logger.error(f"{self}: Incorrect peer id received.")
-        #    raise PeerError
-
-        return data[Handshake.msg_len:]
+        return True
 
     async def _interested(self):
         """
@@ -190,4 +204,4 @@ class Peer:
         logger.debug(f"{self}: Sending interested message")
         self.writer.write(Interested.encode())
         await self.writer.drain()
-        self.my_state.append("interested")
+        self.my_state.add("interested")

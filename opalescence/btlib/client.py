@@ -7,17 +7,17 @@ The client is responsible for orchestrating communication with the tracker and b
 import asyncio
 import logging
 from asyncio import Queue
-from typing import List
+from typing import List, Set
 
 from opalescence.btlib.metainfo import MetaInfoFile
 from .protocol.messages import Block
 from .protocol.peer import Peer
 from .protocol.piece_handler import Requester, FileWriter
-from opalescence.btlib.tracker import Tracker
+from opalescence.btlib.tracker import Tracker, TrackerError
 
 logger = logging.getLogger(__name__)
 
-MAX_PEER_CONNECTIONS = 1
+MAX_PEER_CONNECTIONS = 5
 
 
 class ClientError(Exception):
@@ -36,28 +36,28 @@ class ClientTorrent:
         self.tracker = Tracker(info_hash=torrent.info_hash, announce_urls=torrent.announce_urls)
         self.available_peers = Queue()
         self.writer = FileWriter(torrent)
-        self.current_peers: List[Peer] = []
+        self.current_peers: Set[Peer] = set()
+        self.connected_peers: Set[Peer] = set()
         self.requester = Requester(torrent)
         self.loop = asyncio.get_event_loop()
         self.abort = False
 
-    def stop(self):
+    async def stop(self):
         """
         Immediately stops the download or seed.
         """
-        logger.debug(f"Stopping {self.tracker.torrent.name}.")
-        self.abort = True
+        logger.debug(f"Stopping peers and closing file.")
         for peer in self.current_peers:
-            peer.stop()
+            peer.cancel(False)
         self.writer.fd.close()
 
     async def cancel(self):
         """
         Cancels this download.
         """
-        logger.debug(f"Cancelling {self.tracker.torrent.name}.")
+        logger.debug(f"Cancelling tracker")
         await self.tracker.cancel()
-        self.stop()
+        await self.stop()
 
     async def start(self):
         """
@@ -69,7 +69,9 @@ class ClientTorrent:
                                    self.tracker.info_hash,
                                    self.tracker.peer_id,
                                    self.requester,
-                                   self._on_block_retrieved)
+                                   on_conn_close_cb=self._on_conn_close,
+                                   on_conn_made_cb=self._on_conn_made,
+                                   on_block_cb=self._on_block_retrieved)
                               for _ in range(MAX_PEER_CONNECTIONS)]
 
         previous = None
@@ -84,23 +86,34 @@ class ClientTorrent:
                 break
 
             current = self.loop.time()
-            if (not previous) or (previous + interval < current):
-                response = await self.tracker.announce()
+            if (not previous) or (previous + interval < current) or \
+                    len(self.connected_peers) == 0:
+                try:
+                    response = await self.tracker.announce()
+                except TrackerError:
+                    self.abort = True
+                    continue
 
                 if response:
                     previous = current
                     if response.interval:
                         interval = response.interval
-                    self._empty_queue()
+
+                    while not self.available_peers.empty():
+                        self.available_peers.get_nowait()
+
                     for peer in response.peers:
                         self.available_peers.put_nowait(peer)
-            else:
-                await asyncio.sleep(2)
-        self.stop()
 
-    def _empty_queue(self):
-        while not self.available_peers.empty():
-            self.available_peers.get_nowait()
+            await asyncio.sleep(2)
+        await self.stop()
+
+    def _on_conn_close(self, peer: Peer) -> None:
+        self.connected_peers.remove(peer)
+        peer.restart()
+
+    def _on_conn_made(self, peer: Peer) -> None:
+        self.connected_peers.add(peer)
 
     def _on_block_retrieved(self, block: Block) -> None:
         piece = self.requester.received_block(block)

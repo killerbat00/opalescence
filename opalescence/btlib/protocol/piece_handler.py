@@ -36,6 +36,7 @@ class FileWriter:
         Writes the piece's data to the buffer
         """
         if piece in self.writing_pieces:
+            logger.debug(f"Already writing piece: {piece}")
             return
         else:
             self.writing_pieces.append(Piece)
@@ -65,10 +66,10 @@ class Requester:
         self.torrent = torrent
         self.piece_length = torrent.piece_length
         self.last_piece_length = torrent.last_piece_length
-        self.piece_peer_map: Dict(int, set) = {i: set() for i in range(len(self.torrent.pieces))}
-        self.downloaded_pieces: Dict(int, Piece) = {}
-        self.downloading_pieces: Dict(int, Union(Piece, None)) = {i: None for i in range(len(self.torrent.pieces))}
-        self.pending_requests: List(Request) = []
+        self.piece_peer_map: Dict[int, set] = {i: set() for i in range(len(self.torrent.pieces))}
+        self.downloaded_pieces: Dict[int, Piece] = {}
+        self.downloading_pieces: Dict[int, Optional[Piece]] = {i: None for i in range(len(self.torrent.pieces))}
+        self.pending_requests: List[Request] = []
 
     @property
     def complete(self):
@@ -105,7 +106,7 @@ class Requester:
         for _, peer_set in self.piece_peer_map.items():
             peer_set.discard(peer_id)
 
-    def received_block(self, block: Block) -> Union[None, Piece]:
+    def received_block(self, block: Block) -> Optional[Piece]:
         """
         Called when we've received a block from the remote peer.
         First, see if there are other blocks from that piece already downloaded.
@@ -208,6 +209,9 @@ class Requester:
         """
 
         # Find the next piece index for which the peer has an available piece
+        if len(self.pending_requests) >= 50:
+            return
+
         piece_index = self._next_piece_index_for_peer(peer_id)
         if piece_index is None:
             return

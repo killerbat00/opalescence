@@ -5,6 +5,7 @@ import io
 import logging
 import math
 import struct
+from typing import Optional, List
 
 import bitstring as bitstring
 
@@ -290,17 +291,17 @@ class Piece:
     """
 
     def __init__(self, index, length):
-        self.index = index
-        self.data = io.BytesIO()
-        self._blocks = [0 for _ in range(int(math.ceil(length / Request.size)))]
-        self._length = length
-        self._next_block_offset = 0
+        self.index: int = index
+        self.data: io.BytesIO = io.BytesIO()
+        self.length: int = length
+        self._blocks: List[int] = [0 for _ in range(int(math.ceil(length / Request.size)))]
+        self._next_block_offset: int = 0
 
-    def __eq__(self, other):
-        return self.index == other.index and self.data == other.data and self._blocks == other._blocks and self._length == other._length
+    def __eq__(self, other: "Piece"):
+        return self.index == other.index and self.data == other.data and self._blocks == other._blocks and self.length == other.length
 
     def __str__(self):
-        return f"Piece: {self.index}:{self._length}: {self.data.getvalue()}"
+        return f"Piece: {self.index}:{self.length}: {self.data.getvalue()}"
 
     def add_block(self, block: Block):
         """
@@ -319,13 +320,13 @@ class Piece:
         self.data.flush()
 
     @property
-    def complete(self):
+    def complete(self) -> bool:
         """
         :return: True if all blocks have been downloaded
         """
         return all(self._blocks)
 
-    def next_block(self):
+    def next_block(self) -> Optional[int]:
         """
         :return: The offset of the next block, or None if there are no blocks left.
                  The offset returned may be one after that for which we have
@@ -334,10 +335,10 @@ class Piece:
                  Essentially, keeping state for the piece requester
                  in this Piece object, which isn't great.
         """
-        if self._next_block_offset >= self._length:
+        if self._next_block_offset >= self.length:
             return None
 
-        if self._length < Request.size:
+        if self.length < Request.size:
             return 0
 
         cur_offset = self._next_block_offset
@@ -403,9 +404,10 @@ class MessageReader:
     """
     CHUNK_SIZE = 10 * 1024
 
-    def __init__(self, reader: asyncio.StreamReader, data: bytes):
-        self._data = data
+    def __init__(self, reader: asyncio.StreamReader):
+        self._data = bytearray()
         self._reader = reader
+        self._done = False
 
     async def _fetch(self) -> bytes:
         """
@@ -425,16 +427,20 @@ class MessageReader:
         Consumes and returns the specified number of bytes from the buffer.
 
         :param num: number of bytes to consume
+        :raises StopAsyncIteration:
         :return: bytes consumed from the buffer
         """
         while len(self._data) < num:
-            self._data += await self._fetch()
+            data = await self._reader.read(self.CHUNK_SIZE)
+            if data:
+                self._data += data
+            else:
+                raise StopAsyncIteration
 
-        consumed = self._data[:num]
         self._data = self._data[num:]
-        return consumed
+        return self._data[:num]
 
-    async def __aiter__(self):
+    def __aiter__(self):
         return self
 
     async def __anext__(self) -> Message:
