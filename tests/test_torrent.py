@@ -10,10 +10,11 @@ from filecmp import cmp
 from shutil import copyfile
 from unittest import TestCase
 
+from btproto import bencode
 from requests import get
 
+from opalescence.btlib import metainfo
 from tests.context import torrent_url
-from opalescence.btlib import bencode, metainfo
 
 
 class TestTorrent(TestCase):

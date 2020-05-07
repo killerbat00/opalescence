@@ -7,11 +7,12 @@ import os
 from unittest import TestCase
 from unittest import skip
 
+from btproto import tracker
 from requests import get
 
 import opalescence.btlib.protocol.peer
+from opalescence.btlib import metainfo
 from tests.context import torrent_url
-from opalescence.btlib import metainfo, tracker
 from tests.utils import async_run
 
 

@@ -7,9 +7,6 @@ The coordination with peers is handled in ../client.py
 
 No data is currently sent to the remote peer
 """
-import logging
-import socket
-
 from .messages import *
 
 logger = logging.getLogger(__name__)
@@ -152,6 +149,7 @@ class Peer:
                         logger.debug(f"{self.peer_id}: {message}")
                         self.writer.write(message.encode())
                         await self.writer.drain()
+                        await asyncio.sleep(.01)
                     #if not message:
                     #    logger.debug(
                     #        f"{self}: No requests available. Waiting on last pieces to trickle in."

@@ -13,9 +13,9 @@ import signal
 import unittest
 
 import opalescence
+from opalescence.btlib.metainfo import MetaInfoFile
 from .. import __version__
 from ..btlib.client import ClientTorrent
-from opalescence.btlib.metainfo import MetaInfoFile
 
 _LoggingConfig = {
     "version": 1,
@@ -46,21 +46,17 @@ _LoggingConfig = {
     }
 }
 
-logger = None
-
 
 def main():
     """
     CLI entry point
     """
-    global logger
     argparser = create_argparser()
 
     try:
         args = argparser.parse_args()
         _LoggingConfig["root"]["level"] = args.loglevel
         logging.config.dictConfig(_LoggingConfig)
-        logger = logging.getLogger("opalescence")
         logging.getLogger('asyncio').setLevel(logging.DEBUG)
         args.func(args)
     except AttributeError:
@@ -103,9 +99,10 @@ def test(_) -> None:
     Runs the test suite found in the tests/ directory
     :param _: unused
     """
+    logger = logging.getLogger("opalescence")
     logger.info(f"Running the test suite on the files in development.")
 
-    loader = unittest.defaultTestLoader()
+    loader = unittest.defaultTestLoader
     runner = unittest.TextTestRunner()
     suite = loader.discover(
         os.path.abspath(os.path.join(os.path.dirname(__file__), "tests")))
@@ -117,6 +114,7 @@ def download(file_path) -> None:
     Downloads a .torrent file
     :param file_path: .torrent filepath argparse.Namespace object
     """
+    logger = logging.getLogger("opalescence")
     logger.info(f"Downloading {file_path.torrent_file} to "
                 f"{file_path.destination}")
 
@@ -125,17 +123,17 @@ def download(file_path) -> None:
     torrent = ClientTorrent(MetaInfoFile.from_file(file_path.torrent_file))
     start_task = loop.create_task(torrent.start())
 
-    def signal_handler(*_):
+    def signal_handler(_, unused):
         logger.debug("SIGINT received.")
-        start_task.cancel() #raises the CancelledError below
+        start_task.cancel()  # raises the CancelledError below
 
     signal.signal(signal.SIGINT, signal_handler)
 
     try:
-        # Main entrypoint
+        # Main entry point
         loop.run_until_complete(start_task)
     except asyncio.CancelledError:
-        loop.run_until_complete(torrent.cancel())
+        loop.run_until_complete(loop.create_task(torrent.cancel()))
     except KeyboardInterrupt:
         logger.debug("Keyboard interrupt received.")
     except Exception as ex:

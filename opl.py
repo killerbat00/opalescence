@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Opalescence is a simple torrent client written using Python3.6.
+Opalescence is a simple torrent client.
 """
 from opalescence.ui import cli
 

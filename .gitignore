@@ -10,3 +10,5 @@ test_torrent_dir/*
 .idea/
 __pycache__/
 
+/venv/
+/build/

@@ -3,18 +3,13 @@
 """
 Support for communication with an external tracker.
 """
-
 import asyncio
 import logging
-import socket
-import struct
 from random import randint
-from typing import Optional, List
-from urllib.parse import urlencode
+from typing import Optional
 
 import aiohttp
-
-from opalescence.btlib import bencode
+from btproto import TrackerConnection, Response, TrackerConnectionError, EVENT_STOPPED, EVENT_COMPLETED
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +22,10 @@ def _generate_peer_id():
     return ("-OP0001-" + ''.join(str(randint(0, 9)) for _ in range(12))).encode("UTF-8")
 
 
-class TrackerError(Exception):
+class TrackerError:
     """
-    Raised when we encounter an error while communicating with the tracker.
+    Raised when there's an error with the Tracker.
     """
-    pass
 
 
 class Tracker:
@@ -42,19 +36,19 @@ class Tracker:
     Does not support the scrape convention.
     """
 
-    # TODO: implement announce-list extension support.
-    # TODO: implement scrape convention support.
     DEFAULT_INTERVAL: int = 60  # 1 minute
 
-    def __init__(self, *, info_hash: bytes, announce_urls: List[str]):
-        self.info_hash: bytes = info_hash
-        self.announce_urls: List[str] = announce_urls
-        self.http_client: aiohttp.ClientSession = aiohttp.ClientSession(loop=asyncio.get_event_loop())
+    def __init__(self, *, info_hash: bytes, announce_url: str, left: int = 0):
         self.peer_id: bytes = _generate_peer_id()
-        self.port: int = 6881
-        self.event: str = "started"
+        self.info_hash: bytes = info_hash
+        self.announce_url: str = announce_url
+        self.connection = TrackerConnection(info_hash=info_hash, announce_url=announce_url, peer_id=self.peer_id)
+        self.http_client: aiohttp.ClientSession = aiohttp.ClientSession(loop=asyncio.get_event_loop())
+        self.uploaded = 0
+        self.downloaded = 0
+        self.left = left
 
-    async def announce(self) -> "Response":
+    async def announce(self, *, event: Optional[str] = None) -> Response:
         """
         Makes an announce request to the tracker.
 
@@ -63,8 +57,9 @@ class Tracker:
                               are unable to bdecode the tracker's response.
         :returns: Response object representing the tracker's response
         """
-        url: str = self._make_url()
-        logger.debug(f"Making {self.event} announce to: {url}")
+        self.connection.update_stats(self.uploaded, self.downloaded, self.left)
+        url: str = self.connection.announce(event=event)
+        logger.debug(f"Making {event} announce to: {url}")
 
         async with self.http_client.get(url) as r:
             if not r.status == 200:
@@ -73,147 +68,23 @@ class Tracker:
             data: bytes = await r.read()
 
             try:
-                decoded_data = bencode.Decoder(data).decode()
-            except bencode.DecodeError as e:
-                logger.error(f"{url}: Unable to decode tracker response.")
-                logger.info(e, exc_info=True)
-                raise TrackerError from e
-
-            tracker_resp = Response(decoded_data)
-            if tracker_resp.failed:
-                logger.error(f"{url}: Failed. {tracker_resp.failure_reason}")
-                raise TrackerError
-
-            if self.event:
-                self.event = ""
-
-            return tracker_resp
+                decoded_data: Response = self.connection.receive(data)
+                return decoded_data
+            except TrackerConnectionError as tce:
+                raise TrackerError from tce
 
     async def cancel(self) -> None:
         """
         Informs the tracker we are gracefully shutting down.
         :raises TrackerError:
         """
-        self.event = "stopped"
-        await self.announce()
+        await self.announce(event=EVENT_STOPPED)
         await self.http_client.close()
 
-    async def completed(self, already_complete: bool = False) -> None:
+    async def completed(self) -> None:
         """
         Informs the tracker we have completed downloading this torrent
-        :param already_complete: True if already completed (won't send complete event to tracker)
         :raises TrackerError:
         """
-        if not already_complete:
-            self.event = "completed"
-        await self.announce()
-
-    def _make_url(self) -> str:
-        """
-        Builds and escapes the url used to communicate with the tracker.
-        Currently only uses the announce key
-
-        :raises TrackerError:
-        :return: tracker's announce url with urlencoded parameters
-        """
-        # TODO: implement proper announce-list handling
-        return f"{self.announce_urls[0]}?{urlencode(self._make_params())}"
-
-    def _make_params(self) -> dict:
-        """
-        Builds the parameters the tracker expects for announce requests.
-
-        :return: dictionary of properly encoded parameters
-        """
-        params = {"info_hash": self.info_hash,
-                  "peer_id": self.peer_id,
-                  "port": self.port,  # TODO: We tell the tracker this, but don't actually listen on this port.
-                  "uploaded": 0,
-                  "downloaded": 0,
-                  "left": 0,
-                  "compact": 1}
-        if self.event:
-            params["event"] = self.event
-        return params
-
-
-class Response:
-    """
-    Response received from the tracker after an announce request
-    """
-
-    def __init__(self, data: dict):
-        self.data = data
-        self.failed = b"failure reason" in self.data
-
-    @property
-    def failure_reason(self) -> Optional[str]:
-        """
-        :return: the failure reason
-        """
-        if self.failed:
-            return self.data[b"failure reason"].decode("UTF-8")
-
-    @property
-    def interval(self) -> int:
-        """
-        :return: the tracker's specified interval between announce requests
-        """
-        return self.data.get(b"interval", 0)
-
-    @property
-    def min_interval(self) -> int:
-        """
-        :return: the minimum interval
-        """
-        return self.data.get(b"min interval", 0)
-
-    @property
-    def tracker_id(self) -> Optional[str]:
-        """
-        :return: the tracker id
-        """
-        tracker_id = self.data.get(b"tracker id")
-        if tracker_id:
-            return tracker_id.decode("UTF-8")
-
-    @property
-    def complete(self) -> int:
-        """
-        :return: seeders, the number of peers with the entire file
-        """
-        return self.data.get(b"complete", 0)
-
-    @property
-    def incomplete(self) -> int:
-        """
-        :return: leechers, the number of peers that are not seeders
-        """
-        return self.data.get(b"incomplete", 0)
-
-    @property
-    def peers(self) -> Optional[list]:
-        """
-        :raises TrackerError:
-        :return: the list of peers. The response can be given as a
-        list of dictionaries about the peers, or a string
-        encoding the ip address and ports for the peers
-        """
-        peers = self.data.get(b"peers")
-
-        if not peers:
-            return
-
-        if isinstance(peers, bytes):
-            logger.debug("Decoding binary model peers.")
-            split_peers = [peers[i:i + 6] for i in range(0, len(peers), 6)]
-            p = [(socket.inet_ntoa(p[:4]), struct.unpack(">H", p[4:])[0]) for
-                 p in split_peers]
-            return p
-        elif isinstance(peers, list):
-            logger.debug("Decoding dictionary model peers.")
-            p = [(p[b"ip"].decode("UTF-8"), p[b"port"]) for p in peers]
-            return p
-        else:
-            logger.error(f"Unable to decode peers {peers}")
-            raise TrackerError
+        await self.announce(event=EVENT_COMPLETED)
+        await self.http_client.close()

@@ -10,10 +10,11 @@ import struct
 from unittest import TestCase, mock
 from urllib.parse import urlencode
 
+from btproto import tracker
 from requests import get
 
+from opalescence.btlib import metainfo
 from tests.context import torrent_url
-from opalescence.btlib import metainfo, tracker
 from tests.utils import async_run, create_async_mock
 
 
@@ -117,7 +118,7 @@ class TestTracker(TestCase):
         with mock.patch("aiohttp.ClientSession.get",
                         new_callable=create_async_mock(data=b"", status=404)) as mocked_get:
             with self.subTest(msg="Non 200 HTTP response"):
-                self.assertRaises(tracker.TrackerError, async_run, track.announce())
+                self.assertRaises(tracker.TrackerConnectionError, async_run, track.announce())
                 mocked_get.assert_called_once()
                 mocked_get.assert_called_once_with(track._make_url())
         async_run(track.http_client.close())
@@ -129,7 +130,7 @@ class TestTracker(TestCase):
         track = tracker.Tracker(info_hash=self.torrent.info_hash, announce_urls=self.torrent.announce_urls)
         track._make_params = mock.MagicMock(return_value={})
         with self.subTest(msg="Empty params"):
-            self.assertRaises(tracker.TrackerError, async_run, track.announce())
+            self.assertRaises(tracker.TrackerConnectionError, async_run, track.announce())
         async_run(track.http_client.close())
 
     def test_valid_request_bad_data(self):
@@ -143,7 +144,7 @@ class TestTracker(TestCase):
         with mock.patch("aiohttp.ClientSession.get",
                         new_callable=create_async_mock(data=data, status=code)) as mocked_get:
             with self.subTest(msg="Valid 200 HTTP response, invalid data."):
-                self.assertRaises(tracker.TrackerError, async_run, track.announce())
+                self.assertRaises(tracker.TrackerConnectionError, async_run, track.announce())
                 mocked_get.assert_called_once()
                 mocked_get.assert_called_once_with(track._make_url())
         async_run(track.http_client.close())
@@ -159,7 +160,7 @@ class TestTracker(TestCase):
         with self.subTest(msg="Failure reason key"):
             with mock.patch("aiohttp.ClientSession.get",
                             new_callable=create_async_mock(data=data, status=status)) as mocked_get:
-                with self.assertRaises(tracker.TrackerError):
+                with self.assertRaises(tracker.TrackerConnectionError):
                     async_run(track.announce())
                 mocked_get.assert_called_once()
                 mocked_get.assert_called_with(track._make_url())

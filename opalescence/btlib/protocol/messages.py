@@ -35,6 +35,7 @@ class Handshake(Message):
     Handles the handshake message with the protocol
     """
     msg_len = 68
+    fmt = ">B19s8x20s20s"
 
     def __init__(self, info_hash: bytes, peer_id: bytes):
         self.info_hash = info_hash
@@ -50,7 +51,7 @@ class Handshake(Message):
         """
         :return: handshake data to send to protocol
         """
-        return struct.pack(">B19s8x20s20s", 19, b'BitTorrent protocol',
+        return struct.pack(self.fmt, 19, b'BitTorrent protocol',
                            self.info_hash, self.peer_id)
 
     @classmethod
@@ -58,7 +59,7 @@ class Handshake(Message):
         """
         :return: Handshake instance
         """
-        unpacked_data = struct.unpack(">B19s8x20s20s", handshake_data)
+        unpacked_data = struct.unpack(cls.fmt, handshake_data)
         return cls(unpacked_data[2], unpacked_data[3])
 
 
@@ -68,7 +69,6 @@ class KeepAlive(Message):
 
     <0000>
     """
-
     @staticmethod
     def encode() -> bytes:
         """
@@ -298,7 +298,10 @@ class Piece:
         self._next_block_offset: int = 0
 
     def __eq__(self, other: "Piece"):
-        return self.index == other.index and self.data == other.data and self._blocks == other._blocks and self.length == other.length
+        return self.index == other.index \
+               and self.data == other.data \
+               and self._blocks == other._blocks \
+               and self.length == other.length
 
     def __str__(self):
         return f"Piece: {self.index}:{self.length}: {self.data.getvalue()}"
@@ -408,19 +411,6 @@ class MessageReader:
         self._data = bytearray()
         self._reader = reader
         self._done = False
-
-    async def _fetch(self) -> bytes:
-        """
-        Fetches data from the StreamReader.
-        Raises exception if no data is returned.
-
-        :raises StopAsyncIteration:
-        :return: data from the StreamReader
-        """
-        data = await self._reader.read(self.CHUNK_SIZE)
-        if not data:
-            raise StopAsyncIteration
-        return data
 
     async def _consume(self, num: int) -> bytes:
         """

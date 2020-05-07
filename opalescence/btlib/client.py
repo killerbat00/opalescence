@@ -7,13 +7,13 @@ The client is responsible for orchestrating communication with the tracker and b
 import asyncio
 import logging
 from asyncio import Queue
-from typing import List, Set
+from typing import Set
 
 from opalescence.btlib.metainfo import MetaInfoFile
 from .protocol.messages import Block
 from .protocol.peer import Peer
 from .protocol.piece_handler import Requester, FileWriter
-from opalescence.btlib.tracker import Tracker, TrackerError
+from .tracker import Tracker, TrackerError
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class ClientTorrent:
     """
 
     def __init__(self, torrent: MetaInfoFile):
-        self.tracker = Tracker(info_hash=torrent.info_hash, announce_urls=torrent.announce_urls)
+        self.tracker = Tracker(info_hash=torrent.info_hash, announce_url=torrent.announce_urls[0])
         self.available_peers = Queue()
         self.writer = FileWriter(torrent)
         self.current_peers: Set[Peer] = set()

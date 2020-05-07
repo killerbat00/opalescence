@@ -11,7 +11,7 @@ import os
 from collections import OrderedDict
 from typing import NamedTuple, List, Optional
 
-from opalescence.btlib.bencode import Decoder, Encoder, DecodeError, EncodeError
+from btproto import Decoder, Encoder, DecodeError, EncodeError
 
 logger = logging.getLogger(__name__)
 
