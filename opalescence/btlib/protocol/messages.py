@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+from __future__ import annotations
+
 import asyncio
-import io
 import logging
-import math
 import struct
-from typing import Optional, List
+from typing import Optional
 
 import bitstring as bitstring
 
@@ -35,7 +36,7 @@ class Handshake(Message):
     Handles the handshake message with the protocol
     """
     msg_len = 68
-    fmt = ">B19s8x20s20s"
+    fmt = struct.Struct(">B19s8x20s20s")
 
     def __init__(self, info_hash: bytes, peer_id: bytes):
         self.info_hash = info_hash
@@ -51,15 +52,15 @@ class Handshake(Message):
         """
         :return: handshake data to send to protocol
         """
-        return struct.pack(self.fmt, 19, b'BitTorrent protocol',
-                           self.info_hash, self.peer_id)
+        return self.fmt.pack(19, b'BitTorrent protocol',
+                             self.info_hash, self.peer_id)
 
     @classmethod
-    def decode(cls, handshake_data: bytes) -> "Handshake":
+    def decode(cls, handshake_data: bytes) -> Handshake:
         """
         :return: Handshake instance
         """
-        unpacked_data = struct.unpack(cls.fmt, handshake_data)
+        unpacked_data = cls.fmt.unpack(handshake_data)
         return cls(unpacked_data[2], unpacked_data[3])
 
 
@@ -69,6 +70,7 @@ class KeepAlive(Message):
 
     <0000>
     """
+
     @staticmethod
     def encode() -> bytes:
         """
@@ -165,7 +167,7 @@ class Have(Message):
         return struct.pack(">IBI", 5, self.msg_id, self.index)
 
     @classmethod
-    def decode(cls, data: bytes) -> "Have":
+    def decode(cls, data: bytes) -> Have:
         """
         :return: an instance of the have message
         """
@@ -199,7 +201,7 @@ class Bitfield(Message):
                            Bitfield.msg_id, self.bitfield)
 
     @classmethod
-    def decode(cls, data: bytes) -> "Bitfield":
+    def decode(cls, data: bytes) -> Bitfield:
         """
         :return: an instance of the bitfield message
         """
@@ -236,7 +238,7 @@ class Request(Message):
                            self.length)
 
     @classmethod
-    def decode(cls, data: bytes) -> "Request":
+    def decode(cls, data: bytes) -> Request:
         """
         :return: a decoded request message
         """
@@ -246,8 +248,7 @@ class Request(Message):
 
 class Block(Message):
     """
-    piece message.
-    This is really used to send blocks, which are smaller than Pieces
+    block message
 
     <0009+X><7><index><begin><block>
     """
@@ -257,6 +258,8 @@ class Block(Message):
         self.index = index  # index of the actual piece
         self.begin = begin  # offset into the piece
         self.data = data
+        if len(self.data) != Request.size:
+            logger.debug(f"Piece {self} received with a weird size: {len(self.data)}.")
 
     def __eq__(self, other):
         return self.index == other.index and self.begin == other.begin and self.data == other.data
@@ -273,7 +276,7 @@ class Block(Message):
                            self.index, self.begin, self.data)
 
     @classmethod
-    def decode(cls, data: bytes) -> "Block":
+    def decode(cls, data: bytes) -> Block:
         """
         :return: a decoded piece message
         """
@@ -292,68 +295,61 @@ class Piece:
 
     def __init__(self, index, length):
         self.index: int = index
-        self.data: io.BytesIO = io.BytesIO()
         self.length: int = length
-        self._blocks: List[int] = [0 for _ in range(int(math.ceil(length / Request.size)))]
-        self._next_block_offset: int = 0
+        self.data: bytearray = bytearray(self.length)
+        self._blocks_received: bytearray = bytearray((length // Request.size) + 1)
+        self._next_block_offset: Optional[int] = 0
 
-    def __eq__(self, other: "Piece"):
+    def __eq__(self, other: Piece):
         return self.index == other.index \
                and self.data == other.data \
-               and self._blocks == other._blocks \
                and self.length == other.length
 
     def __str__(self):
-        return f"Piece: {self.index}:{self.length}: {self.data.getvalue()}"
+        return f"Piece: {self.index}:{self.length}: {self.data}"
 
     def add_block(self, block: Block):
         """
         Adds a block to this piece.
-        Blocks are assumed to be added in order so we can add data beginning at the block's offset
-        without having holes in the piece.
         :param block: The block message containing the block's info
         """
         assert (self.index == block.index)
-        if block.begin == 0:
-            self._blocks[block.begin] = 1
-        else:
-            self._blocks[block.begin // Request.size] = 1
-        self.data.seek(block.begin, 0)
-        self.data.write(block.data)
-        self.data.flush()
+        self.data = self.data[:block.begin] + block.data + self.data[block.begin + len(block.data):]
+        self._blocks_received[block.begin // Request.size] = 1
+        try:
+            nbi = self._blocks_received.index(0)
+            if nbi == 0:
+                self._next_block_offset = 0
+            else:
+                self._next_block_offset = (nbi * Request.size) + 1
+        except ValueError:
+            pass
 
     @property
     def complete(self) -> bool:
         """
         :return: True if all blocks have been downloaded
         """
-        return all(self._blocks)
+        return all(self._blocks_received)
 
     def next_block(self) -> Optional[int]:
         """
         :return: The offset of the next block, or None if there are no blocks left.
-                 The offset returned may be one after that for which we have
-                 data, this is because the Piece requester needs a way to
-                 get the next request for a piece easily.
-                 Essentially, keeping state for the piece requester
-                 in this Piece object, which isn't great.
         """
-        if self._next_block_offset >= self.length:
+        if self.complete or self._next_block_offset > self.length:
             return None
 
         if self.length < Request.size:
             return 0
 
-        cur_offset = self._next_block_offset
-        self._next_block_offset += Request.size
-        return cur_offset
+        return self._next_block_offset
 
     def reset(self):
         """
         Resets the piece leaving it in a state equivalent to immediately after initializing.
         Used when we've downloaded the piece, but it turned out to be corrupt.
         """
-        self.data = io.BytesIO()
+        self.data = bytearray()
         self._next_block_offset = 0
 
 
@@ -384,7 +380,7 @@ class Cancel(Message):
         return struct.pack(">IBIII", 13, Cancel.msg_id, self.index, self.begin, self.length)
 
     @classmethod
-    def from_request(cls, request: Request) -> "Cancel":
+    def from_request(cls, request: Request) -> Cancel:
         """
         :param request: Request message we want to cancel.
         :return: A Cancel message from a request
@@ -392,12 +388,17 @@ class Cancel(Message):
         return cls(request.index, request.begin, request.length)
 
     @classmethod
-    def decode(cls, data: bytes) -> "Cancel":
+    def decode(cls, data: bytes) -> Cancel:
         """
         :return: a decoded cancel message
         """
         cancel_data = struct.unpack(">III", data)
         return cls(cancel_data[0], cancel_data[1], cancel_data[2])
+
+
+class MessageReaderSansIO:
+    def __init__(self):
+        pass
 
 
 class MessageReader:
