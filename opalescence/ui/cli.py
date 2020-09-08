@@ -12,9 +12,8 @@ import os
 import signal
 import unittest
 
-import opalescence
+from opalescence import __version__
 from opalescence.btlib.metainfo import MetaInfoFile
-from .. import __version__
 from ..btlib.client import ClientTorrent
 
 _LoggingConfig = {
@@ -71,7 +70,7 @@ def create_argparser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--version", action="version",
-                        version=opalescence.__version__)
+                        version=__version__)
     parser.add_argument("-d", "--debug", help="Print debug-level output.",
                         action="store_const", dest="loglevel",
                         const=logging.DEBUG, default=logging.WARNING)
@@ -123,7 +122,7 @@ def download(file_path) -> None:
     torrent = ClientTorrent(MetaInfoFile.from_file(file_path.torrent_file))
     start_task = loop.create_task(torrent.start())
 
-    def signal_handler(_, unused):
+    def signal_handler(_, __):
         logger.debug("SIGINT received.")
         start_task.cancel()  # raises the CancelledError below
 
@@ -141,5 +140,5 @@ def download(file_path) -> None:
         logger.debug(ex, exc_info=True)
     finally:
         loop.close()
-        logger.info(f"Shutting down. Thank you for using opalescense v{__version__}.")
+        logger.info(f"Shutting down. Thank you for using opalescence v{__version__}.")
         loop.stop()
