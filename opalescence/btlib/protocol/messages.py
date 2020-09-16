@@ -6,11 +6,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import struct
+from asyncio import Queue, CancelledError
 from typing import Optional
 
 import bitstring as bitstring
 
 logger = logging.getLogger(__name__)
+
+
+class MessageReaderException(Exception):
+    """
+    Raised when there's an error with the MessageReader.
+    """
+
+    def __init__(self, failure_reason: Optional[str]):
+        self.failure_reason = failure_reason
 
 
 class Message:
@@ -296,9 +306,7 @@ class Piece:
     def __init__(self, index, length):
         self.index: int = index
         self.length: int = length
-        self.data: bytearray = bytearray(self.length)
-        self._blocks_received: bytearray = bytearray((length // Request.size) + 1)
-        self._next_block_offset: Optional[int] = 0
+        self.data: bytes = b''
 
     def __eq__(self, other: Piece):
         return self.index == other.index \
@@ -306,7 +314,7 @@ class Piece:
                and self.length == other.length
 
     def __str__(self):
-        return f"Piece: {self.index}:{self.length}: {self.data}"
+        return f"Piece ({self.index}:{self.length}): {self.data}"
 
     def add_block(self, block: Block):
         """
@@ -314,43 +322,33 @@ class Piece:
         :param block: The block message containing the block's info
         """
         assert (self.index == block.index)
-        self.data = self.data[:block.begin] + block.data + self.data[block.begin + len(block.data):]
-        self._blocks_received[block.begin // Request.size] = 1
-        try:
-            nbi = self._blocks_received.index(0)
-            if nbi == 0:
-                self._next_block_offset = 0
-            else:
-                self._next_block_offset = (nbi * Request.size) + 1
-        except ValueError:
-            pass
+        if block.begin != len(self.data):
+            logger.debug(f"Block begin index is non-sequential for: {self}\n{block}")
+            return
+        self.data += block.data
 
     @property
     def complete(self) -> bool:
         """
         :return: True if all blocks have been downloaded
         """
-        return all(self._blocks_received)
+        return len(self.data) == self.length
 
+    @property
     def next_block(self) -> Optional[int]:
         """
         :return: The offset of the next block, or None if there are no blocks left.
         """
-        if self.complete or self._next_block_offset > self.length:
-            return None
-
-        if self.length < Request.size:
-            return 0
-
-        return self._next_block_offset
+        if self.complete:
+            return
+        return len(self.data)
 
     def reset(self):
         """
         Resets the piece leaving it in a state equivalent to immediately after initializing.
         Used when we've downloaded the piece, but it turned out to be corrupt.
         """
-        self.data = bytearray()
-        self._next_block_offset = 0
+        self.data = b''
 
 
 class Cancel(Message):
@@ -396,29 +394,41 @@ class Cancel(Message):
         return cls(cancel_data[0], cancel_data[1], cancel_data[2])
 
 
-class MessageReaderSansIO:
-    def __init__(self):
-        pass
-
-
 class MessageReader:
     """
-    Asynchronously reads a message from a StreamReader and tries to
-    parse valid BitTorrent protocol messages from the data consumed.
+    Asynchronously reads the data sent by the remote peer and decodes
+    it into the appropriate protocol message. This message is added
+    to the shared queue where it can be picked up and worked later.
     """
+
     CHUNK_SIZE = 10 * 1024
 
-    def __init__(self, reader: asyncio.StreamReader):
+    def __init__(self, reader: asyncio.StreamReader, msg_queue: Queue):
         self._data = bytearray()
         self._reader = reader
-        self._done = False
+        self._task: Optional[asyncio.Task] = None
+        self._queue = msg_queue
+
+    def start(self) -> asyncio.Task:
+        """
+        Schedules and returns the task that continually reads from the StreamReader and consumes messages.
+        :return: The asyncio.Task for self._parse()
+        """
+        self._task = asyncio.create_task(self._parse())
+        return self._task
+
+    def stop(self) -> bool:
+        """
+        :return: True if the message reader task has been successfully cancelled.
+        """
+        return self._task.cancel()
 
     async def _consume(self, num: int) -> bytes:
         """
         Consumes and returns the specified number of bytes from the buffer.
 
         :param num: number of bytes to consume
-        :raises StopAsyncIteration:
+        :raises MessageReaderException:
         :return: bytes consumed from the buffer
         """
         while len(self._data) < num:
@@ -426,56 +436,52 @@ class MessageReader:
             if data:
                 self._data += data
             else:
-                raise StopAsyncIteration
+                raise MessageReaderException("Unable to read data from stream...")
 
         self._data = self._data[num:]
         return self._data[:num]
 
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self) -> Message:
-        return await self._parse()
-
     async def _parse(self):
         """
         Iterates through the data we have, requesting more
-        from the protocol if necessary, and tries to decode and return
-        a valid message from that data.
+        from the protocol if necessary, and tries to decode and add
+        a valid message from that data to a queue
 
-        :raises StopAsyncIteration:
-        :return: instance of the message that was received
+        :raises MessageReaderException:
         """
-        msg_len = struct.unpack(">I", await self._consume(4))[0]
+        try:
+            while True:
+                msg_len = struct.unpack(">I", await self._consume(4))[0]
 
-        if msg_len == 0:
-            return KeepAlive()
+                if msg_len == 0:
+                    self._queue.put_nowait(KeepAlive())
+                    continue
 
-        msg_id = struct.unpack(">B", await self._consume(1))[0]
-        msg_len -= 1  # the msg_len includes 1 byte for the id, we've consumed that already
+                msg_id = struct.unpack(">B", await self._consume(1))[0]
+                msg_len -= 1  # the msg_len includes 1 byte for the id, we've consumed that already
 
-        if msg_id == 0:
-            return Choke()
-        elif msg_id == 1:
-            return Unchoke()
-        elif msg_id == 2:
-            return Interested()
-        elif msg_id == 3:
-            return NotInterested()
-        elif msg_id == 4:
-            have_index = await self._consume(msg_len)
-            return Have.decode(have_index)
-        elif msg_id == 5:
-            bitfield = await self._consume(msg_len)
-            return Bitfield.decode(bitfield)
-        elif msg_id == 6:
-            request = await self._consume(msg_len)
-            return Request.decode(request)
-        elif msg_id == 7:
-            piece = await self._consume(msg_len)
-            return Block.decode(piece)
-        elif msg_id == 8:
-            cancel = await self._consume(msg_len)
-            return Cancel.decode(cancel)
-        else:
-            raise StopAsyncIteration
+                if msg_id == 0:
+                    self._queue.put_nowait(Choke())
+                elif msg_id == 1:
+                    self._queue.put_nowait(Unchoke())
+                elif msg_id == 2:
+                    self._queue.put_nowait(Interested())
+                elif msg_id == 3:
+                    self._queue.put_nowait(NotInterested())
+                elif msg_id == 4:
+                    self._queue.put_nowait(Have.decode(await self._consume(msg_len)))
+                elif msg_id == 5:
+                    self._queue.put_nowait(Bitfield.decode(await self._consume(msg_len)))
+                elif msg_id == 6:
+                    self._queue.put_nowait(Request.decode(await self._consume(msg_len)))
+                elif msg_id == 7:
+                    self._queue.put_nowait(Block.decode(await self._consume(msg_len)))
+                elif msg_id == 8:
+                    self._queue.put_nowait(Cancel.decode(await self._consume(msg_len)))
+                else:
+                    raise MessageReaderException(f"Unexpected message ID received: {msg_id}")
+        except MessageReaderException as mre:
+            raise mre
+        except CancelledError as ce:
+            logger.debug("Cancelling MessageReader task & shutting down...")
+            raise ce

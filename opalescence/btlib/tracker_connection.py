@@ -135,7 +135,7 @@ class TrackerConnection:
         self.last_requests = {}
         self.interval = self.DEFAULT_INTERVAL
 
-    def _get_url_params(self, event: str = "") -> str:
+    def _get_url_params(self, event: str = "") -> dict:
         """
         :param event: the event sent in the request when starting, stopping, and completing
         :return: Returns a dictionary of the request parameters expected by the tracker.
@@ -148,7 +148,6 @@ class TrackerConnection:
                   "left": self.left,
                   "compact": 1,
                   "event": event}
-        # return urlencode(params)
         return params
 
     async def announce(self, event: str = "") -> Response:
