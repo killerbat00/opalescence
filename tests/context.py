@@ -8,12 +8,11 @@ import os
 import sys
 
 # noinspection PyUnresolvedReferences
-from opalescence.btlib import client
 # noinspection PyUnresolvedReferences
-from opalescence.btlib import protocol, metainfo
+from opalescence.btlib import client, protocol, metainfo
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # TODO: This torrent may change as ubuntu releases a new . version of 16.04
 # TODO: update handling here to use a dynamically generated torrent (maybe using an external lib for initial torrent generation?)
-torrent_url = "http://releases.ubuntu.com/16.04/ubuntu-16.04.4-desktop-amd64.iso.torrent"
+torrent_url = "https://releases.ubuntu.com/focal/ubuntu-20.04.1-live-server-amd64.iso.torrent"

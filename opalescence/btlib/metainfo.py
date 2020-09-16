@@ -13,7 +13,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import NamedTuple, List, Optional
 
-from btproto import Decoder, Encoder, DecodeError, EncodeError
+from .bencode import Decoder, Encoder, DecodeError, EncodeError
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +71,8 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
         raise CreationError
 
     if "info" not in dict_keys or \
-        "announce" not in dict_keys or \
-        "announce-list" not in dict_keys:
+        ("announce" not in dict_keys and
+         "announce-list" not in dict_keys):
         logger.error(f"Required key not found.")
         raise CreationError
 

@@ -12,7 +12,7 @@ with open("README.md") as readme_file:
     readme = readme_file.read()
 
 requirements = [
-    "requests", "aiohttp", "bitstring", "btproto"
+    "requests", "aiohttp", "bitstring",
 ]
 
 setup(
@@ -31,7 +31,7 @@ setup(
     classifiers=[
         "Development Status :: 4 - Beta",
         "License :: OSI Approved :: MIT License",
-        "Programming Language :: Python :: 3.6"
+        "Programming Language :: Python :: 3.8"
     ],
     test_suite="tests",
     include_package_data=True,
