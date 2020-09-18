@@ -414,6 +414,7 @@ class MessageReader:
         Schedules and returns the task that continually reads from the StreamReader and consumes messages.
         :return: The asyncio.Task for self._parse()
         """
+        logger.debug("Starting MessageReader")
         self._task = asyncio.create_task(self._parse())
         return self._task
 
@@ -421,6 +422,7 @@ class MessageReader:
         """
         :return: True if the message reader task has been successfully cancelled.
         """
+        logger.debug("Stopping MessageReader")
         return self._task.cancel()
 
     async def _consume(self, num: int) -> bytes:
@@ -436,10 +438,12 @@ class MessageReader:
             if data:
                 self._data += data
             else:
+                logger.debug(f"Couldn't read at least {self.CHUNK_SIZE} bytes from the stream.")
                 raise MessageReaderException("Unable to read data from stream...")
 
+        read_bytes = self._data[:num]
         self._data = self._data[num:]
-        return self._data[:num]
+        return read_bytes
 
     async def _parse(self):
         """
@@ -461,23 +465,23 @@ class MessageReader:
                 msg_len -= 1  # the msg_len includes 1 byte for the id, we've consumed that already
 
                 if msg_id == 0:
-                    self._queue.put_nowait(Choke())
+                    await self._queue.put(Choke())
                 elif msg_id == 1:
-                    self._queue.put_nowait(Unchoke())
+                    await self._queue.put(Unchoke())
                 elif msg_id == 2:
-                    self._queue.put_nowait(Interested())
+                    await self._queue.put(Interested())
                 elif msg_id == 3:
-                    self._queue.put_nowait(NotInterested())
+                    await self._queue.put(NotInterested())
                 elif msg_id == 4:
-                    self._queue.put_nowait(Have.decode(await self._consume(msg_len)))
+                    await self._queue.put(Have.decode(await self._consume(msg_len)))
                 elif msg_id == 5:
-                    self._queue.put_nowait(Bitfield.decode(await self._consume(msg_len)))
+                    await self._queue.put(Bitfield.decode(await self._consume(msg_len)))
                 elif msg_id == 6:
-                    self._queue.put_nowait(Request.decode(await self._consume(msg_len)))
+                    await self._queue.put(Request.decode(await self._consume(msg_len)))
                 elif msg_id == 7:
-                    self._queue.put_nowait(Block.decode(await self._consume(msg_len)))
+                    await self._queue.put(Block.decode(await self._consume(msg_len)))
                 elif msg_id == 8:
-                    self._queue.put_nowait(Cancel.decode(await self._consume(msg_len)))
+                    await self._queue.put(Cancel.decode(await self._consume(msg_len)))
                 else:
                     raise MessageReaderException(f"Unexpected message ID received: {msg_id}")
         except MessageReaderException as mre:

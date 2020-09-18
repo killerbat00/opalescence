@@ -132,7 +132,6 @@ class TrackerConnection:
         self.downloaded = 0
         self.left: int = meta_info.total_size
         self.port = 6881
-        self.last_requests = {}
         self.interval = self.DEFAULT_INTERVAL
 
     def _get_url_params(self, event: str = "") -> dict:
