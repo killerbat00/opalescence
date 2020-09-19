@@ -7,7 +7,7 @@ import asyncio
 import logging
 import socket
 import struct
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from urllib.parse import urlencode
 
 from aiohttp import ClientSession, ClientTimeout
@@ -73,7 +73,7 @@ class Response:
         """
         return self.data.get("incomplete", 0)
 
-    def get_peers(self) -> Optional[list]:
+    def get_peers(self) -> Optional[List[Tuple[str, int]]]:
         """
         :raises TrackerConnectionError:
         :return: the list of peers. The response can be given as a
@@ -91,8 +91,7 @@ class Response:
                  p in split_peers]
             return p
         elif isinstance(peers, list):
-            p = [(p["ip"].decode("UTF-8"), p["port"]) for p in peers]
-            return p
+            return [(p["ip"].decode("UTF-8"), int(p["port"])) for p in peers]
         else:
             raise TrackerConnectionError(f"Unable to decode `peers` key from response")
 

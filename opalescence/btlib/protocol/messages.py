@@ -3,10 +3,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import struct
-from asyncio import Queue, CancelledError
 from typing import Optional
 
 import bitstring as bitstring
@@ -18,9 +16,6 @@ class MessageReaderException(Exception):
     """
     Raised when there's an error with the MessageReader.
     """
-
-    def __init__(self, failure_reason: Optional[str]):
-        self.failure_reason = failure_reason
 
 
 class Message:
@@ -392,100 +387,3 @@ class Cancel(Message):
         """
         cancel_data = struct.unpack(">III", data)
         return cls(cancel_data[0], cancel_data[1], cancel_data[2])
-
-
-class MessageReader:
-    """
-    Asynchronously reads the data sent by the remote peer and decodes
-    it into the appropriate protocol message. This message is added
-    to the shared queue where it can be picked up and worked later.
-    """
-
-    CHUNK_SIZE = 10 * 1024
-
-    def __init__(self, reader: asyncio.StreamReader, msg_queue: Queue):
-        self._data = bytearray()
-        self._reader = reader
-        self._task: Optional[asyncio.Task] = None
-        self._queue = msg_queue
-
-    def start(self) -> asyncio.Task:
-        """
-        Schedules and returns the task that continually reads from the StreamReader and consumes messages.
-        :return: The asyncio.Task for self._parse()
-        """
-        logger.debug("Starting MessageReader")
-        self._task = asyncio.create_task(self._parse())
-        return self._task
-
-    def stop(self) -> bool:
-        """
-        :return: True if the message reader task has been successfully cancelled.
-        """
-        logger.debug("Stopping MessageReader")
-        return self._task.cancel()
-
-    async def _consume(self, num: int) -> bytes:
-        """
-        Consumes and returns the specified number of bytes from the buffer.
-
-        :param num: number of bytes to consume
-        :raises MessageReaderException:
-        :return: bytes consumed from the buffer
-        """
-        while len(self._data) < num:
-            data = await self._reader.read(self.CHUNK_SIZE)
-            if data:
-                self._data += data
-            else:
-                logger.debug(f"Couldn't read at least {self.CHUNK_SIZE} bytes from the stream.")
-                raise MessageReaderException("Unable to read data from stream...")
-
-        read_bytes = self._data[:num]
-        self._data = self._data[num:]
-        return read_bytes
-
-    async def _parse(self):
-        """
-        Iterates through the data we have, requesting more
-        from the protocol if necessary, and tries to decode and add
-        a valid message from that data to a queue
-
-        :raises MessageReaderException:
-        """
-        try:
-            while True:
-                msg_len = struct.unpack(">I", await self._consume(4))[0]
-
-                if msg_len == 0:
-                    self._queue.put_nowait(KeepAlive())
-                    continue
-
-                msg_id = struct.unpack(">B", await self._consume(1))[0]
-                msg_len -= 1  # the msg_len includes 1 byte for the id, we've consumed that already
-
-                if msg_id == 0:
-                    await self._queue.put(Choke())
-                elif msg_id == 1:
-                    await self._queue.put(Unchoke())
-                elif msg_id == 2:
-                    await self._queue.put(Interested())
-                elif msg_id == 3:
-                    await self._queue.put(NotInterested())
-                elif msg_id == 4:
-                    await self._queue.put(Have.decode(await self._consume(msg_len)))
-                elif msg_id == 5:
-                    await self._queue.put(Bitfield.decode(await self._consume(msg_len)))
-                elif msg_id == 6:
-                    await self._queue.put(Request.decode(await self._consume(msg_len)))
-                elif msg_id == 7:
-                    await self._queue.put(Block.decode(await self._consume(msg_len)))
-                elif msg_id == 8:
-                    await self._queue.put(Cancel.decode(await self._consume(msg_len)))
-                else:
-                    raise MessageReaderException(f"Unexpected message ID received: {msg_id}")
-        except MessageReaderException as mre:
-            raise mre
-        except CancelledError as ce:
-            logger.debug("Cancelling MessageReader task & shutting down...")
-            raise ce
