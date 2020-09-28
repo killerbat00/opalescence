@@ -7,8 +7,11 @@ The coordination with peers is handled in ../client.py
 
 No data is currently sent to the remote peer
 """
+from __future__ import annotations
+
 import asyncio
 from asyncio import StreamReader, StreamWriter, CancelledError, Queue
+from datetime import datetime
 
 from .messages import *
 from .piece_handler import PieceRequester
@@ -20,6 +23,9 @@ class PeerError(Exception):
     """
     Raised when we encounter an error communicating with the peer.
     """
+
+    def __init__(self, peer: PeerConnection):
+        self.peer: PeerConnection = peer
 
 
 class PeerInfo:
@@ -56,7 +62,7 @@ class PeerConnection:
     def __init__(self, peer_info: PeerInfo, info_hash: bytes, requester: PieceRequester, our_info: PeerInfo):
         self.peer: PeerInfo = peer_info
         self.info_hash: bytes = info_hash
-        self._hash: int = hash(f"{self.peer.ip}:{self.peer.port}:{self.info_hash.decode('UTF-8')}")
+        self._hash: int = hash(f"{self.peer.ip}:{self.peer.port}:{self.info_hash}")
         self._local_peer: PeerInfo = our_info
         self._local_state: PeerState = PeerState()
         self._peer_state: PeerState = PeerState()
@@ -78,13 +84,14 @@ class PeerConnection:
 
     async def download(self):
         await self.make_connection()
-        self._msg_to_send_q.put_nowait((f"{self}: Sending interested message.", Interested.encode()))
+        self._msg_to_send_q.put_nowait((f"{self}: Sending interested message.", Interested()))
         self.read_task = asyncio.create_task(self._consume())
         self.write_task = asyncio.create_task(self._produce())
         try:
             await asyncio.gather(self.read_task, self.write_task)
         except (CancelledError, PeerError) as e:
-            raise PeerError from e
+            logger.debug(f"{self}: CancelledError received in download.")
+            raise PeerError(peer=self)
 
     async def make_connection(self):
         """
@@ -97,11 +104,11 @@ class PeerConnection:
             )
 
             if not await self._handshake():
-                raise PeerError
+                raise PeerError(peer=self)
 
         except Exception as oe:
             logger.debug(f"{self}: Exception with connection.\n{oe}")
-            raise PeerError from oe
+            raise PeerError(peer=self) from oe
 
     async def _consume(self):
         """
@@ -125,11 +132,11 @@ class PeerConnection:
                 if msg_id == 0:
                     logger.debug(f"{self}: Sent {Choke()}")
                     self._peer_state.choking = True
+                    self._requester.remove_pending_requests_for_peer(self.peer.peer_id)
                 elif msg_id == 1:
                     logger.debug(f"{self}: Sent {Unchoke()}")
                     self._peer_state.choking = False
                 elif msg_id == 2:
-                    # we don't do anything with this right now
                     logger.debug(f"{self}: Sent {Interested()}")
                     self._peer_state.interested = True
                 elif msg_id == 3:
@@ -155,43 +162,75 @@ class PeerConnection:
                     msg = Cancel.decode(await self._stream_reader.readexactly(msg_len))
                     logger.debug(f"{self}: {msg}")
                 else:
-                    raise PeerError(f"{self}: Unexpected message ID received: {msg_id}")
+                    logger.debug(f"{self}: Unexpected message ID received: {msg_id}")
+                    raise PeerError(peer=self)
         except CancelledError:
             logger.debug(f"{self}: CancelledError handled in read_task.")
             self._requester.remove_peer(self.peer.peer_id)
             self.write_task.cancel()
         except asyncio.IncompleteReadError as ire:
             logger.error(f"{self}: Unable to read {ire.expected} bytes , read: {len(ire.partial)}")
-            raise PeerError
+            raise PeerError(peer=self)
         except Exception as e:
             logger.debug(f"{self}: Exception with connection.\n{e}")
-            raise PeerError from e
+            raise PeerError(peer=self) from e
 
     async def _produce(self):
         """
         Sends messages to the peer.
         """
+        last_msg_sent = None
         try:
             while not self.write_task.done():
-                try:
-                    log, msg = asyncio.wait_for(self._msg_to_send_q.get(), timeout=60.0)
-                except asyncio.TimeoutError:
-                    log = f"{self}: No message to send, sending KeepAlive."
-                    msg = KeepAlive.encode()
+                if self._msg_to_send_q.empty():
+                    msg = self._requester.next_request_for_peer(self.peer.peer_id)
+                    log = f"{self}: Have a request to send..."
+                    if not msg:
+                        if not last_msg_sent or ((datetime.now() - last_msg_sent).seconds >= 60):
+                            log = f"{self}: No message to send, sending KeepAlive."
+                            msg = KeepAlive()
+                        else:
+                            logger.debug(f"{self}: Sleeping...")
+                            await asyncio.sleep(2)
+                else:
+                    log, msg = await self._msg_to_send_q.get()
 
                 if isinstance(msg, Choke):
+                    msg = msg.encode()
                     self._local_state.choking = True
                 elif isinstance(msg, Unchoke):
-                    logger.debug(f"{self}: Sent {msg}")
+                    msg = msg.encode()
                     self._local_state.choking = False
                 elif isinstance(msg, Interested):
+                    msg = msg.encode()
                     self._local_state.interested = True
                 elif isinstance(msg, NotInterested):
+                    msg = msg.encode()
                     self._local_state.interested = False
+                elif isinstance(msg, Have):
+                    msg = msg.encode()
+                elif isinstance(msg, Bitfield):
+                    msg = msg.encode()
+                elif isinstance(msg, Request):
+                    msg = msg.encode()
+                    if self._peer_state.choking:
+                        logger.debug(f"{self}: Can't send request. Peer is choking or not interested.")
+                        msg = None
+                elif isinstance(msg, Block):
+                    msg = msg.encode()
+                    if self._peer_state.choking or not self._peer_state.interested:
+                        logger.debug(f"{self}: Can't send Block. Peer is choking or not interested.")
+                        msg = None
+                elif isinstance(msg, Cancel):
+                    msg = msg.encode()
 
-                logger.debug(log)
-                self._stream_writer.write(msg)
-                await self._stream_writer.drain()
+                if msg:
+                    if not log:
+                        log = f"{self}: Sending {msg}"
+                    logger.debug(log)
+                    self._stream_writer.write(msg)
+                    await self._stream_writer.drain()
+                    last_msg_sent = datetime.now()
 
         except asyncio.CancelledError:
             logger.debug(f"{self}: Cancelling and closing connections.")
@@ -199,7 +238,7 @@ class PeerConnection:
             self.read_task.cancel()
         except Exception as oe:
             logger.debug(f"{self}: Exception with connection.\n{oe}")
-            raise PeerError from oe
+            raise PeerError(peer=self) from oe
 
     async def _handshake(self) -> bool:
         """

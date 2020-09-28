@@ -126,7 +126,6 @@ class TrackerConnection:
         self.peer_id: bytes = peer_id
         self.info_hash: bytes = meta_info.info_hash
         self.announce_urls: List[List[str]] = meta_info.announce_urls
-        self.http_client: ClientSession = ClientSession(timeout=ClientTimeout(5))
         self.uploaded = 0
         self.downloaded = 0
         self.left: int = meta_info.total_size
@@ -172,15 +171,16 @@ class TrackerConnection:
 
         try:
             logger.debug(f"Making {event} announce to: {url}")
-            async with self.http_client.get(f"{url}?{urlencode(params)}") as r:
+            async with ClientSession(timeout=ClientTimeout(5)).get(f"{url}?{urlencode(params)}") as r:
                 if r.status != 200:
                     logger.error(f"{url}: Unable to connect to tracker.")
                     raise TrackerConnectionError("Non-200 HTTP status.")
 
-                data: bytes = await r.read()
-                decoded_data: Response = receive(data)
-                self.interval = decoded_data.interval
-                return decoded_data
+                if not event or event == EVENT_STARTED:
+                    data: bytes = await r.read()
+                    decoded_data: Response = receive(data)
+                    self.interval = decoded_data.interval
+                    return decoded_data
 
         except asyncio.TimeoutError:
             logger.error(f"{url}: Timeout connecting...")

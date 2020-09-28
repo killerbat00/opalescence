@@ -113,14 +113,18 @@ def download(file_path) -> None:
     Downloads a .torrent file
     :param file_path: .torrent filepath argparse.Namespace object
     """
+    do_download(file_path.torrent_file, file_path.destination)
+
+
+def do_download(torrent_fp, dest_fp):
     logger = logging.getLogger("opalescence")
-    logger.info(f"Downloading {file_path.torrent_file} to "
-                f"{file_path.destination}")
+    logger.info(f"Downloading {torrent_fp} to "
+                f"{dest_fp}")
 
     loop = asyncio.get_event_loop()
     loop.set_debug(__debug__)
-    torrent = ClientTorrent(MetaInfoFile.from_file(file_path.torrent_file))
-    start_task = loop.create_task(torrent.start())
+    torrent = ClientTorrent(MetaInfoFile.from_file(torrent_fp), dest_fp)
+    start_task = loop.create_task(torrent.download())
 
     def signal_handler(_, __):
         logger.debug("SIGINT received.")
@@ -130,9 +134,9 @@ def download(file_path) -> None:
 
     try:
         # Main entry point
-        loop.run_until_complete(start_task)
+        asyncio.run(torrent.download())
     except asyncio.CancelledError:
-        loop.run_until_complete(loop.create_task(torrent.cancel()))
+        pass
     except KeyboardInterrupt:
         logger.debug("Keyboard interrupt received.")
     except Exception as ex:
