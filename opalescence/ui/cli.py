@@ -113,13 +113,16 @@ def download(file_path) -> None:
     Downloads a .torrent file
     :param file_path: .torrent filepath argparse.Namespace object
     """
-    do_download(file_path.torrent_file, file_path.destination)
+    asyncio.run(do_download(file_path.torrent_file, file_path.destination))
 
 
-def do_download(torrent_fp, dest_fp):
+def d2(tfile, dest) -> None:
+    asyncio.run(do_download(tfile, dest))
+
+
+async def do_download(torrent_fp, dest_fp):
     logger = logging.getLogger("opalescence")
-    logger.info(f"Downloading {torrent_fp} to "
-                f"{dest_fp}")
+    logger.info(f"Downloading {torrent_fp} to {dest_fp}")
 
     loop = asyncio.get_event_loop()
     loop.set_debug(__debug__)
@@ -134,9 +137,9 @@ def do_download(torrent_fp, dest_fp):
 
     try:
         # Main entry point
-        asyncio.run(torrent.download())
+        await start_task
     except asyncio.CancelledError:
-        pass
+        logger.debug("CancelledError")
     except KeyboardInterrupt:
         logger.debug("Keyboard interrupt received.")
     except Exception as ex:
