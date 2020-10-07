@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import struct
+from asyncio import IncompleteReadError
 from typing import Optional
 
 import bitstring as bitstring
@@ -63,6 +64,18 @@ class Handshake(Message):
         return cls(unpacked_data[2], unpacked_data[3])
 
 
+class NoInfoMessage:
+    msg_id = None
+
+    @classmethod
+    def decode(cls):
+        return cls()
+
+    @classmethod
+    def encode(cls) -> bytes:
+        return struct.pack(">IB", 1, cls.msg_id)
+
+
 class KeepAlive(Message):
     """
     keep alive message
@@ -78,7 +91,7 @@ class KeepAlive(Message):
         return struct.pack(">I", 0)
 
 
-class Choke(Message):
+class Choke(NoInfoMessage, Message):
     """
     choke message
 
@@ -86,15 +99,8 @@ class Choke(Message):
     """
     msg_id = 0
 
-    @staticmethod
-    def encode() -> bytes:
-        """
-        :return: encoded message to be sent to protocol
-        """
-        return struct.pack(">IB", 1, Choke.msg_id)
 
-
-class Unchoke(Message):
+class Unchoke(NoInfoMessage, Message):
     """
     unchoke message
 
@@ -102,15 +108,8 @@ class Unchoke(Message):
     """
     msg_id = 1
 
-    @staticmethod
-    def encode() -> bytes:
-        """
-        :return: encoded message to be sent to protocol
-        """
-        return struct.pack(">IB", 1, Unchoke.msg_id)
 
-
-class Interested(Message):
+class Interested(NoInfoMessage, Message):
     """
     interested message
 
@@ -118,28 +117,14 @@ class Interested(Message):
     """
     msg_id = 2
 
-    @staticmethod
-    def encode() -> bytes:
-        """
-        :return: encoded message to be sent to protocol
-        """
-        return struct.pack(">IB", 1, Interested.msg_id)
 
-
-class NotInterested(Message):
+class NotInterested(NoInfoMessage, Message):
     """
     not interested message
 
     <0001><3>
     """
     msg_id = 3
-
-    @staticmethod
-    def encode() -> bytes:
-        """
-        :return: encoded message to be sent to protocol
-        """
-        return struct.pack(">IB", 1, NotInterested.msg_id)
 
 
 class Have(Message):
@@ -381,3 +366,50 @@ class Cancel(Message):
         """
         cancel_data = struct.unpack(">III", data)
         return cls(cancel_data[0], cancel_data[1], cancel_data[2])
+
+
+class MessageReader:
+    """
+    An async iterator that wraps a StreamReader to allow iterating over received messages.
+    """
+    _msg_id_to_cls = {0: Choke, 1: Unchoke, 2: Interested, 3: NotInterested,
+                      4: Have, 5: Bitfield, 6: Request, 7: Block, 8: Cancel}
+
+    def __init__(self, peer, stream_reader):
+        self.peer = peer
+        self.stream_reader = stream_reader
+
+    def __str__(self):
+        return str(self.peer)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        assert self.stream_reader is not None
+
+        if self.stream_reader.at_eof():
+            raise StopAsyncIteration
+
+        try:
+            msg_len = struct.unpack(">I", await self.stream_reader.readexactly(4))[0]
+            if msg_len == 0:
+                return KeepAlive()
+
+            msg_id = struct.unpack(">B", await self.stream_reader.readexactly(1))[0]
+            if not msg_id or (not (0 < msg_id < 8)):
+                logger.error(f"{self}: Unknown message received: {msg_id}")
+                raise StopAsyncIteration
+
+            msg_len -= 1  # the msg_len includes 1 byte for the id, we've consumed that already
+            if msg_len == 0:
+                return self._msg_id_to_cls[msg_id].decode()
+            return self._msg_id_to_cls[msg_id].decode(await self.stream_reader.readexactly(msg_len))
+
+        except IncompleteReadError as ire:
+            logger.exception(f"{self}: Unable to read {ire.expected} bytes , read: {len(ire.partial)}, "
+                             f"{ire.partial}", exc_info=True)
+            raise StopAsyncIteration
+        except Exception:
+            logger.exception(f"{self}: Exception encountered...", exc_info=True)
+            raise StopAsyncIteration

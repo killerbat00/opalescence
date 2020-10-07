@@ -3,7 +3,6 @@
 """
 Support for communication with an external tracker.
 """
-import asyncio
 import logging
 import socket
 import struct
@@ -139,7 +138,7 @@ class TrackerConnection:
         """
         params = {"info_hash": self.info_hash,
                   "peer_id": self.peer_id,
-                  "port": self.port,  # TODO: We tell the tracker this, but don't actually listen on this port.
+                  "port": self.port,
                   "uploaded": self.uploaded,
                   "downloaded": self.downloaded,
                   "left": self.left,
@@ -184,13 +183,13 @@ class TrackerConnection:
                         self.interval = decoded_data.interval
                         return decoded_data
 
-        except asyncio.TimeoutError:
-            logger.error(f"{url}: Timeout connecting...")
-            raise TrackerConnectionError(f"{url}: Timeout connecting...")
-
+        except TimeoutError as tie:
+            msg = f"{url}: Timeout connecting..."
+            logger.error(msg)
+            logger.info(tie, exc_info=True)
+            raise TrackerConnectionError(msg) from tie
         except TrackerConnectionError as tce:
-            logger.error(f"{url}: Unable to connect to tracker. "
-                         f"{tce.failure_reason}")
+            logger.error(f"{url}: Unable to connect to tracker: f{tce.failure_reason}")
             logger.info(tce, exc_info=True)
             raise tce
 

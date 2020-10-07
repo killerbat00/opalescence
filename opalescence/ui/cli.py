@@ -146,6 +146,4 @@ async def do_download(torrent_fp, dest_fp):
         logger.error(f"Unknown exception received: {type(ex).__name__}")
         logger.debug(ex, exc_info=True)
     finally:
-        loop.close()
         logger.info(f"Shutting down. Thank you for using opalescence v{__version__}.")
-        loop.stop()
