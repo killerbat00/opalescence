@@ -6,7 +6,6 @@ Contains the logic for requesting pieces, as well as that for writing them to di
 """
 import errno
 import hashlib
-import io
 import logging
 import os
 from collections import defaultdict
@@ -26,12 +25,10 @@ class FileWriter:
     Writes piece data to temp memory for now.
     Will eventually flush data to the disk.
     """
-    writing_pieces = []
-
     def __init__(self, torrent: MetaInfoFile, save_dir):
         self.torrent = torrent
-        self.buffer = io.BytesIO()
         self.base_dir = save_dir
+        self.file_data = [bytearray(f.size) for f in self.torrent.files]
 
     def _file_for_piece(self, piece):
         offset = piece.index * self.torrent.piece_length
@@ -40,58 +37,59 @@ class FileWriter:
     def _file_for_offset(self, offset):
         size_sum = 0
         for i, file in enumerate(self.torrent.files):
-            if offset - size_sum >= file.size:
-                size_sum += file.size
-            else:
-                return i, offset - size_sum
+            if offset - size_sum < file.size:
+                file_offset = offset - size_sum
+                return i, file, file_offset
+            size_sum += file.size
 
-    def _write_data(self, path, data_to_write, offset):
+    def _write_data(self, file_num, path, data_to_write, offset):
         p = Path(self.base_dir) / path
-        logger.debug(f"Writing to file {p}\n\t>{data_to_write}")
-        if not os.path.exists(os.path.dirname(p)):
+        logger.info(f"Writing data to memory for {p}")
+        self.file_data[file_num][offset:] = data_to_write
+
+        if offset + len(data_to_write) >= self.torrent.files[file_num].size:
+            logger.info(f"Writing entire file: {p}")
+            if not os.path.exists(os.path.dirname(p)):
+                try:
+                    os.makedirs(os.path.dirname(p))
+                except OSError as exc:  # Guard against race condition
+                    if exc.errno != errno.EEXIST:
+                        raise
             try:
-                os.makedirs(os.path.dirname(p))
-            except OSError as exc:  # Guard against race condition
-                if exc.errno != errno.EEXIST:
-                    raise
-        try:
-            with open(p, "wb+") as fd:
-                fd.seek(offset, 0)
-                fd.write(data_to_write)
-                fd.flush()
-        except (OSError, Exception) as oe:
-            logger.debug(f"Encountered exception when writing {data_to_write}")
-            raise oe
+                with open(p, "wb+") as fd:
+                    fd.write(self.file_data[file_num])
+            except (OSError, Exception) as oe:
+                logger.error(f"Encountered exception when writing {p}")
+                logger.info(oe, exc_info=True)
+                raise oe
 
     def write(self, piece: Piece):
         """
         Writes the piece's data to the buffer
         """
-        file_num, file_offset = self._file_for_piece(piece)
-        file = self.torrent.files[file_num]
+        file_num, file, file_offset = self._file_for_piece(piece)
         leftover = None
         data_to_write = piece.data
         offset = 0
         if file_offset + len(piece.data) > file.size:
-            data_to_write = piece.data[:file.size]
-            leftover = piece.data[file.size:]
-            offset = file.size
+            data_to_write = piece.data[:file.size - file_offset]
+            leftover = piece.data[file.size - file_offset:]
+            offset = (piece.index * self.torrent.piece_length) + len(data_to_write)
 
-        self._write_data(file.path, data_to_write, file_offset)
+        self._write_data(file_num, file.path, data_to_write, file_offset)
         while leftover:
-            file_num, file_offset = self._file_for_offset(offset)
+            file_num, file, file_offset = self._file_for_offset(offset)
             if file_num >= len(self.torrent.files):
-                logger.debug("Too much data and not enough files...")
+                logger.error("Too much data and not enough files...")
                 raise
-            file = self.torrent.files[file_num]
             data_to_write = leftover
             if file_offset + len(leftover) > file.size:
-                data_to_write = data_to_write[:file.size]
-                leftover = leftover[file.size:]
-                offset += file.size
+                data_to_write = data_to_write[:file.size - file_offset]
+                leftover = leftover[file.size - file_offset:]
+                offset = (piece.index * self.torrent.piece_length) + len(data_to_write)
             else:
                 leftover = None
-            self._write_data(file.path, data_to_write, file_offset)
+            self._write_data(file_num, file.path, data_to_write, file_offset)
 
 
 class PieceRequester:
@@ -176,7 +174,7 @@ class PieceRequester:
         :param peer_id: The peer who sent the block
         :param block: The piece message with the data and e'erthang
         """
-        logger.debug(f"{peer_id} sent {block}")
+        logger.info(f"{peer_id} sent {block}")
         self.peer_piece_map[peer_id].add(block.index)
         self.piece_peer_map[block.index].add(peer_id)
         # Remove the pending request for this block if there is one
@@ -214,7 +212,7 @@ class PieceRequester:
             piece.reset()
             return piece
         else:
-            logger.debug(f"Completed piece received: {piece}")
+            logger.info(f"Completed piece received: {piece}")
 
             self.downloaded_pieces[piece.index] = piece
             if piece.index in self.downloading_pieces:
@@ -260,11 +258,11 @@ class PieceRequester:
                 piece_length = self.torrent.last_piece_length if i == self.torrent.num_pieces - 1 else \
                     self.torrent.piece_length
                 piece = Piece(i, piece_length)
-                logger.debug(f"Adding new piece to downloading pieces: {piece}")
+                logger.info(f"{peer_id}: Adding new piece to downloading pieces: {piece}")
                 self.downloading_pieces[piece.index] = piece
                 size = min(piece.length, Request.size)
                 request = Request(i, piece.next_block, size, peer_id)
-                logger.debug(f"{peer_id}: Successfully got request {request}.")
+                logger.info(f"{peer_id}: Successfully got request {request}.")
                 self.pending_requests.append(request)
                 return request
 
@@ -273,12 +271,12 @@ class PieceRequester:
                 nb = piece.next_block
                 size = min(piece.length - nb, Request.size)
                 if nb + size > piece.length:
-                    logger.debug(f"{peer_id}: Can't request any more blocks for piece {piece.index}. Moving "
-                                 f"along...")
+                    logger.info(f"{peer_id}: Can't request any more blocks for piece {piece.index}. Moving "
+                                f"along...")
                     continue  # loop over peer_piece_map
                 request = Request(piece.index, nb, size, peer_id)
                 while request in self.pending_requests:
-                    logger.debug(f"{peer_id}: We have an outstanding request for {request}")
+                    logger.info(f"{peer_id}: We have an outstanding request for {request}")
                     if nb + size > piece.length:
                         logger.debug(f"{peer_id}: Can't request any more blocks for piece {piece.index}. Moving "
                                      f"along...")
@@ -292,10 +290,10 @@ class PieceRequester:
                         request = Request(piece.index, nb, size, peer_id)
                 if next_available:
                     continue
-                logger.debug(f"{peer_id}: Successfully got request {request}.")
+                logger.info(f"{peer_id}: Successfully got request {request}.")
                 self.pending_requests.append(request)
                 return request
 
         # There are no pieces the peer can send us :(
-        logger.debug(f"{peer_id}: Has no pieces available to send.")
+        logger.info(f"{peer_id}: Has no pieces available to send.")
         return
