@@ -62,7 +62,7 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
     min_info_req_keys: List[str] = ["piece length", "pieces"]
     min_files_req_keys: List[str] = ["length", "path"]
 
-    logger.debug(
+    logger.info(
         "Validating torrent metainfo dictionary {d}".format(d=decoded_dict))
 
     dict_keys: List = list(decoded_dict.keys())
@@ -142,7 +142,7 @@ class MetaInfoFile:
         :raises CreationError:
         :return: Torrent instance
         """
-        logger.debug(f"Creating a metainfo object from {filename}")
+        logger.info(f"Creating a metainfo object from {filename}")
         torrent: MetaInfoFile = cls()
 
         if not os.path.exists(filename):
@@ -203,7 +203,7 @@ class MetaInfoFile:
         :param output_filename: The output filename of the torrent
         :raises CreationError:
         """
-        logger.debug(f"Writing .torrent file: {output_filename}")
+        logger.info(f"Writing .torrent file: {output_filename}")
 
         if not output_filename:
             logger.error("No output filename provided.")
@@ -233,7 +233,7 @@ class MetaInfoFile:
             meta_info["info"]["files"]["length"] is the file's size
             meta_info["info"]["length"] doesn't contribute anything here
         """
-        logger.debug(f"Gathering files for .torrent: {self}")
+        logger.info(f"Gathering files for .torrent: {self}")
 
         if self.multi_file:
             file_list = self.meta_info["info"]["files"]

@@ -35,9 +35,15 @@ class PeerInfo:
         self._peer_id: Optional[bytes] = peer_id
 
     @property
-    def peer_id(self) -> str:
+    def peer_id_bytes(self) -> bytes:
         if self._peer_id:
-            return self._peer_id.decode("UTF-8")
+            return self._peer_id
+
+    @property
+    def peer_id(self) -> str:
+        p_id = self.peer_id_bytes
+        if p_id:
+            return p_id.decode("UTF-8")
         return f"{self.ip}:{self.port}"
 
     @peer_id.setter
@@ -90,7 +96,7 @@ class PeerConnection:
         try:
             await asyncio.gather(self.read_task, self.write_task)
         except (CancelledError, PeerError) as e:
-            logger.debug(f"{self}: CancelledError received in download.")
+            logger.error(f"{self}: CancelledError received in download.")
             raise PeerError(peer=self)
 
     async def make_connection(self):
@@ -98,7 +104,7 @@ class PeerConnection:
         Starts communication with the peer, sending our handshake and letting the peer know we're interested.
         """
         try:
-            logger.debug(f"{self}: Opening connection with peer.")
+            logger.info(f"{self}: Opening connection with peer.")
             self._stream_reader, self._stream_writer = await asyncio.open_connection(
                 host=self.peer.ip, port=self.peer.port, local_addr=(self._local_peer.ip, self._local_peer.port)
             )
@@ -107,7 +113,7 @@ class PeerConnection:
                 raise PeerError(peer=self)
 
         except Exception as oe:
-            logger.debug(f"{self}: Exception with connection.\n{oe}")
+            logger.error(f"{self}: Exception with connection.\n{oe}")
             raise PeerError(peer=self) from oe
 
     async def _consume(self):
@@ -165,15 +171,17 @@ class PeerConnection:
                     logger.debug(f"{self}: Unexpected message ID received: {msg_id}")
                     raise PeerError(peer=self)
         except CancelledError:
-            logger.debug(f"{self}: CancelledError handled in read_task.")
-            self._requester.remove_peer(self.peer.peer_id)
-            self.write_task.cancel()
+            logger.error(f"{self}: CancelledError handled in read_task.")
         except asyncio.IncompleteReadError as ire:
             logger.error(f"{self}: Unable to read {ire.expected} bytes , read: {len(ire.partial)}")
             raise PeerError(peer=self)
         except Exception as e:
-            logger.debug(f"{self}: Exception with connection.\n{e}")
+            logger.error(f"{self}: Exception with connection.\n{e}")
             raise PeerError(peer=self) from e
+        finally:
+            self._requester.remove_peer(self.peer.peer_id)
+            self.write_task.cancel()
+            self._stream_writer.close()
 
     async def _produce(self):
         """
@@ -233,12 +241,14 @@ class PeerConnection:
                     last_msg_sent = datetime.now()
 
         except asyncio.CancelledError:
-            logger.debug(f"{self}: Cancelling and closing connections.")
+            logger.error(f"{self}: Cancelling and closing connections.")
+        except Exception as oe:
+            logger.error(f"{self}: Exception with connection.\n{oe}")
+            raise PeerError(peer=self) from oe
+        finally:
             self._requester.remove_peer(self.peer.peer_id)
             self.read_task.cancel()
-        except Exception as oe:
-            logger.debug(f"{self}: Exception with connection.\n{oe}")
-            raise PeerError(peer=self) from oe
+            self._stream_writer.close()
 
     async def _handshake(self) -> bool:
         """
@@ -247,7 +257,7 @@ class PeerConnection:
         :return: True if the handshake is successful, False otherwise
         """
         logger.debug(f"{self}: Negotiating handshake.")
-        sent_handshake = Handshake(self.info_hash, self._local_peer._peer_id)
+        sent_handshake = Handshake(self.info_hash, self._local_peer.peer_id_bytes)
         self._stream_writer.write(sent_handshake.encode())
         await self._stream_writer.drain()
 

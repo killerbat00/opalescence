@@ -42,7 +42,7 @@ class ClientTorrent:
 
     def __init__(self, torrent: MetaInfoFile, destination: str):
         def complete():
-            logger.debug("Torrent is complete! We should clean up...")
+            logger.info("Torrent is complete! We should clean up...")
             for task in self.peer_tasks:
                 task.cancel()
 
@@ -55,7 +55,7 @@ class ClientTorrent:
         self.connected_peers: Set[PeerConnection] = set()
         self.abort = False
         self._task: Optional[asyncio.Task] = None
-        self.client_info = PeerInfo("localhost", 6881, _generate_peer_id())
+        self.client_info = PeerInfo("localhost", 6973, _generate_peer_id())
         self.peer_tasks: list = []
 
     async def download(self):
@@ -70,6 +70,9 @@ class ClientTorrent:
         while True:
             if self.requester.complete:
                 await self.tracker.completed()
+                for p in self.connected_peers:
+                    p.read_task.cancel()
+                    p.write_task.cancel()
                 logger.info(f"Torrent fully downloaded {self}")
                 break
             if self.abort:
@@ -91,13 +94,17 @@ class ClientTorrent:
                         interval = response.interval
                     self.current_peers = response.get_peers()
                     if not self.current_peers:
-                        raise TrackerConnectionError("no peers received...")
+                        msg = f"{self}: No peers received."
+                        logger.error(msg)
+                        raise TrackerConnectionError(msg)
                     for x in range(MAX_PEER_CONNECTIONS):
                         if len(self.current_peers) == 0:
+                            logger.info(f"{self}: No more peers to try connecting.")
                             break
                         ip, port = self.current_peers.pop()
                         logger.debug(f"IP: {ip}")
-                        ip = ip[7:]
+                        if ip == "10.10.2.55" and port == 6881:
+                            continue
                         p = PeerConnection(PeerInfo(ip, port), self.torrent.info_hash,
                                            self.requester, self.client_info)
                         self.connected_peers.add(p)

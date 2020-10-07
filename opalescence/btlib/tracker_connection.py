@@ -170,17 +170,19 @@ class TrackerConnection:
             raise TrackerConnectionError(f"{url}: Unable to make URL params.")
 
         try:
-            logger.debug(f"Making {event} announce to: {url}")
-            async with ClientSession(timeout=ClientTimeout(5)).get(f"{url}?{urlencode(params)}") as r:
-                if r.status != 200:
-                    logger.error(f"{url}: Unable to connect to tracker.")
-                    raise TrackerConnectionError("Non-200 HTTP status.")
+            url = F"{url}?{urlencode(params)}"
+            logger.info(f"Making {event} announce to: {url}")
+            async with ClientSession(timeout=ClientTimeout(5)) as session:
+                async with session.get(url) as r:
+                    if r.status != 200:
+                        logger.error(f"{url}: Unable to connect to tracker.")
+                        raise TrackerConnectionError("Non-200 HTTP status.")
 
-                if not event or event == EVENT_STARTED:
-                    data: bytes = await r.read()
-                    decoded_data: Response = receive(data)
-                    self.interval = decoded_data.interval
-                    return decoded_data
+                    if not event or event == EVENT_STARTED:
+                        data: bytes = await r.read()
+                        decoded_data: Response = receive(data)
+                        self.interval = decoded_data.interval
+                        return decoded_data
 
         except asyncio.TimeoutError:
             logger.error(f"{url}: Timeout connecting...")
@@ -189,6 +191,7 @@ class TrackerConnection:
         except TrackerConnectionError as tce:
             logger.error(f"{url}: Unable to connect to tracker. "
                          f"{tce.failure_reason}")
+            logger.info(tce, exc_info=True)
             raise tce
 
     async def cancel(self) -> None:

@@ -12,12 +12,6 @@ import bitstring as bitstring
 logger = logging.getLogger(__name__)
 
 
-class MessageReaderException(Exception):
-    """
-    Raised when there's an error with the MessageReader.
-    """
-
-
 class Message:
     """
     Base class for representing messages exchanged with the protocol
@@ -264,7 +258,7 @@ class Block(Message):
         self.begin = begin  # offset into the piece
         self.data = data
         if len(self.data) != Request.size:
-            logger.debug(f"Piece {self} received with a weird size: {len(self.data)}.")
+            logger.debug(f"Piece {self} received with an unrequested size: {len(self.data)}.")
 
     def __eq__(self, other):
         return self.index == other.index and self.begin == other.begin and self.data == other.data
@@ -318,7 +312,7 @@ class Piece:
         """
         assert (self.index == block.index)
         if block.begin != len(self.data):
-            logger.debug(f"Block begin index is non-sequential for: {self}\n{block}")
+            logger.debug(f"{self}: Block begin index is non-sequential for: {self}\n{block}")
             return
         self.data += block.data
 
