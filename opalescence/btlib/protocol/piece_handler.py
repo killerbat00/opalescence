@@ -242,7 +242,7 @@ class PieceRequester:
         :return: piece's index or None if not available
         """
         if self.complete:
-            return self.torrent_complete_cb()
+            return
 
         if len(self.pending_requests) >= 50:
             logger.debug(f"Too many currently pending requests.")
