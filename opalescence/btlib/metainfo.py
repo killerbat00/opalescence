@@ -6,6 +6,8 @@ creating a Torrent class (or .torrent file) from a specified file or directory.
 """
 from __future__ import annotations
 
+__all__ = ['CreationError', 'FileItem', 'MetaInfoFile']
+
 import hashlib
 import logging
 import os

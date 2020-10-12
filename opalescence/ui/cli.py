@@ -13,8 +13,8 @@ import signal
 import unittest
 
 from opalescence import __version__
+from opalescence.btlib.client import ClientTorrent
 from opalescence.btlib.metainfo import MetaInfoFile
-from ..btlib.client import ClientTorrent
 
 _LoggingConfig = {
     "version": 1,

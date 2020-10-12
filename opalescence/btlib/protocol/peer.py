@@ -1,5 +1,5 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
 """
 Support for basic communication with a peer.
 The piece-requesting and saving strategies are in piece_handler.py
@@ -9,26 +9,30 @@ No data is currently sent to the remote peer.
 """
 from __future__ import annotations
 
-import asyncio
-from asyncio import StreamWriter, CancelledError, Queue, events, StreamReaderProtocol
+__all__ = ['PeerConnection', 'PeerInfo', 'PeerError']
 
+import asyncio
+from logging import getLogger
+from typing import Optional
+
+from .errors import PeerError
 from .messages import *
 from .piece_handler import PieceRequester
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
 
 
 async def open_peer_connection(host=None, port=None, **kwds):
     """
     A wrapper for asyncio.open_connection() returning a (reader, writer) pair.
     """
-    loop = events.get_event_loop()
-    reader = StreamReader(loop=loop)
-    protocol = StreamReaderProtocol(reader, loop=loop)
+    loop = asyncio.events.get_event_loop()
+    reader = asyncio.StreamReader(loop=loop)
+    protocol = asyncio.StreamReaderProtocol(reader, loop=loop)
     transport, _ = await loop.create_connection(
         lambda: protocol, host, port, **kwds)
     transport.set_write_buffer_limits(0)
-    writer = StreamWriter(transport, protocol, reader, loop)
+    writer = asyncio.StreamWriter(transport, protocol, reader, loop)
     return reader, writer
 
 
@@ -64,12 +68,12 @@ class PeerConnection:
     """
 
     # TODO: Add support for sending pieces to the peer
-    def __init__(self, local_peer: PeerInfo, info_hash: bytes, requester: PieceRequester, peer_queue: Queue):
+    def __init__(self, local_peer: PeerInfo, info_hash: bytes, requester: PieceRequester, peer_queue: asyncio.Queue):
         self.local = local_peer
         self.info_hash: bytes = info_hash
         self.peer_queue = peer_queue
         self._requester: PieceRequester = requester
-        self._msg_to_send_q: Queue = Queue()
+        self._msg_to_send_q: asyncio.Queue = asyncio.Queue()
         self._task = asyncio.create_task(self.download())
         self._stop_forever = False
         self.peer: Optional[PeerInfo] = None
@@ -115,14 +119,14 @@ class PeerConnection:
                 await asyncio.gather(self._produce(writer), self._consume(reader))
 
             except Exception as cpe:
-                if not isinstance(cpe, CancelledError):
+                if not isinstance(cpe, asyncio.CancelledError):
                     logger.exception(f"{self}: {type(cpe).__name__} received in download.", exc_info=True)
             finally:
                 if not self.peer:
                     continue
                 logger.info(f"{self}: Closing connection with peer.")
                 self._requester.remove_peer(self.peer.peer_id)
-                self._msg_to_send_q = Queue()
+                self._msg_to_send_q = asyncio.Queue()
                 if writer:
                     await writer.drain()
                     writer.close()
@@ -170,7 +174,7 @@ class PeerConnection:
                 elif isinstance(msg, Cancel):
                     pass
         except Exception as ce:
-            if not isinstance(ce, CancelledError):
+            if not isinstance(ce, asyncio.CancelledError):
                 logger.error(f"{self}: {type(ce).__name__} received in write_task:_consume.")
                 logger.exception(ce, exc_info=True)
             raise PeerError from ce
@@ -233,11 +237,11 @@ class PeerConnection:
                 self._msg_to_send_q.task_done()
 
         except Exception as ce:
-            if not isinstance(ce, CancelledError):
+            if not isinstance(ce, asyncio.CancelledError):
                 logger.exception(f"{self}: {type(ce).__name__} received in produce.", exc_info=True)
             raise PeerError from ce
 
-    async def _handshake(self, reader: StreamReader, writer: StreamWriter) -> bool:
+    async def _handshake(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> bool:
         """
         Negotiates the handshake with the peer.
 

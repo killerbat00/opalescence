@@ -3,6 +3,9 @@
 """
 Contains the logic for requesting pieces, as well as that for writing them to disk.
 """
+
+__all__ = ['PieceRequester', 'FileWriter']
+
 import asyncio
 import errno
 import functools

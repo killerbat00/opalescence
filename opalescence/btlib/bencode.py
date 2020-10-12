@@ -5,6 +5,8 @@ Provides support for decoding a bencoded string into a python OrderedDict,
 bencoding a decoded OrderedDict, and pretty printing said OrderedDict.
 """
 
+__all__ = ['DecodeError', 'EncodeError', 'Decoder', 'Encoder']
+
 from collections import OrderedDict
 from io import BytesIO
 from typing import Union, Dict, AnyStr, Optional, List, SupportsInt

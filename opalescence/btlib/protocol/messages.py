@@ -1,18 +1,25 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+"""
+Model classes for messages received over the bittorrent protocol
+as well as an async iterator that can wrap a StreamReader and return
+parsed messages.
+"""
 from __future__ import annotations
 
-import logging
+__all__ = ['Handshake', 'KeepAlive', 'Choke', 'Unchoke', 'Interested', 'NotInterested', 'Have',
+           'Bitfield', 'Request', 'Block', 'Piece', 'Cancel', 'MessageReader']
+
 import struct
 from asyncio import IncompleteReadError, StreamReader
+from logging import getLogger
 from typing import Optional
 
-import bitstring as bitstring
+import bitstring
 
-from opalescence.btlib.protocol.errors import PeerError
+from .errors import PeerError
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
 
 
 class Message:

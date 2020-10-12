@@ -4,17 +4,19 @@
 Contains the client logic for opalescence.
 The client is responsible for orchestrating communication with the tracker and between peers.
 """
+
+__all__ = ['ClientError', 'ClientTorrent']
+
 import asyncio
-import logging
-from asyncio import Queue, CancelledError
+from logging import getLogger
 from random import randint
 
-from opalescence.btlib.metainfo import MetaInfoFile
+from .metainfo import MetaInfoFile
 from .protocol.peer import PeerConnection, PeerInfo
 from .protocol.piece_handler import PieceRequester, FileWriter
 from .tracker_connection import TrackerConnection, TrackerConnectionError
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
 
 MAX_PEER_CONNECTIONS = 5
 
@@ -33,9 +35,9 @@ class ClientError(Exception):
     """
 
 
-PEER_ID = _generate_peer_id()
+PEER_ID = b'-OP0001-777605734135'
 LOCAL_IP = "10.10.2.55"
-LOCAL_PORT = 6885
+LOCAL_PORT = 6882
 
 
 class ClientTorrent:
@@ -48,7 +50,7 @@ class ClientTorrent:
         self.client_info = PeerInfo(LOCAL_IP, LOCAL_PORT, PEER_ID)
         self.torrent = torrent
         self.tracker = TrackerConnection(self.client_info.peer_id_bytes, torrent)
-        self.peer_q = Queue()
+        self.peer_q = asyncio.Queue()
         self.writer = FileWriter(torrent, destination)
         self.peers = []
         self.abort = False
@@ -111,14 +113,15 @@ class ClientTorrent:
                             self.peer_q.get_nowait()
 
                         for peer in response.get_peers():
-                            if peer[0] == self.client_info.ip and peer[1] == self.client_info.port:
-                                logger.info(f"{self}: Ignoring peer. It's us.")
-                                continue
+                            if peer[0] == self.client_info.ip:
+                                if peer[1] in [6881, 6882]:
+                                    logger.info(f"{self}: Ignoring peer. It's us.")
+                                    continue
                             self.peer_q.put_nowait(PeerInfo(peer[0], peer[1]))
                 else:
                     await asyncio.sleep(interval)
-        except (CancelledError, Exception) as e:
-            if not isinstance(e, CancelledError):
+        except (asyncio.CancelledError, Exception) as e:
+            if not isinstance(e, asyncio.CancelledError):
                 logger.debug(f"{self}: {type(e).__name__} exception received in client.download.")
                 logger.exception(e, exc_info=True)
         finally:

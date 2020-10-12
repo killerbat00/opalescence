@@ -3,6 +3,9 @@
 """
 Support for communication with an external tracker.
 """
+
+__all__ = ['Response', 'TrackerConnectionError', 'TrackerConnection']
+
 import logging
 import socket
 import struct
@@ -11,8 +14,8 @@ from urllib.parse import urlencode
 
 from aiohttp import ClientSession, ClientTimeout
 
-from opalescence.btlib.bencode import Decoder
-from opalescence.btlib.metainfo import MetaInfoFile
+from .bencode import Decoder
+from .metainfo import MetaInfoFile
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +131,7 @@ class TrackerConnection:
         self.uploaded = 0
         self.downloaded = 0
         self.left: int = meta_info.total_size
-        self.port = 6881
+        self.port = 6882
         self.interval = self.DEFAULT_INTERVAL
 
     def _get_url_params(self, event: str = "") -> dict:
@@ -169,7 +172,7 @@ class TrackerConnection:
             raise TrackerConnectionError(f"{url}: Unable to make URL params.")
 
         try:
-            url = F"{url}?{urlencode(params)}"
+            url = f"{url}?{urlencode(params)}"
             logger.info(f"Making {event} announce to: {url}")
             async with ClientSession(timeout=ClientTimeout(5)) as session:
                 async with session.get(url) as r:
@@ -183,15 +186,10 @@ class TrackerConnection:
                         self.interval = decoded_data.interval
                         return decoded_data
 
-        except TimeoutError as tie:
-            msg = f"{url}: Timeout connecting..."
-            logger.error(msg)
-            logger.info(tie, exc_info=True)
-            raise TrackerConnectionError(msg) from tie
-        except TrackerConnectionError as tce:
-            logger.error(f"{url}: Unable to connect to tracker: f{tce.failure_reason}")
-            logger.info(tce, exc_info=True)
-            raise tce
+        except (TimeoutError, TrackerConnectionError) as tie:
+            logger.error(f"{self}: {type(tie).__name__} received in write_task:_consume.")
+            logger.exception(tie, exc_info=True)
+            raise TrackerConnectionError from tie
 
     async def cancel(self) -> None:
         """
