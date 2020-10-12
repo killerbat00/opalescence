@@ -5,17 +5,19 @@ from __future__ import annotations
 
 import logging
 import struct
-from asyncio import IncompleteReadError
+from asyncio import IncompleteReadError, StreamReader
 from typing import Optional
 
 import bitstring as bitstring
+
+from opalescence.btlib.protocol.errors import PeerError
 
 logger = logging.getLogger(__name__)
 
 
 class Message:
     """
-    Base class for representing messages exchanged with the protocol
+    Base class for messages exchanged with the protocol
 
     Messages (except the initial handshake) look like:
     <Length prefix><Message ID><Payload>
@@ -31,6 +33,22 @@ class Message:
         return type(self) == type(other)
 
 
+class NoInfoMessage:
+    """
+    Base class for a protocol message with no only a
+    message identifier and no additional info
+    """
+    msg_id = None
+
+    @classmethod
+    def decode(cls):
+        return cls()
+
+    @classmethod
+    def encode(cls) -> bytes:
+        return struct.pack(">IB", 1, cls.msg_id)
+
+
 class Handshake(Message):
     """
     Handles the handshake message with the protocol
@@ -42,11 +60,16 @@ class Handshake(Message):
         self.info_hash = info_hash
         self.peer_id = peer_id
 
-    def __eq__(self, other):
-        return self.info_hash == other.info_hash and self.peer_id == other.peer_id
-
     def __str__(self):
         return f"Handshake: {self.peer_id}:{self.info_hash}"
+
+    def __hash__(self):
+        return hash((self.info_hash, self.peer_id))
+
+    def __eq__(self, other: Handshake):
+        if not isinstance(other, Handshake):
+            return False
+        return self.info_hash == other.info_hash and self.peer_id == other.peer_id
 
     def encode(self) -> bytes:
         """
@@ -62,18 +85,6 @@ class Handshake(Message):
         """
         unpacked_data = cls.fmt.unpack(handshake_data)
         return cls(unpacked_data[2], unpacked_data[3])
-
-
-class NoInfoMessage:
-    msg_id = None
-
-    @classmethod
-    def decode(cls):
-        return cls()
-
-    @classmethod
-    def encode(cls) -> bytes:
-        return struct.pack(">IB", 1, cls.msg_id)
 
 
 class KeepAlive(Message):
@@ -138,11 +149,16 @@ class Have(Message):
     def __init__(self, index: int):
         self.index = index
 
-    def __eq__(self, other):
-        return self.index == other.index
-
     def __str__(self):
         return f"Have: {self.index}"
+
+    def __hash__(self):
+        return hash(self.index)
+
+    def __eq__(self, other):
+        if not isinstance(other, Have):
+            return False
+        return self.index == other.index
 
     def encode(self) -> bytes:
         """
@@ -170,11 +186,16 @@ class Bitfield(Message):
     def __init__(self, bitfield: bytes):
         self.bitfield = bitstring.BitArray(bytes=bitfield)
 
-    def __eq__(self, other):
-        return self.bitfield == other.bitfield
-
     def __str__(self):
         return f"Bitfield: {self.bitfield}"
+
+    def __hash__(self):
+        return hash(self.bitfield)
+
+    def __eq__(self, other: Bitfield):
+        if not isinstance(other, Bitfield):
+            return False
+        return self.bitfield == other.bitfield
 
     def encode(self) -> bytes:
         """
@@ -208,11 +229,16 @@ class Request(Message):
         self.length = length
         self.peer_id = peer_id
 
-    def __eq__(self, other):
-        return self.index == other.index and self.begin == other.begin
-
     def __str__(self):
         return f"Request: {self.index}:{self.begin}:{self.length}"
+
+    def __hash__(self):
+        return hash((self.index, self.begin, self.length))
+
+    def __eq__(self, other: Request):
+        if not isinstance(other, Request):
+            return False
+        return self.index == other.index and self.begin == other.begin and self.length == other.length
 
     def encode(self) -> bytes:
         """
@@ -245,11 +271,16 @@ class Block(Message):
         if len(self.data) != Request.size:
             logger.debug(f"Piece {self} received with an unrequested size: {len(self.data)}.")
 
-    def __eq__(self, other):
-        return self.index == other.index and self.begin == other.begin and self.data == other.data
-
     def __str__(self):
         return f"Block: {self.index}:{self.begin}:{self.data}"
+
+    def __hash__(self):
+        return hash((self.index, self.begin, self.data))
+
+    def __eq__(self, other: Block):
+        if not isinstance(other, Block):
+            return False
+        return self.index == other.index and self.begin == other.begin and self.data == other.data
 
     def encode(self) -> bytes:
         """
@@ -282,20 +313,26 @@ class Piece:
         self.length: int = length
         self.data: bytes = b''
 
-    def __eq__(self, other: Piece):
-        return self.index == other.index \
-               and self.data == other.data \
-               and self.length == other.length
-
     def __str__(self):
         return f"Piece ({self.index}:{self.length}): {self.data}"
+
+    def __hash__(self):
+        return hash((self.index, self.length, self.data))
+
+    def __eq__(self, other: Piece):
+        if not isinstance(other, Piece):
+            return False
+        equal = self.index == other.index and self.length and other.length
+        if self.data and other.data:
+            equal = equal and self.data == other.data
+        return equal
 
     def add_block(self, block: Block):
         """
         Adds a block to this piece.
         :param block: The block message containing the block's info
         """
-        assert (self.index == block.index)
+        assert self.index == block.index
         if block.begin != len(self.data):
             logger.debug(f"{self}: Block begin index is non-sequential for: {self}\n{block}")
             return
@@ -339,11 +376,16 @@ class Cancel(Message):
         self.begin = begin
         self.length = length
 
-    def __eq__(self, other):
-        return self.index == other.index and self.begin == other.begin and self.length == other.length
-
     def __str__(self):
         return f"Cancel: {self.index}:{self.begin}:{self.length}"
+
+    def __hash__(self):
+        return hash((self.index, self.begin, self.length))
+
+    def __eq__(self, other: Cancel):
+        if not isinstance(other, Cancel):
+            return False
+        return self.index == other.index and self.begin == other.begin and self.length == other.length
 
     def encode(self) -> bytes:
         """
@@ -375,7 +417,7 @@ class MessageReader:
     _msg_id_to_cls = {0: Choke, 1: Unchoke, 2: Interested, 3: NotInterested,
                       4: Have, 5: Bitfield, 6: Request, 7: Block, 8: Cancel}
 
-    def __init__(self, peer, stream_reader):
+    def __init__(self, peer, stream_reader: StreamReader):
         self.peer = peer
         self.stream_reader = stream_reader
 
@@ -391,6 +433,10 @@ class MessageReader:
         if self.stream_reader.at_eof():
             raise StopAsyncIteration
 
+        _exc = self.stream_reader.exception()
+        if _exc:
+            raise _exc
+
         try:
             msg_len = struct.unpack(">I", await self.stream_reader.readexactly(4))[0]
             if msg_len == 0:
@@ -398,18 +444,16 @@ class MessageReader:
 
             msg_id = struct.unpack(">B", await self.stream_reader.readexactly(1))[0]
             if not msg_id or (not (0 < msg_id < 8)):
-                logger.error(f"{self}: Unknown message received: {msg_id}")
-                raise StopAsyncIteration
+                raise PeerError(f"{self}: Unknown message received: {msg_id}")
 
             msg_len -= 1  # the msg_len includes 1 byte for the id, we've consumed that already
             if msg_len == 0:
                 return self._msg_id_to_cls[msg_id].decode()
             return self._msg_id_to_cls[msg_id].decode(await self.stream_reader.readexactly(msg_len))
 
-        except IncompleteReadError as ire:
-            logger.exception(f"{self}: Unable to read {ire.expected} bytes , read: {len(ire.partial)}, "
-                             f"{ire.partial}", exc_info=True)
-            raise StopAsyncIteration
+        except IncompleteReadError:
+            logger.exception(f"{self}", exc_info=True)
+            raise PeerError
         except Exception:
             logger.exception(f"{self}: Exception encountered...", exc_info=True)
             raise StopAsyncIteration

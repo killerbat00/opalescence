@@ -113,7 +113,9 @@ def download(file_path) -> None:
     Downloads a .torrent file
     :param file_path: .torrent filepath argparse.Namespace object
     """
+    logger = logging.getLogger("opalescence")
     asyncio.run(do_download(file_path.torrent_file, file_path.destination))
+    logger.info(f"Shutting down. Thank you for using opalescence v{__version__}.")
 
 
 def d2(tfile, dest) -> None:
@@ -127,7 +129,7 @@ async def do_download(torrent_fp, dest_fp):
     loop = asyncio.get_event_loop()
     loop.set_debug(__debug__)
     torrent = ClientTorrent(MetaInfoFile.from_file(torrent_fp), dest_fp)
-    start_task = loop.create_task(torrent.download())
+    start_task = torrent.download()
 
     def signal_handler(_, __):
         logger.debug("SIGINT received.")
@@ -139,11 +141,9 @@ async def do_download(torrent_fp, dest_fp):
         # Main entry point
         await start_task
     except asyncio.CancelledError:
-        logger.debug("CancelledError")
-    except KeyboardInterrupt:
-        logger.debug("Keyboard interrupt received.")
+        start_task.cancel()
+        await asyncio.sleep(0)
     except Exception as ex:
-        logger.error(f"Unknown exception received: {type(ex).__name__}")
-        logger.debug(ex, exc_info=True)
-    finally:
-        logger.info(f"Shutting down. Thank you for using opalescence v{__version__}.")
+        if not isinstance(ex, KeyboardInterrupt):
+            logger.error(f"{type(ex).__name__} exception received.")
+            logger.exception(ex, exc_info=True)

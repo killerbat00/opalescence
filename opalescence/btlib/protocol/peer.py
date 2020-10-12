@@ -10,7 +10,7 @@ No data is currently sent to the remote peer.
 from __future__ import annotations
 
 import asyncio
-from asyncio import StreamWriter, CancelledError, Queue, StreamReader, events, StreamReaderProtocol
+from asyncio import StreamWriter, CancelledError, Queue, events, StreamReaderProtocol
 
 from .messages import *
 from .piece_handler import PieceRequester
@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 
 async def open_peer_connection(host=None, port=None, **kwds):
-    """A wrapper for asyncio.open_connection() returning a (reader, writer) pair.
-
+    """
+    A wrapper for asyncio.open_connection() returning a (reader, writer) pair.
     """
     loop = events.get_event_loop()
     reader = StreamReader(loop=loop)
@@ -30,15 +30,6 @@ async def open_peer_connection(host=None, port=None, **kwds):
     transport.set_write_buffer_limits(0)
     writer = StreamWriter(transport, protocol, reader, loop)
     return reader, writer
-
-
-class PeerError(Exception):
-    """
-    Raised when we encounter an error communicating with the peer.
-    """
-
-    def __init__(self, peer: PeerConnection = None):
-        self.peer: PeerConnection = peer
 
 
 class PeerInfo:
@@ -76,10 +67,10 @@ class PeerConnection:
     def __init__(self, local_peer: PeerInfo, info_hash: bytes, requester: PieceRequester, peer_queue: Queue):
         self.local = local_peer
         self.info_hash: bytes = info_hash
-        self._requester: PieceRequester = requester
         self.peer_queue = peer_queue
+        self._requester: PieceRequester = requester
         self._msg_to_send_q: Queue = Queue()
-        self.peer_task = asyncio.create_task(self.download())
+        self._task = asyncio.create_task(self.download())
         self._stop_forever = False
         self.peer: Optional[PeerInfo] = None
 
@@ -98,8 +89,8 @@ class PeerConnection:
 
     def stop_forever(self):
         self._stop_forever = True
-        if self.peer_task:
-            self.peer_task.cancel()
+        if self._task:
+            self._task.cancel()
 
     async def download(self):
         """
@@ -119,13 +110,13 @@ class PeerConnection:
                 )
 
                 if not await self._handshake(reader, writer):
-                    raise PeerError(peer=self)
+                    raise PeerError
 
                 await asyncio.gather(self._produce(writer), self._consume(reader))
-            except (CancelledError, PeerError, Exception) as cpe:
+
+            except Exception as cpe:
                 if not isinstance(cpe, CancelledError):
-                    logger.debug(f"{self}: {type(cpe).__name__} received in download.")
-                    logger.exception(cpe, exc_info=True)
+                    logger.exception(f"{self}: {type(cpe).__name__} received in download.", exc_info=True)
             finally:
                 if not self.peer:
                     continue
@@ -179,8 +170,9 @@ class PeerConnection:
                 elif isinstance(msg, Cancel):
                     pass
         except Exception as ce:
-            logger.error(f"{self}: {type(ce).__name__} received in write_task:_consume.")
-            logger.exception(ce, exc_info=True)
+            if not isinstance(ce, CancelledError):
+                logger.error(f"{self}: {type(ce).__name__} received in write_task:_consume.")
+                logger.exception(ce, exc_info=True)
             raise PeerError from ce
 
     async def _produce(self, writer):
@@ -241,11 +233,11 @@ class PeerConnection:
                 self._msg_to_send_q.task_done()
 
         except Exception as ce:
-            logger.error(f"{self}: {type(ce).__name__} received in produce.")
-            logger.exception(ce, exc_info=True)
+            if not isinstance(ce, CancelledError):
+                logger.exception(f"{self}: {type(ce).__name__} received in produce.", exc_info=True)
             raise PeerError from ce
 
-    async def _handshake(self, reader, writer) -> bool:
+    async def _handshake(self, reader: StreamReader, writer: StreamWriter) -> bool:
         """
         Negotiates the handshake with the peer.
 
