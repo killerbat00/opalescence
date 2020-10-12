@@ -165,7 +165,7 @@ class PeerConnection:
                     pass
                     # self._requester.add_peer_request(self.peer.peer_id, msg)
                 elif isinstance(msg, Block):
-                    self._requester.received_block(self.peer.peer_id, msg)
+                    await self._requester.received_block(self.peer.peer_id, msg)
                     self._msg_to_send_q.put_nowait(self._requester.next_request_for_peer(self.peer.peer_id))
                 elif isinstance(msg, Cancel):
                     pass

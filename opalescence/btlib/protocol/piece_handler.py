@@ -1,23 +1,48 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 """
 Contains the logic for requesting pieces, as well as that for writing them to disk.
 """
+import asyncio
 import errno
+import functools
 import hashlib
 import logging
 import os
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Callable
+from typing import Dict, List, Set, Callable, Optional
 
-import bitstring as bitstring
+import bitstring
 
-from opalescence.btlib.metainfo import MetaInfoFile
-from .messages import Request, Block, Piece
+from .messages import Request, Piece, Block
+from ..metainfo import MetaInfoFile, FileItem
 
 logger = logging.getLogger(__name__)
+
+
+def force_sync(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        res = func(*args, **kwargs)
+        if asyncio.iscoroutine(res):
+            return asyncio.get_event_loop().run_until_complete(res)
+        return res
+
+    return wrapper
+
+
+def delegate_to_executor(func):
+    @functools.wraps(func)
+    async def wrapper(self, *args, **kwargs):
+        await self._lock.acquire()
+        try:
+            return await asyncio.get_running_loop().run_in_executor(None,
+                                                                    functools.partial(func, self, *args, **kwargs))
+        finally:
+            self._lock.release()
+
+    return wrapper
 
 
 class FileWriter:
@@ -25,71 +50,94 @@ class FileWriter:
     Writes piece data to temp memory for now.
     Will eventually flush data to the disk.
     """
-    def __init__(self, torrent: MetaInfoFile, save_dir):
-        self.torrent = torrent
-        self.base_dir = save_dir
-        self.file_data = [bytearray(f.size) for f in self.torrent.files]
+    WRITE_BUFFER_SIZE = 2 ** 13  # 8K
 
-    def _file_for_piece(self, piece):
-        offset = piece.index * self.torrent.piece_length
-        return self._file_for_offset(offset)
+    def __init__(self, torrent: MetaInfoFile, save_dir: str):
+        self._torrent = torrent
+        self._base_dir = save_dir
+        self._lock = asyncio.Lock()
+        self._buffered_data = [[0, bytearray()] for _ in range(len(torrent.files))]
 
-    def _file_for_offset(self, offset):
+    def _file_for_offset(self, offset: int):
+        """
+        :param offset: the contiguous offset of the piece (as if all files were concatenated together)
+        :return: (file_num, FileItem, file_offset)
+        """
         size_sum = 0
-        for i, file in enumerate(self.torrent.files):
+        for i, file in enumerate(self._torrent.files):
             if offset - size_sum < file.size:
                 file_offset = offset - size_sum
                 return i, file, file_offset
             size_sum += file.size
 
-    def _write_data(self, file_num, path, data_to_write, offset):
-        p = Path(self.base_dir) / path
-        logger.info(f"Writing data to memory for {p}")
-        self.file_data[file_num][offset:] = data_to_write
+    async def _write_or_buffer(self, data_to_write: bytes, file_num: int, file: FileItem, offset: int):
+        """
+        Buffers the data up to WRITE_BUFFER_SIZE, writing data once our buffer exceeds that size.
+        :param data_to_write: data to buffer or write
+        :param file_num: index of file in torrent's file list
+        :param file: FileItem containing file path and size
+        :param offset: Offset into the file to begin writing this data
+        """
+        data_to_write_length = len(data_to_write) + len(self._buffered_data[file_num][1])
+        if data_to_write_length > self.WRITE_BUFFER_SIZE:
+            data_to_write = self._buffered_data[file_num][1] + data_to_write
+            self._write_data(self, data_to_write, file, self._buffered_data[file_num][0])
+            self._buffered_data[file_num][1].clear()
+        else:
+            if len(self._buffered_data[file_num][1]) == 0:
+                self._buffered_data[file_num][0] = offset
+            self._buffered_data[file_num] += data_to_write
 
-        if offset + len(data_to_write) >= self.torrent.files[file_num].size:
-            logger.info(f"Writing entire file: {p}")
-            if not os.path.exists(os.path.dirname(p)):
-                try:
-                    os.makedirs(os.path.dirname(p))
-                except OSError as exc:  # Guard against race condition
-                    if exc.errno != errno.EEXIST:
-                        raise
+    @delegate_to_executor
+    def _write_data(self, data_to_write, file, offset):
+        """
+        Writes data to the file in an executor so we don't block the main event loop.
+        :param data_to_write: data to write to file
+        :param file: FileItem containing file path and size
+        :param offset: Offset into the file to begin writing this data
+        """
+        p = Path(self._base_dir) / file.path
+        logger.info(f"Writing data to {p}")
+        if not os.path.exists(os.path.dirname(p)):
             try:
-                with open(p, "wb+") as fd:
-                    fd.write(self.file_data[file_num])
-            except (OSError, Exception) as oe:
-                logger.error(f"Encountered exception when writing {p}")
-                logger.info(oe, exc_info=True)
-                raise oe
+                os.makedirs(os.path.dirname(p))
+            except OSError as exc:  # Guard against race condition
+                if exc.errno != errno.EEXIST:
+                    raise
+        try:
+            with open(p, "wb+") as fd:
+                fd.seek(offset)
+                fd.write(data_to_write)
+                fd.flush()
+        except (OSError, Exception):
+            logger.exception(f"Encountered exception when writing {p}", exc_info=True)
+            raise
 
-    def write(self, piece: Piece):
+    async def write(self, piece: Piece):
         """
-        Writes the piece's data to the buffer
+        Buffers (and eventually) writes the piece's
+        data to the appropriate file(s).
+        :param piece: piece to write
         """
-        file_num, file, file_offset = self._file_for_piece(piece)
-        leftover = None
+        # TODO: Handle trying to write incomplete pieces
+        assert piece.complete
+
+        offset = piece.index * self._torrent.piece_length
         data_to_write = piece.data
-        offset = 0
-        if file_offset + len(piece.data) > file.size:
-            data_to_write = piece.data[:file.size - file_offset]
-            leftover = piece.data[file.size - file_offset:]
-            offset = (piece.index * self.torrent.piece_length) + len(data_to_write)
-
-        self._write_data(file_num, file.path, data_to_write, file_offset)
+        leftover = data_to_write
         while leftover:
             file_num, file, file_offset = self._file_for_offset(offset)
-            if file_num >= len(self.torrent.files):
+            if file_num >= len(self._torrent.files):
                 logger.error("Too much data and not enough files...")
                 raise
-            data_to_write = leftover
+
             if file_offset + len(leftover) > file.size:
+                leftover = data_to_write[file.size - file_offset:]
                 data_to_write = data_to_write[:file.size - file_offset]
-                leftover = leftover[file.size - file_offset:]
-                offset = (piece.index * self.torrent.piece_length) + len(data_to_write)
+                offset = (piece.index * self._torrent.piece_length) + len(data_to_write)
             else:
                 leftover = None
-            self._write_data(file_num, file.path, data_to_write, file_offset)
+            await self._write_or_buffer(data_to_write, file_num, file, file_offset)
 
 
 class PieceRequester:
@@ -164,7 +212,7 @@ class PieceRequester:
 
         self.remove_pending_requests_for_peer(peer_id)
 
-    def received_block(self, peer_id: str, block: Block) -> Optional[Piece]:
+    async def received_block(self, peer_id: str, block: Block) -> Optional[Piece]:
         """
         Called when we've received a block from the remote peer.
         First, see if there are other blocks from that piece already downloaded.
@@ -200,9 +248,9 @@ class PieceRequester:
             self.downloading_pieces[piece.index] = piece
 
         if piece.complete:
-            return self.piece_complete(piece)
+            return await self.piece_complete(piece)
 
-    def piece_complete(self, piece: Piece):
+    async def piece_complete(self, piece: Piece):
         piece_hash = hashlib.sha1(piece.data).digest()
         if piece_hash != self.torrent.piece_hashes[piece.index]:
             logger.debug(
@@ -223,7 +271,7 @@ class PieceRequester:
                 if pending_request.index == piece.index:
                     del self.pending_requests[i]
 
-            self.writer.write(piece)
+            await self.writer.write(piece)
 
             if self.complete:
                 self.torrent_complete_cb()
