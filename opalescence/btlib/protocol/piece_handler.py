@@ -7,6 +7,7 @@ Contains the logic for requesting pieces, as well as that for writing them to di
 __all__ = ['PieceRequester', 'FileWriter']
 
 import asyncio
+import dataclasses
 import errno
 import functools
 import hashlib
@@ -37,18 +38,24 @@ def delegate_to_executor(func):
     return wrapper
 
 
+@dataclasses.dataclass
+class WriteBuffer:
+    buffer = b''
+    offset = 0
+
+
 class FileWriter:
     """
     Writes piece data to temp memory for now.
     Will eventually flush data to the disk.
     """
-    WRITE_BUFFER_SIZE = 2 ** 13  # 8K
+    WRITE_BUFFER_SIZE = 2 ** 13  # 8kb
 
     def __init__(self, torrent: MetaInfoFile, save_dir: str):
         self._torrent = torrent
         self._base_dir = save_dir
         self._lock = asyncio.Lock()
-        self._buffered_data = [[0, bytearray()] for _ in range(len(torrent.files))]
+        self._write_buffers = [WriteBuffer() for _ in range(len(torrent.files))]
 
     def _file_for_offset(self, offset: int):
         """
@@ -70,15 +77,18 @@ class FileWriter:
         :param file: FileItem containing file path and size
         :param offset: Offset into the file to begin writing this data
         """
-        data_to_write_length = len(data_to_write) + len(self._buffered_data[file_num][1])
-        if data_to_write_length > self.WRITE_BUFFER_SIZE:
-            data_to_write = self._buffered_data[file_num][1] + data_to_write
-            self._write_data(data_to_write, file, self._buffered_data[file_num][0])
-            self._buffered_data[file_num][1].clear()
+        write_buffer = self._write_buffers[file_num]
+
+        data_to_write_length = len(data_to_write) + len(write_buffer.buffer)
+        if data_to_write_length >= self.WRITE_BUFFER_SIZE:
+            data_to_write = write_buffer.buffer + data_to_write
+            self._write_data(data_to_write, file, write_buffer.offset)
+            write_buffer.buffer = b''
+            write_buffer.offset += data_to_write_length
         else:
-            if len(self._buffered_data[file_num][1]) == 0:
-                self._buffered_data[file_num][0] = offset
-            self._buffered_data[file_num] += data_to_write
+            write_buffer.buffer += data_to_write
+            if len(write_buffer.buffer) == 0:
+                write_buffer.offset = offset
 
     def _write_data(self, data_to_write, file, offset):
         """
@@ -96,8 +106,8 @@ class FileWriter:
                 if exc.errno != errno.EEXIST:
                     raise
         try:
-            with open(p, "wb+") as fd:
-                fd.seek(offset)
+            with open(p, "ab+") as fd:
+                fd.seek(offset, 0)
                 fd.write(data_to_write)
                 fd.flush()
         except (OSError, Exception):
@@ -115,20 +125,20 @@ class FileWriter:
 
         offset = piece.index * self._torrent.piece_length
         data_to_write = piece.data
-        leftover = data_to_write
-        while leftover:
+        while data_to_write:
             file_num, file, file_offset = self._file_for_offset(offset)
             if file_num >= len(self._torrent.files):
                 logger.error("Too much data and not enough files...")
                 raise
 
-            if file_offset + len(leftover) > file.size:
-                leftover = data_to_write[file.size - file_offset:]
-                data_to_write = data_to_write[:file.size - file_offset]
-                offset = (piece.index * self._torrent.piece_length) + len(data_to_write)
+            if file_offset + len(data_to_write) > file.size:
+                data_for_file = data_to_write[:file.size - file_offset]
+                data_to_write = data_to_write[file.size - file_offset:]
+                offset += len(data_for_file)
             else:
-                leftover = None
-            self._write_or_buffer(data_to_write, file_num, file, file_offset)
+                data_for_file = data_to_write
+                data_to_write = None
+            self._write_data(data_for_file, file, file_offset)
 
 
 class PieceRequester:

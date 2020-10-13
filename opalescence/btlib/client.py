@@ -19,6 +19,9 @@ from .tracker_connection import TrackerConnection, TrackerConnectionError
 logger = getLogger(__name__)
 
 MAX_PEER_CONNECTIONS = 5
+PEER_ID = b'-OP0001-777605734135'
+LOCAL_IP = "10.10.2.55"
+LOCAL_PORT = 6881
 
 
 def _generate_peer_id():
@@ -33,11 +36,6 @@ class ClientError(Exception):
     """
     Raised when the client encounters an error
     """
-
-
-PEER_ID = b'-OP0001-777605734135'
-LOCAL_IP = "10.10.2.55"
-LOCAL_PORT = 6881
 
 
 class ClientTorrent:
@@ -133,6 +131,7 @@ class ClientTorrent:
                 logger.exception(e, exc_info=True)
             else:
                 await self.tracker.cancel()
+                logger.info(f"{self}: Downloaded: {self.stats['downloaded']} Uploaded: {self.stats['uploaded']}")
         finally:
             logger.debug(f"{self}: Ending download loop. Cleaning up.")
             for peer in self.peers:
