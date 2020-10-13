@@ -24,26 +24,13 @@ from ..metainfo import MetaInfoFile, FileItem
 logger = logging.getLogger(__name__)
 
 
-def force_sync(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        res = func(*args, **kwargs)
-        if asyncio.iscoroutine(res):
-            return asyncio.get_event_loop().run_until_complete(res)
-        return res
-
-    return wrapper
-
-
-async def delegate_to_executor(func):
+def delegate_to_executor(func):
     @functools.wraps(func)
     async def wrapper(self, *args, **kwargs):
         await self._lock.acquire()
-        loop = asyncio.get_running_loop()
-        partial = functools.partial(func, self, *args, **kwargs)
-        future = loop.run_in_executor(None, partial)
         try:
-            await asyncio.wait_for(future, timeout=None)
+            return await asyncio.get_running_loop().run_in_executor(None,
+                                                                    functools.partial(func, self, *args, **kwargs))
         finally:
             self._lock.release()
 
