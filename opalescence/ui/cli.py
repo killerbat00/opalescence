@@ -21,7 +21,7 @@ _LoggingConfig = {
     "version": 1,
     "formatters": {
         "basic": {
-            "format": "[%(levelname)s] %(asctime)s : %(name)s : %(message)s"
+            "format": "[%(levelname)12s] %(asctime)s : %(name)s : %(message)s"
         }
     },
     "handlers": {

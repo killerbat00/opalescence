@@ -16,6 +16,7 @@ from aiohttp import ClientSession, ClientTimeout
 
 from .bencode import Decoder
 from .metainfo import MetaInfoFile
+from .protocol.peer import PeerInfo
 
 logger = logging.getLogger(__name__)
 
@@ -124,14 +125,12 @@ class TrackerConnection:
 
     DEFAULT_INTERVAL: int = 60  # 1 minute
 
-    def __init__(self, peer_id: bytes, meta_info: MetaInfoFile):
-        self.peer_id: bytes = peer_id
+    def __init__(self, local_info: PeerInfo, meta_info: MetaInfoFile, stats: dict):
+        self.peer_id: bytes = local_info.peer_id_bytes
         self.info_hash: bytes = meta_info.info_hash
         self.announce_urls: List[List[str]] = meta_info.announce_urls
-        self.uploaded = 0
-        self.downloaded = 0
-        self.left: int = meta_info.total_size
-        self.port = 6882
+        self.stats = stats
+        self.port = local_info.port
         self.interval = self.DEFAULT_INTERVAL
 
     def _get_url_params(self, event: str = "") -> dict:
@@ -142,9 +141,9 @@ class TrackerConnection:
         params = {"info_hash": self.info_hash,
                   "peer_id": self.peer_id,
                   "port": self.port,
-                  "uploaded": self.uploaded,
-                  "downloaded": self.downloaded,
-                  "left": self.left,
+                  "uploaded": self.stats.get("uploaded", 0),
+                  "downloaded": self.stats.get("downloaded", 0),
+                  "left": self.stats.get("left", 0),
                   "compact": 1,
                   "event": event}
         return params

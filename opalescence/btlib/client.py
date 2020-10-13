@@ -37,7 +37,7 @@ class ClientError(Exception):
 
 PEER_ID = b'-OP0001-777605734135'
 LOCAL_IP = "10.10.2.55"
-LOCAL_PORT = 6882
+LOCAL_PORT = 6881
 
 
 class ClientTorrent:
@@ -49,7 +49,8 @@ class ClientTorrent:
     def __init__(self, torrent: MetaInfoFile, destination: str):
         self.client_info = PeerInfo(LOCAL_IP, LOCAL_PORT, PEER_ID)
         self.torrent = torrent
-        self.tracker = TrackerConnection(self.client_info.peer_id_bytes, torrent)
+        self.stats = {"uploaded": 0, "downloaded": 0, "left": torrent.total_size, "started": 0.0}
+        self.tracker = TrackerConnection(self.client_info, torrent, self.stats)
         self.peer_q = asyncio.Queue()
         self.writer = FileWriter(torrent, destination)
         self.peers = []
@@ -58,17 +59,22 @@ class ClientTorrent:
 
         def download_complete():
             if self.task:
-                logger.info(f"{self}: Torrent is complete!")
+                total_time = asyncio.get_event_loop().time() - self.stats['started']
+                logger.info(f"{self}: Torrent is complete! Took {round(total_time, 5)}s")
+                logger.info(f"{self}: Downloaded: {self.stats['downloaded']} Uploaded: {self.stats['uploaded']}")
+                logger.info(f"{self}: Est download speed: "
+                            f"{round((self.stats['downloaded'] / total_time) / 2 ** 20, 2)} MB/s")
                 self.task.cancel()
 
         self.download_complete_cb = download_complete
-        self.requester = PieceRequester(torrent, self.writer, self.download_complete_cb)
+        self.requester = PieceRequester(torrent, self.writer, self.download_complete_cb, self.stats)
 
     def stop(self):
         if self.task:
             self.task.cancel()
 
     def download(self):
+        self.stats["started"] = asyncio.get_event_loop().time()
         self.task = asyncio.create_task(self.download_coro())
         return self.task
 
@@ -91,7 +97,8 @@ class ClientTorrent:
                     break
 
                 if self.abort:
-                    logger.info(f"Aborting download of {self.torrent.name}.")
+                    logger.info(f"Aborting download of {self.torrent.name}. Downloaded {self.stats['downloaded']} "
+                                f"bytes")
                     await self.tracker.cancel()
                     self.download_complete_cb()
                     break
@@ -114,8 +121,8 @@ class ClientTorrent:
 
                         for peer in response.get_peers():
                             if peer[0] == self.client_info.ip:
-                                if peer[1] in [6881, 6882]:
-                                    logger.info(f"{self}: Ignoring peer. It's us.")
+                                if peer[1] == self.client_info.port:
+                                    logger.info(f"{self}: Ignoring peer. It's us...")
                                     continue
                             self.peer_q.put_nowait(PeerInfo(peer[0], peer[1]))
                 else:
@@ -124,6 +131,8 @@ class ClientTorrent:
             if not isinstance(e, asyncio.CancelledError):
                 logger.debug(f"{self}: {type(e).__name__} exception received in client.download.")
                 logger.exception(e, exc_info=True)
+            else:
+                await self.tracker.cancel()
         finally:
             logger.debug(f"{self}: Ending download loop. Cleaning up.")
             for peer in self.peers:

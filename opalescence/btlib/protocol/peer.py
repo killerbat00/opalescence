@@ -109,9 +109,9 @@ class PeerConnection:
 
                 logger.info(f"{self}: Opening connection with peer.")
                 self.peer = peer_info
-                reader, writer = await open_peer_connection(
-                    host=self.peer.ip, port=self.peer.port, local_addr=(self.local.ip, self.local.port)
-                )
+                # TODO: When we write data to the peer, we'll need to listen
+                #       on a socket rather than just connecting with the peer.
+                reader, writer = await open_peer_connection(host=self.peer.ip, port=self.peer.port)
 
                 if not await self._handshake(reader, writer):
                     raise PeerError
@@ -170,6 +170,7 @@ class PeerConnection:
                     # self._requester.add_peer_request(self.peer.peer_id, msg)
                 elif isinstance(msg, Block):
                     self._requester.received_block(self.peer.peer_id, msg)
+                    # TODO: better piece requesting, currently in-order tit for tat
                     self._msg_to_send_q.put_nowait(self._requester.next_request_for_peer(self.peer.peer_id))
                 elif isinstance(msg, Cancel):
                     pass

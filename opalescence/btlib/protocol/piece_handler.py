@@ -139,7 +139,7 @@ class PieceRequester:
     We currently use a naive sequential strategy.
     """
 
-    def __init__(self, torrent: MetaInfoFile, writer, torrent_complete_cb):
+    def __init__(self, torrent: MetaInfoFile, writer, torrent_complete_cb, stats):
         self.torrent = torrent
         self.piece_peer_map: Dict[int, Set[str]] = {i: set() for i in range(self.torrent.num_pieces)}
         self.peer_piece_map: Dict[str, Set[int]] = defaultdict(set)
@@ -148,6 +148,7 @@ class PieceRequester:
         self.pending_requests: List[Request] = []
         self.writer = writer
         self.torrent_complete_cb: Callable = torrent_complete_cb
+        self.stats = stats
 
     @property
     def complete(self):
@@ -217,7 +218,7 @@ class PieceRequester:
         self.peer_piece_map[peer_id].add(block.index)
         self.piece_peer_map[block.index].add(peer_id)
         # Remove the pending request for this block if there is one
-        r = Request(block.index, block.begin, peer_id=peer_id)
+        r = Request(block.index, block.begin)
         for i, rr in enumerate(self.pending_requests):
             if r == rr:
                 del self.pending_requests[i]
@@ -227,6 +228,8 @@ class PieceRequester:
             logger.debug(f"Disregarding. I already have {block}")
             return
 
+        self.stats["downloaded"] += len(block.data)
+        self.stats["left"] -= len(block.data)
         piece = self.downloading_pieces.get(block.index)
         if piece:
             piece.add_block(block)
