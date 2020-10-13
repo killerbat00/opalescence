@@ -6,6 +6,7 @@ Command Line Interface for Opalescence (Clifo)
 
 import argparse
 import asyncio
+import functools
 import logging
 import logging.config
 import os
@@ -20,7 +21,7 @@ _LoggingConfig = {
     "version": 1,
     "formatters": {
         "basic": {
-            "format": "%(asctime)s : %(name)s : [%(levelname)s] %(message)s"
+            "format": "[%(levelname)s] %(asctime)s : %(name)s : %(message)s"
         }
     },
     "handlers": {
@@ -103,9 +104,9 @@ def test(_) -> None:
 
     loader = unittest.defaultTestLoader
     runner = unittest.TextTestRunner()
-    suite = loader.discover(
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "tests")))
-    runner.run(suite)
+    suite = loader.discover(os.path.abspath(os.path.join(os.path.dirname(__package__), "tests")))
+    if suite:
+        runner.run(suite)
 
 
 def download(file_path) -> None:
@@ -131,11 +132,12 @@ async def do_download(torrent_fp, dest_fp):
     torrent = ClientTorrent(MetaInfoFile.from_file(torrent_fp), dest_fp)
     start_task = torrent.download()
 
-    def signal_handler(_, __):
-        logger.debug("SIGINT received.")
-        start_task.cancel()  # raises the CancelledError below
+    def signal_received(s):
+        logger.debug(f"{s} received. Shutting down...")
+        start_task.cancel()
 
-    signal.signal(signal.SIGINT, signal_handler)
+    for signame in ('SIGINT', 'SIGTERM'):
+        loop.add_signal_handler(getattr(signal, signame), functools.partial(signal_received, signame))
 
     try:
         # Main entry point
