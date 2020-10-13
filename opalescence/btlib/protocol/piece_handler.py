@@ -35,13 +35,15 @@ def force_sync(func):
     return wrapper
 
 
-def delegate_to_executor(func):
+async def delegate_to_executor(func):
     @functools.wraps(func)
     async def wrapper(self, *args, **kwargs):
         await self._lock.acquire()
+        loop = asyncio.get_running_loop()
+        partial = functools.partial(func, self, *args, **kwargs)
+        future = loop.run_in_executor(None, partial)
         try:
-            return await asyncio.get_running_loop().run_in_executor(None,
-                                                                    functools.partial(func, self, *args, **kwargs))
+            await asyncio.wait_for(future, timeout=None)
         finally:
             self._lock.release()
 
@@ -73,7 +75,7 @@ class FileWriter:
                 return i, file, file_offset
             size_sum += file.size
 
-    async def _write_or_buffer(self, data_to_write: bytes, file_num: int, file: FileItem, offset: int):
+    def _write_or_buffer(self, data_to_write: bytes, file_num: int, file: FileItem, offset: int):
         """
         Buffers the data up to WRITE_BUFFER_SIZE, writing data once our buffer exceeds that size.
         :param data_to_write: data to buffer or write
@@ -84,14 +86,13 @@ class FileWriter:
         data_to_write_length = len(data_to_write) + len(self._buffered_data[file_num][1])
         if data_to_write_length > self.WRITE_BUFFER_SIZE:
             data_to_write = self._buffered_data[file_num][1] + data_to_write
-            self._write_data(self, data_to_write, file, self._buffered_data[file_num][0])
+            self._write_data(data_to_write, file, self._buffered_data[file_num][0])
             self._buffered_data[file_num][1].clear()
         else:
             if len(self._buffered_data[file_num][1]) == 0:
                 self._buffered_data[file_num][0] = offset
             self._buffered_data[file_num] += data_to_write
 
-    @delegate_to_executor
     def _write_data(self, data_to_write, file, offset):
         """
         Writes data to the file in an executor so we don't block the main event loop.
@@ -116,7 +117,7 @@ class FileWriter:
             logger.exception(f"Encountered exception when writing {p}", exc_info=True)
             raise
 
-    async def write(self, piece: Piece):
+    def write(self, piece: Piece):
         """
         Buffers (and eventually) writes the piece's
         data to the appropriate file(s).
@@ -140,7 +141,7 @@ class FileWriter:
                 offset = (piece.index * self._torrent.piece_length) + len(data_to_write)
             else:
                 leftover = None
-            await self._write_or_buffer(data_to_write, file_num, file, file_offset)
+            self._write_or_buffer(data_to_write, file_num, file, file_offset)
 
 
 class PieceRequester:
@@ -215,7 +216,7 @@ class PieceRequester:
 
         self.remove_pending_requests_for_peer(peer_id)
 
-    async def received_block(self, peer_id: str, block: Block) -> Optional[Piece]:
+    def received_block(self, peer_id: str, block: Block) -> Optional[Piece]:
         """
         Called when we've received a block from the remote peer.
         First, see if there are other blocks from that piece already downloaded.
@@ -251,9 +252,9 @@ class PieceRequester:
             self.downloading_pieces[piece.index] = piece
 
         if piece.complete:
-            return await self.piece_complete(piece)
+            return self.piece_complete(piece)
 
-    async def piece_complete(self, piece: Piece):
+    def piece_complete(self, piece: Piece):
         piece_hash = hashlib.sha1(piece.data).digest()
         if piece_hash != self.torrent.piece_hashes[piece.index]:
             logger.debug(
@@ -274,7 +275,7 @@ class PieceRequester:
                 if pending_request.index == piece.index:
                     del self.pending_requests[i]
 
-            await self.writer.write(piece)
+            self.writer.write(piece)
 
             if self.complete:
                 self.torrent_complete_cb()
