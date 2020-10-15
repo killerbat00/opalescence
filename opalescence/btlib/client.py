@@ -73,7 +73,7 @@ class ClientTorrent:
 
     def download(self):
         self.stats["started"] = asyncio.get_event_loop().time()
-        self.task = asyncio.create_task(self.download_coro())
+        self.task = asyncio.create_task(self.download_coro(), name=f"ClientTorrent for {self.torrent}")
         return self.task
 
     async def download_coro(self):
@@ -84,7 +84,8 @@ class ClientTorrent:
         """
         previous = None
         interval = self.tracker.DEFAULT_INTERVAL
-        self.peers = [PeerConnection(self.client_info, self.torrent.info_hash, self.requester, self.peer_q)
+        self.peers = [PeerConnection(PeerInfo(LOCAL_IP, LOCAL_PORT, PEER_ID), self.torrent.info_hash, self.requester,
+                                     self.peer_q)
                       for _ in range(MAX_PEER_CONNECTIONS)]
 
         try:
@@ -129,9 +130,9 @@ class ClientTorrent:
             if not isinstance(e, asyncio.CancelledError):
                 logger.debug(f"{self}: {type(e).__name__} exception received in client.download.")
                 logger.exception(e, exc_info=True)
+                logger.info(f"{self}: Downloaded: {self.stats['downloaded']} Uploaded: {self.stats['uploaded']}")
             else:
                 await self.tracker.cancel()
-                logger.info(f"{self}: Downloaded: {self.stats['downloaded']} Uploaded: {self.stats['uploaded']}")
         finally:
             logger.debug(f"{self}: Ending download loop. Cleaning up.")
             for peer in self.peers:

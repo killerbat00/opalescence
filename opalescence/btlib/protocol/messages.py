@@ -68,7 +68,7 @@ class Handshake(Message):
         self.peer_id = peer_id
 
     def __str__(self):
-        return f"Handshake: {self.peer_id}:{self.info_hash}"
+        return f"Handshake: ({self.peer_id}:{self.info_hash})"
 
     def __hash__(self):
         return hash((self.info_hash, self.peer_id))
@@ -237,7 +237,7 @@ class Request(Message):
         self.peer_id = peer_id
 
     def __str__(self):
-        return f"Request: {self.index}:{self.begin}:{self.length}"
+        return f"Request: (Index: {self.index}, Begin: {self.begin}, Length: {self.length})"
 
     def __hash__(self):
         return hash((self.index, self.begin, self.length))
@@ -276,13 +276,13 @@ class Block(Message):
         self.begin = begin  # offset into the piece
         self.data = data
         if len(self.data) != Request.size:
-            logger.debug(f"Piece {self} received with an unrequested size: {len(self.data)}.")
+            logger.debug(f"Block {self} received with an unrequested size: {len(self.data)}.")
 
     def __str__(self):
-        return f"Block: {self.index}:{self.begin}:{self.data}"
+        return f"Block: (Index: {self.index}, Begin: {self.begin}, Length: {len(self.data)})"
 
     def __hash__(self):
-        return hash((self.index, self.begin, self.data))
+        return hash((self.index, self.begin, len(self.data)))
 
     def __eq__(self, other: Block):
         if not isinstance(other, Block):
@@ -321,7 +321,7 @@ class Piece:
         self.data: bytes = b''
 
     def __str__(self):
-        return f"Piece ({self.index}:{self.length}): {self.data}"
+        return f"Piece: (Index: {self.index}, Length: {self.length})"
 
     def __hash__(self):
         return hash((self.index, self.length, self.data))
@@ -384,7 +384,7 @@ class Cancel(Message):
         self.length = length
 
     def __str__(self):
-        return f"Cancel: {self.index}:{self.begin}:{self.length}"
+        return f"Cancel: (Index: {self.index}, Begin: {self.begin}, Length: {self.length})"
 
     def __hash__(self):
         return hash((self.index, self.begin, self.length))
