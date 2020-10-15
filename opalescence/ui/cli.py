@@ -9,64 +9,34 @@ import asyncio
 import functools
 import logging
 import logging.config
+import logging.handlers
 import os
 import signal
+import sys
 import unittest
+from queue import SimpleQueue as Queue
 
 from opalescence import __version__
 from opalescence.btlib.client import ClientTorrent
 from opalescence.btlib.metainfo import MetaInfoFile
-
-_LoggingConfig = {
-    "version": 1,
-    "formatters": {
-        "basic": {
-            "format": "[%(levelname)12s] %(asctime)s : %(name)s : %(message)s"
-        }
-    },
-    "handlers": {
-        "stdout": {
-            "class": "logging.StreamHandler",
-            "level": "DEBUG",
-            "formatter": "basic",
-            "stream": "ext://sys.stdout"
-
-        }
-    },
-    "loggers": {
-        "opalescence": {
-            "level": "DEBUG",
-            "handlers": ["stdout"],
-            "propagate": False
-        }
-    },
-    "root": {
-        "level": "DEBUG",
-        "handlers": ["stdout"]
-    }
-}
 
 
 def main():
     """
     CLI entry point
     """
-    argparser = create_argparser()
-
+    parser = create_argparser()
     try:
-        args = argparser.parse_args()
-        _LoggingConfig["root"]["level"] = args.loglevel
-        logging.config.dictConfig(_LoggingConfig)
-        logging.getLogger('asyncio').setLevel(logging.DEBUG)
+        args = parser.parse_args()
+        configure_logging(args.loglevel)
         args.func(args)
     except AttributeError:
-        argparser.print_help()
+        parser.print_help()
 
 
 def create_argparser() -> argparse.ArgumentParser:
     """
-    Initializes the root argument parser and any necessary
-    subparsers for supported subcommands.
+    CLI argument parsing setup.
     :return:    argparse.ArgumentParser instance
     """
     parser = argparse.ArgumentParser()
@@ -74,7 +44,7 @@ def create_argparser() -> argparse.ArgumentParser:
                         version=__version__)
     parser.add_argument("-d", "--debug", help="Print debug-level output.",
                         action="store_const", dest="loglevel",
-                        const=logging.DEBUG, default=logging.WARNING)
+                        const=logging.DEBUG, default=logging.ERROR)
     parser.add_argument("-v", "--verbose", help="Print verbose output (but "
                                                 "still less verbose than "
                                                 "debug-level.)",
@@ -149,3 +119,31 @@ async def do_download(torrent_fp, dest_fp):
         if not isinstance(ex, KeyboardInterrupt):
             logger.error(f"{type(ex).__name__} exception received.")
             logger.exception(ex, exc_info=True)
+
+
+def configure_logging(log_level):
+    stream_handler = logging.StreamHandler(stream=sys.stdout)
+    formatter = logging.Formatter(fmt="[%(levelname)12s] %(asctime)s : %(name)s : %(message)s")
+    stream_handler.setFormatter(formatter)
+
+    queue = Queue()
+    queue_handler = LocalQueueHandler(queue)
+
+    app_logger = logging.getLogger("opalescence")
+    app_logger.setLevel(log_level)
+    app_logger.addHandler(queue_handler)
+
+    listener = logging.handlers.QueueListener(
+        queue, *[stream_handler], respect_handler_level=True
+    )
+    listener.start()
+
+
+class LocalQueueHandler(logging.handlers.QueueHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self.enqueue(record)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.handleError(record)

@@ -74,19 +74,14 @@ class PeerConnection:
         self.peer_queue = peer_queue
         self._requester: PieceRequester = requester
         self._msg_to_send_q: asyncio.Queue = asyncio.Queue()
-        self._task = asyncio.create_task(self.download())
+        self._task = asyncio.create_task(self.download(), name="[WAITING] PeerConnection")
         self._stop_forever = False
         self.peer: Optional[PeerInfo] = None
 
     def __str__(self):
         if not self.peer:
-            return f"[NOPEER]:{self.local}"
-        return f"{self.peer.ip}:{self.peer.port}"
-
-    def __hash__(self):
-        if self.peer.ip and self.peer.port and self.info_hash:
-            return hash(f"{self.peer.ip}:{self.peer.port}:{self.info_hash}")
-        return hash(self.info_hash)
+            return f"[NOPEER]:{self.local}:{self.info_hash}"
+        return f"{self.peer.ip}:{self.peer.port}:{self.info_hash}"
 
     def __eq__(self, other: PeerConnection):
         return hash(self) == hash(other)
@@ -104,6 +99,7 @@ class PeerConnection:
             reader, writer = None, None
             try:
                 peer_info = await self.peer_queue.get()
+                self._task.set_name(f"{self}")
                 if not peer_info:
                     raise PeerError
 
@@ -116,7 +112,9 @@ class PeerConnection:
                 if not await self._handshake(reader, writer):
                     raise PeerError
 
-                await asyncio.gather(self._produce(writer), self._consume(reader))
+                produce_task = asyncio.create_task(self._produce(writer), name=f"Produce Task for {self}")
+                consume_task = asyncio.create_task(self._consume(reader), name=f"Consume Task for {self}")
+                await asyncio.gather(produce_task, consume_task)
 
             except Exception as cpe:
                 if not isinstance(cpe, asyncio.CancelledError):
@@ -132,6 +130,7 @@ class PeerConnection:
                     writer.close()
                     await asyncio.sleep(0)
                 self.peer = None
+                self._task.set_name("[WAITING] PeerConnection")
         logger.debug(f"{self}: Stopped forever.")
 
     async def _consume(self, reader):

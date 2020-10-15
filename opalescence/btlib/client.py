@@ -73,7 +73,7 @@ class ClientTorrent:
 
     def download(self):
         self.stats["started"] = asyncio.get_event_loop().time()
-        self.task = asyncio.create_task(self.download_coro())
+        self.task = asyncio.create_task(self.download_coro(), name=f"ClientTorrent for {self.torrent}")
         return self.task
 
     async def download_coro(self):
@@ -129,9 +129,9 @@ class ClientTorrent:
             if not isinstance(e, asyncio.CancelledError):
                 logger.debug(f"{self}: {type(e).__name__} exception received in client.download.")
                 logger.exception(e, exc_info=True)
+                logger.info(f"{self}: Downloaded: {self.stats['downloaded']} Uploaded: {self.stats['uploaded']}")
             else:
                 await self.tracker.cancel()
-                logger.info(f"{self}: Downloaded: {self.stats['downloaded']} Uploaded: {self.stats['uploaded']}")
         finally:
             logger.debug(f"{self}: Ending download loop. Cleaning up.")
             for peer in self.peers:
