@@ -7,6 +7,7 @@
 /*.egg-info
 test_torrent_dir/*
 /tests/test_torrent_data/
+/tests/data/
 .idea/
 __pycache__/
 

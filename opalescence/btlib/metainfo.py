@@ -9,15 +9,15 @@ from __future__ import annotations
 __all__ = ['CreationError', 'FileItem', 'MetaInfoFile']
 
 import hashlib
-import logging
 import os
 from collections import OrderedDict
+from logging import getLogger
 from pathlib import Path
-from typing import NamedTuple, List, Optional
+from typing import NamedTuple, List, Optional, Dict
 
 from .bencode import Decoder, Encoder, DecodeError, EncodeError
 
-logger = logging.getLogger(__name__)
+logger = getLogger(__name__)
 
 
 class CreationError(Exception):
@@ -32,10 +32,11 @@ class FileItem(NamedTuple):
     """
     path: Path
     size: int
+    offset: int
 
 
-def _get_and_decode(d: dict, k: str):
-    return d.get(k, b'').decode("UTF-8")
+def _get_and_decode(d: dict, k: str, encoding="UTF-8"):
+    return d.get(k, b'').decode(encoding)
 
 
 def _pc(piece_string: bytes, *, length: int = 20, start: int = 0):
@@ -124,7 +125,7 @@ class MetaInfoFile:
     """
 
     def __init__(self):
-        self.files: List[FileItem] = []
+        self.files: Dict[int, FileItem] = {}
         self.meta_info: Optional[OrderedDict] = None
         self.info_hash: bytes = b''
         self.piece_hashes: List[bytes] = []
@@ -133,7 +134,7 @@ class MetaInfoFile:
         return f"{self.name} <{self.info_hash}>"
 
     def __repr__(self):
-        return f"<MetaInfoFile: {self}"
+        return f"<MetaInfoFile: {self}>"
 
     @classmethod
     def from_file(cls, filename: str) -> MetaInfoFile:
@@ -242,14 +243,15 @@ class MetaInfoFile:
             if not file_list:
                 logger.error("No file list.")
                 raise CreationError
-            for f in file_list:
+            offset = 0
+            for i, f in enumerate(file_list):
                 length = f.get("length", 0)
                 path = Path("/".join([x.decode("UTF-8") for x in f.get("path", [])]))
-                self.files.append(FileItem(path, length))
+                self.files[i] = FileItem(path, length, offset)
+                offset += length
         else:
-            self.files.append(
-                FileItem(Path(_get_and_decode(self.meta_info["info"], "name")),
-                         self.meta_info["info"]["length"]))
+            self.files[0] = FileItem(Path(_get_and_decode(self.meta_info["info"], "name")),
+                                     self.meta_info["info"]["length"], 0)
 
     @property
     def multi_file(self) -> bool:
@@ -319,7 +321,7 @@ class MetaInfoFile:
         """
         :return: the total size of the file(s) in the torrent metainfo
         """
-        return sum([f.size for f in self.files])
+        return sum([f.size for f in self.files.values()])
 
     @property
     def num_pieces(self) -> int:

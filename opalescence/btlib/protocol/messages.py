@@ -419,7 +419,7 @@ class Cancel(Message):
 
 class MessageReader:
     """
-    An async iterator that wraps a StreamReader to allow iterating over received messages.
+    An async iterator that wraps a StreamReader to allow iterating over received bittorrent protocol messages.
     """
     _msg_id_to_cls = {0: Choke, 1: Unchoke, 2: Interested, 3: NotInterested,
                       4: Have, 5: Bitfield, 6: Request, 7: Block, 8: Cancel}
