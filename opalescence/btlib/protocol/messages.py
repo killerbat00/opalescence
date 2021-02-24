@@ -10,6 +10,7 @@ from __future__ import annotations
 __all__ = ['Handshake', 'KeepAlive', 'Choke', 'Unchoke', 'Interested', 'NotInterested', 'Have',
            'Bitfield', 'Request', 'Block', 'Piece', 'Cancel', 'MessageReader']
 
+import asyncio
 import struct
 from asyncio import IncompleteReadError, StreamReader
 from logging import getLogger
@@ -424,12 +425,10 @@ class MessageReader:
     _msg_id_to_cls = {0: Choke, 1: Unchoke, 2: Interested, 3: NotInterested,
                       4: Have, 5: Bitfield, 6: Request, 7: Block, 8: Cancel}
 
-    def __init__(self, peer, stream_reader: StreamReader):
-        self.peer = peer
+    def __init__(self, stream_reader: StreamReader, sentinel=None, timeout=10.0):
         self.stream_reader = stream_reader
-
-    def __str__(self):
-        return str(self.peer)
+        self._sentinel = sentinel
+        self._timeout = timeout
 
     def __aiter__(self):
         return self
@@ -445,19 +444,24 @@ class MessageReader:
             raise _exc
 
         try:
-            msg_len = struct.unpack(">I", await self.stream_reader.readexactly(4))[0]
+            msg_len = struct.unpack(">I", await asyncio.wait_for(self.stream_reader.readexactly(4),
+                                                                 timeout=self._timeout))[0]
             if msg_len == 0:
                 return KeepAlive()
 
-            msg_id = struct.unpack(">B", await self.stream_reader.readexactly(1))[0]
+            msg_id = struct.unpack(">B", await asyncio.wait_for(self.stream_reader.readexactly(1),
+                                                                timeout=self._timeout))[0]
             if not msg_id or (not (0 < msg_id < 8)):
                 raise PeerError(f"{self}: Unknown message received: {msg_id}")
 
             msg_len -= 1  # the msg_len includes 1 byte for the id, we've consumed that already
             if msg_len == 0:
                 return self._msg_id_to_cls[msg_id].decode()
-            return self._msg_id_to_cls[msg_id].decode(await self.stream_reader.readexactly(msg_len))
+            return self._msg_id_to_cls[msg_id].decode(await asyncio.wait_for(self.stream_reader.readexactly(msg_len),
+                                                                             timeout=self._timeout))
 
+        except TimeoutError:
+            return self._sentinel
         except IncompleteReadError:
             logger.exception(f"{self}", exc_info=True)
             raise PeerError
