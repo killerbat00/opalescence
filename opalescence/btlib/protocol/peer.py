@@ -31,7 +31,7 @@ async def open_peer_connection(host=None, port=None, **kwds):
     protocol = asyncio.StreamReaderProtocol(reader, loop=loop)
     transport, _ = await loop.create_connection(
         lambda: protocol, host, port, **kwds)
-    transport.set_write_buffer_limits(0)
+    transport.set_write_buffer_limits(0)  # let the OS handle buffering
     writer = asyncio.StreamWriter(transport, protocol, reader, loop)
     return reader, writer
 
@@ -74,6 +74,8 @@ class PeerConnection:
         self.peer_queue = peer_queue
         self._requester: PieceRequester = requester
         self._msg_to_send_q: asyncio.Queue = asyncio.Queue()
+        self._msg_receive_to: float = 10.0
+        self._msg_send_to: float = 60.0
         self._task = asyncio.create_task(self.download(), name="[WAITING] PeerConnection")
         self._stop_forever = False
         self.peer: Optional[PeerInfo] = None
@@ -103,13 +105,16 @@ class PeerConnection:
                 if not peer_info:
                     raise PeerError
 
-                logger.info(f"{self}: Opening connection with peer.")
                 self.peer = peer_info
-                # TODO: When we write data to the peer, we'll need to listen
-                #       on a socket rather than just connecting with the peer.
-                reader, writer = await open_peer_connection(host=self.peer.ip, port=self.peer.port)
+                self._task.set_name(f"{self}")
 
-                if not await self._handshake(reader, writer):
+                logger.info(f"{self}: Opening connection with peer.")
+                # TODO: When we start allowing peers to connect to us, we'll need to listen
+                #       on a socket rather than just connecting with the peer.
+                reader, writer = await asyncio.wait_for(open_peer_connection(host=self.peer.ip, port=self.peer.port),
+                                                        timeout=self._msg_send_to)
+
+                if not await asyncio.wait_for(self._handshake(reader, writer), timeout=self._msg_send_to):
                     raise PeerError
 
                 produce_task = asyncio.create_task(self._produce(writer), name=f"Produce Task for {self}")
@@ -142,7 +147,15 @@ class PeerConnection:
         :raises PeerError: on any exception
         """
         try:
-            async for msg in MessageReader(self.peer, reader):
+            sentinel = object()
+            num_timeouts = 0
+            async for msg in MessageReader(reader, sentinel, self._msg_receive_to):
+                if msg is sentinel:
+                    num_timeouts += 1
+                    logger.debug(f"{self}: Timeout #{num_timeouts} received...")
+                    if num_timeouts >= 6:
+                        raise PeerError(f"{self}: Too many timeouts in _consume.")
+
                 logger.debug(f"{self}: Sent {msg}")
                 if isinstance(msg, Choke):
                     self.peer.choking = True
@@ -168,7 +181,7 @@ class PeerConnection:
                     pass
                     # self._requester.add_peer_request(self.peer.peer_id, msg)
                 elif isinstance(msg, Block):
-                    self._requester.received_block(self.peer.peer_id, msg)
+                    await self._requester.received_block(self.peer.peer_id, msg)
                     # TODO: better piece requesting, currently in-order tit for tat
                     self._msg_to_send_q.put_nowait(self._requester.next_request_for_peer(self.peer.peer_id))
                 elif isinstance(msg, Cancel):
@@ -189,15 +202,19 @@ class PeerConnection:
         :raises PeerError: on any exception.
         """
         try:
+            num_timeouts = 0
             while True:
                 log, msg = None, None
                 try:
-                    msg = await asyncio.wait_for(self._msg_to_send_q.get(), timeout=60.0)
+                    msg = await asyncio.wait_for(self._msg_to_send_q.get(), timeout=self._msg_send_to)
                     if not msg:
                         continue
                 except TimeoutError:
-                    log = f"{self}: No message to send, sending KeepAlive."
+                    num_timeouts += 1
+                    log = f"{self}: No message to send #{num_timeouts}, sending KeepAlive."
                     msg = KeepAlive()
+                    if num_timeouts >= 3:
+                        raise PeerError(f"{self}: Too many timeouts in _produce.")
 
                 if isinstance(msg, Choke):
                     self.local.choking = True

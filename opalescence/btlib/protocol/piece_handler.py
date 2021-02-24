@@ -8,19 +8,18 @@ __all__ = ['PieceRequester', 'FileWriter']
 
 import asyncio
 import dataclasses
-import errno
 import functools
 import hashlib
 import logging
-import os
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Set, Callable, Optional
+from typing import Dict, List, Set, Callable, Optional, BinaryIO
 
 import bitstring
 
 from .messages import Request, Piece, Block
 from ..metainfo import MetaInfoFile, FileItem
+from ..utils import ensure_dir_exists
 
 logger = logging.getLogger(__name__)
 
@@ -45,17 +44,39 @@ class WriteBuffer:
 
 
 class FileWriter:
-    """
-    Writes piece data to temp memory for now.
-    Will eventually flush data to the disk.
-    """
     WRITE_BUFFER_SIZE = 2 ** 13  # 8kb
 
     def __init__(self, torrent: MetaInfoFile, save_dir: str):
+        self._files: Dict[int, FileItem] = dict(torrent.files)
         self._torrent = torrent
         self._base_dir = save_dir
         self._lock = asyncio.Lock()
-        self._write_buffers = [WriteBuffer() for _ in range(len(torrent.files))]
+        self._write_buffers = [WriteBuffer() for _ in range(len(self._files))]
+        self._fds = self._open_files()
+
+    def _open_files(self) -> List[BinaryIO]:
+        logger.info(f"Opening files for {self._torrent}")
+        fds = []
+        try:
+            for file in self._files.values():
+                p = Path(self._base_dir) / file.path
+                ensure_dir_exists(p)
+                fd = open(p, "w+b")
+                fd.truncate(file.size)
+                fds.append(fd)
+        except (OSError, Exception):
+            logger.exception(f"Encountered exception when opening files.", exc_info=True)
+            for f in fds:
+                f.close()
+            raise
+        return fds
+
+    def close_files(self):
+        try:
+            for fd in self._fds:
+                fd.close()
+        except (OSError, Exception):
+            pass
 
     def _file_for_offset(self, offset: int):
         """
@@ -63,7 +84,7 @@ class FileWriter:
         :return: (file_num, FileItem, file_offset)
         """
         size_sum = 0
-        for i, file in enumerate(self._torrent.files):
+        for i, file in self._files.items():
             if offset - size_sum < file.size:
                 file_offset = offset - size_sum
                 return i, file, file_offset
@@ -99,21 +120,17 @@ class FileWriter:
         """
         p = Path(self._base_dir) / file.path
         logger.info(f"Writing data to {p}")
-        if not os.path.exists(os.path.dirname(p)):
-            try:
-                os.makedirs(os.path.dirname(p))
-            except OSError as exc:  # Guard against race condition
-                if exc.errno != errno.EEXIST:
-                    raise
         try:
+            ensure_dir_exists(p)
             with open(p, "ab+") as fd:
                 fd.seek(offset, 0)
                 fd.write(data_to_write)
                 fd.flush()
         except (OSError, Exception):
-            logger.exception(f"Encountered exception when writing {p}", exc_info=True)
+            logger.exception(f"Encountered exception when writing to {p}", exc_info=True)
             raise
 
+    @delegate_to_executor
     def write(self, piece: Piece):
         """
         Buffers (and eventually) writes the piece's
@@ -184,8 +201,7 @@ class PieceRequester:
         """
         for i, b in enumerate(bitfield):
             if b:
-                self.piece_peer_map[i].add(peer_id)
-                self.peer_piece_map[peer_id].add(i)
+                self.add_available_piece(peer_id, i)
 
     def remove_pending_requests_for_peer(self, peer_id: str) -> None:
         """
@@ -214,7 +230,7 @@ class PieceRequester:
 
         self.remove_pending_requests_for_peer(peer_id)
 
-    def received_block(self, peer_id: str, block: Block) -> Optional[Piece]:
+    async def received_block(self, peer_id: str, block: Block) -> Optional[Piece]:
         """
         Called when we've received a block from the remote peer.
         First, see if there are other blocks from that piece already downloaded.
@@ -227,7 +243,8 @@ class PieceRequester:
         logger.info(f"{peer_id} sent {block}")
         self.peer_piece_map[peer_id].add(block.index)
         self.piece_peer_map[block.index].add(peer_id)
-        # Remove the pending request for this block if there is one
+
+        # Remove the pending requests for this block if there are any
         r = Request(block.index, block.begin)
         for i, rr in enumerate(self.pending_requests):
             if r == rr:
@@ -248,13 +265,13 @@ class PieceRequester:
                 self.torrent.piece_length
             piece = Piece(block.index, piece_length)
             piece.add_block(block)
-            logger.debug(f"Adding new piece to downloading pieces: {piece}")
+            logger.debug(f"Downloaded new piece: {piece}")
             self.downloading_pieces[piece.index] = piece
 
         if piece.complete:
-            return self.piece_complete(piece)
+            return await self.piece_complete(piece)
 
-    def piece_complete(self, piece: Piece):
+    async def piece_complete(self, piece: Piece):
         piece_hash = hashlib.sha1(piece.data).digest()
         if piece_hash != self.torrent.piece_hashes[piece.index]:
             logger.debug(
@@ -275,7 +292,7 @@ class PieceRequester:
                 if pending_request.index == piece.index:
                     del self.pending_requests[i]
 
-            self.writer.write(piece)
+            await self.writer.write(piece)
 
             if self.complete:
                 self.torrent_complete_cb()

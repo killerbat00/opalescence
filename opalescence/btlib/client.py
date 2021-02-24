@@ -19,7 +19,7 @@ from .tracker_connection import TrackerConnection, TrackerConnectionError
 logger = getLogger(__name__)
 
 MAX_PEER_CONNECTIONS = 5
-PEER_ID = b'-OP0001-777605734135'
+PEER_ID = b'-OP0001-777605734135'  # should generate this once.
 LOCAL_IP = "10.10.2.55"
 LOCAL_PORT = 6881
 
@@ -64,6 +64,9 @@ class ClientTorrent:
                             f"{round((self.stats['downloaded'] / total_time) / 2 ** 20, 2)} MB/s")
                 self.task.cancel()
 
+            if self.writer:
+                self.writer.close_files()
+
         self.download_complete_cb = download_complete
         self.requester = PieceRequester(torrent, self.writer, self.download_complete_cb, self.stats)
 
@@ -84,7 +87,8 @@ class ClientTorrent:
         """
         previous = None
         interval = self.tracker.DEFAULT_INTERVAL
-        self.peers = [PeerConnection(self.client_info, self.torrent.info_hash, self.requester, self.peer_q)
+        self.peers = [PeerConnection(PeerInfo(LOCAL_IP, LOCAL_PORT, PEER_ID), self.torrent.info_hash, self.requester,
+                                     self.peer_q)
                       for _ in range(MAX_PEER_CONNECTIONS)]
 
         try:
