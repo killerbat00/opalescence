@@ -13,6 +13,7 @@ __all__ = ['Handshake', 'KeepAlive', 'Choke', 'Unchoke', 'Interested', 'NotInter
 import asyncio
 import struct
 from asyncio import IncompleteReadError, StreamReader
+from asyncio.exceptions import CancelledError
 from logging import getLogger
 from typing import Optional
 
@@ -451,20 +452,22 @@ class MessageReader:
 
             msg_id = struct.unpack(">B", await asyncio.wait_for(self.stream_reader.readexactly(1),
                                                                 timeout=self._timeout))[0]
-            if not msg_id or (not (0 < msg_id < 8)):
+            if msg_id is None or (not (0 <= msg_id <= 8)):
                 raise PeerError(f"{self}: Unknown message received: {msg_id}")
 
             msg_len -= 1  # the msg_len includes 1 byte for the id, we've consumed that already
             if msg_len == 0:
                 return self._msg_id_to_cls[msg_id].decode()
-            return self._msg_id_to_cls[msg_id].decode(await asyncio.wait_for(self.stream_reader.readexactly(msg_len),
-                                                                             timeout=self._timeout))
+            msg_data = await asyncio.wait_for(self.stream_reader.readexactly(msg_len),
+                                              timeout=self._timeout * 5)
+            return self._msg_id_to_cls[msg_id].decode(msg_data)
 
         except TimeoutError:
             return self._sentinel
         except IncompleteReadError:
             logger.exception(f"{self}", exc_info=True)
             raise PeerError
-        except Exception:
-            logger.exception(f"{self}: Exception encountered...", exc_info=True)
+        except Exception as e:
+            if not isinstance(e, CancelledError):
+                logger.exception(f"{self}: Exception encountered...", exc_info=True)
             raise StopAsyncIteration
