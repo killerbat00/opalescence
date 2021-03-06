@@ -22,7 +22,7 @@ from .piece_handler import PieceRequester
 logger = getLogger(__name__)
 
 
-async def open_peer_connection(host=None, port=None, **kwds):
+async def open_peer_connection(host=None, port=None, **kwds) -> [asyncio.StreamReader, asyncio.StreamWriter]:
     """
     A wrapper for asyncio.open_connection() returning a (reader, writer) pair.
     """
@@ -98,6 +98,7 @@ class PeerConnection:
         :return:
         """
         while not self._stop_forever:
+            num_timeouts = 0
             reader, writer = None, None
             try:
                 peer_info = await self.peer_queue.get()
@@ -122,7 +123,11 @@ class PeerConnection:
                 await asyncio.gather(produce_task, consume_task)
 
             except Exception as cpe:
-                if not isinstance(cpe, asyncio.CancelledError):
+                if isinstance(cpe, ConnectionRefusedError):
+                    num_timeouts += 1
+                    await asyncio.sleep(0.5)
+                    continue
+                elif not isinstance(cpe, asyncio.CancelledError):
                     logger.exception(f"{self}: {type(cpe).__name__} received in download.", exc_info=True)
             finally:
                 if not self.peer:
@@ -131,9 +136,10 @@ class PeerConnection:
                 self._requester.remove_peer(self.peer.peer_id)
                 self._msg_to_send_q = asyncio.Queue()
                 if writer:
+                    logger.info(f"{self}: hmm...")
                     await writer.drain()
                     writer.close()
-                    await asyncio.sleep(0)
+                    await writer.wait_closed()
                 self.peer = None
                 self._task.set_name("[WAITING] PeerConnection")
         logger.debug(f"{self}: Stopped forever.")
