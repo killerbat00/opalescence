@@ -20,7 +20,7 @@ logger = getLogger(__name__)
 
 MAX_PEER_CONNECTIONS = 5
 PEER_ID = b'-OP0001-777605734135'  # should generate this once.
-LOCAL_IP = "10.10.2.55"
+LOCAL_IP = "10.10.2.105"
 LOCAL_PORT = 6881
 
 
@@ -56,13 +56,12 @@ class ClientTorrent:
         self.task = None
 
         def download_complete():
-            if self.task:
-                total_time = asyncio.get_event_loop().time() - self.stats['started']
-                logger.info(f"{self}: Torrent is complete! Took {round(total_time, 5)}s")
-                logger.info(f"{self}: Downloaded: {self.stats['downloaded']} Uploaded: {self.stats['uploaded']}")
-                logger.info(f"{self}: Est download speed: "
-                            f"{round((self.stats['downloaded'] / total_time) / 2 ** 20, 2)} MB/s")
-                self.task.cancel()
+            self.stop()
+            total_time = asyncio.get_event_loop().time() - self.stats['started']
+            logger.info(f"Download stopped! Took {round(total_time, 5)}s")
+            logger.info(f"Downloaded: {self.stats['downloaded']} Uploaded: {self.stats['uploaded']}")
+            logger.info(f"Est download speed: "
+                        f"{round((self.stats['downloaded'] / total_time) / 2 ** 20, 2)} MB/s")
 
             if self.writer:
                 self.writer.close_files()
@@ -124,19 +123,20 @@ class ClientTorrent:
                         for peer in response.get_peers():
                             if peer[0] == self.client_info.ip:
                                 if peer[1] == self.client_info.port:
-                                    logger.info(f"{self}: Ignoring peer. It's us...")
+                                    logger.info(f"Ignoring peer. It's us...")
                                     continue
                             self.peer_q.put_nowait(PeerInfo(peer[0], peer[1]))
                 else:
                     await asyncio.sleep(interval)
         except (asyncio.CancelledError, Exception) as e:
             if not isinstance(e, asyncio.CancelledError):
-                logger.debug(f"{self}: {type(e).__name__} exception received in client.download.")
+                logger.debug(f"{type(e).__name__} exception received in client.download.")
                 logger.exception(e, exc_info=True)
-                logger.info(f"{self}: Downloaded: {self.stats['downloaded']} Uploaded: {self.stats['uploaded']}")
+                logger.info(f"Downloaded: {self.stats['downloaded']} Uploaded: {self.stats['uploaded']}")
             else:
+                self.download_complete_cb()
                 await self.tracker.cancel()
         finally:
-            logger.debug(f"{self}: Ending download loop. Cleaning up.")
+            logger.debug(f"Ending download loop. Cleaning up.")
             for peer in self.peers:
                 peer.stop_forever()
