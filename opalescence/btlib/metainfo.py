@@ -167,8 +167,7 @@ class MetaInfoFile:
             torrent._gather_files()
             torrent.piece_hashes = list(_pc(torrent.meta_info["info"]["pieces"]))
         except (EncodeError, DecodeError, IOError, Exception) as e:
-            logger.error(f"Encountered error creating MetaInfoFile.")
-            logger.info(e, exc_info=True)
+            logger.exception(f"Encountered {type(e).__name__} in MetaInfoFile.from_file", exc_info=True)
             raise CreationError from e
 
         return torrent
@@ -217,8 +216,8 @@ class MetaInfoFile:
                 data: bytes = Encoder(self.meta_info).encode()
                 f.write(data)
             except EncodeError as ee:
-                logger.error("Unable to write metainfo file {output_filename}")
-                logger.info(ee, exc_info=True)
+                logger.exception(f"Encounter {type(ee).__name__} while writing metainfofile {output_filename}.",
+                                 exc_info=True)
                 raise CreationError from ee
 
     def _gather_files(self) -> None:

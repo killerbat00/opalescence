@@ -117,8 +117,7 @@ async def do_download(torrent_fp, dest_fp):
         await asyncio.sleep(0)
     except Exception as ex:
         if not isinstance(ex, KeyboardInterrupt):
-            logger.error(f"{type(ex).__name__} exception received.")
-            logger.exception(ex, exc_info=True)
+            logger.exception(f"{type(ex).__name__} exception received.", exc_info=True)
 
 
 def configure_logging(log_level):

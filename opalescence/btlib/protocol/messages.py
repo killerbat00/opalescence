@@ -278,7 +278,7 @@ class Block(Message):
         self.begin = begin  # offset into the piece
         self.data = data
         if len(self.data) != Request.size:
-            logger.debug(f"Block {self} received with an unrequested size: {len(self.data)}.")
+            logger.error(f"Block {self} received with an unrequested size: {len(self.data)}.")
 
     def __str__(self):
         return f"Block: (Index: {self.index}, Begin: {self.begin}, Length: {len(self.data)})"
@@ -343,7 +343,7 @@ class Piece:
         """
         assert self.index == block.index
         if block.begin != len(self.data):
-            logger.debug(f"{self}: Block begin index is non-sequential for: {self}\n{block}")
+            logger.error(f"{self}: Block begin index is non-sequential for: {self}\t{block}")
             return
         self.data += block.data
 

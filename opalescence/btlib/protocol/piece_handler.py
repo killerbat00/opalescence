@@ -119,7 +119,7 @@ class FileWriter:
         :param offset: Offset into the file to begin writing this data
         """
         p = Path(self._base_dir) / file.path
-        logger.info(f"Writing data to {p}")
+        logger.info(f"Writing data to: {p}")
         try:
             ensure_dir_exists(p)
             with open(p, "ab+") as fd:
@@ -265,7 +265,7 @@ class PieceRequester:
                 self.torrent.piece_length
             piece = Piece(block.index, piece_length)
             piece.add_block(block)
-            logger.debug(f"Downloaded new piece: {piece}")
+            logger.info(f"Downloaded new piece: {piece}")
             self.downloading_pieces[piece.index] = piece
 
         if piece.complete:
@@ -274,7 +274,7 @@ class PieceRequester:
     async def piece_complete(self, piece: Piece):
         piece_hash = hashlib.sha1(piece.data).digest()
         if piece_hash != self.torrent.piece_hashes[piece.index]:
-            logger.debug(
+            logger.error(
                 f"Hash for received piece {piece.index} doesn't match\n"
                 f"Received: {piece_hash}\n"
                 f"Expected: {self.torrent.piece_hashes[piece.index]}")
@@ -314,7 +314,7 @@ class PieceRequester:
             return
 
         if len(self.pending_requests) >= 50:
-            logger.debug(f"Too many currently pending requests.")
+            logger.error(f"Too many currently pending requests.")
             return
 
         # Find the next piece index in the pieces we are downloading that the
