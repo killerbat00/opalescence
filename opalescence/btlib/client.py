@@ -8,6 +8,7 @@ The client is responsible for orchestrating communication with the tracker and b
 __all__ = ['ClientError', 'ClientTorrent']
 
 import asyncio
+import logging
 from logging import getLogger
 from random import randint
 
@@ -58,10 +59,14 @@ class ClientTorrent:
         def download_complete():
             self.stop()
             total_time = asyncio.get_event_loop().time() - self.stats['started']
+            log = logging.getLogger("opalescence")
+            old_level = log.getEffectiveLevel()
+            logger.setLevel(logging.INFO)
             logger.info(f"Download stopped! Took {round(total_time, 5)}s")
             logger.info(f"Downloaded: {self.stats['downloaded']} Uploaded: {self.stats['uploaded']}")
             logger.info(f"Est download speed: "
                         f"{round((self.stats['downloaded'] / total_time) / 2 ** 20, 2)} MB/s")
+            log.setLevel(old_level)
 
             if self.writer:
                 self.writer.close_files()

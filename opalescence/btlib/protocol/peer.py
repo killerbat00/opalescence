@@ -136,7 +136,6 @@ class PeerConnection:
                 self._requester.remove_peer(self.peer.peer_id)
                 self._msg_to_send_q = asyncio.Queue()
                 if writer:
-                    logger.info(f"{self}: hmm...")
                     await writer.drain()
                     writer.close()
                     await writer.wait_closed()
@@ -162,7 +161,7 @@ class PeerConnection:
                     if num_timeouts >= 6:
                         raise PeerError(f"{self}: Too many timeouts in _consume.")
 
-                logger.debug(f"{self}: Sent {msg}")
+                logger.info(f"{self}: Sent {msg}")
                 if isinstance(msg, Choke):
                     self.peer.choking = True
                     self._requester.remove_pending_requests_for_peer(self.peer.peer_id)
@@ -194,8 +193,7 @@ class PeerConnection:
                     pass
         except Exception as ce:
             if not isinstance(ce, asyncio.CancelledError):
-                logger.error(f"{self}: {type(ce).__name__} received in write_task:_consume.")
-                logger.exception(ce, exc_info=True)
+                logger.exception(f"{self}: {type(ce).__name__} received in write_task:_consume.", exc_info=True)
             raise PeerError from ce
 
     async def _produce(self, writer):
@@ -272,7 +270,7 @@ class PeerConnection:
         :param writer: The StreamWriter on which we write data to the peer.
         :return: True if the handshake is successful, False otherwise
         """
-        logger.debug(f"{self}: Negotiating handshake.")
+        logger.info(f"{self}: Negotiating handshake.")
         sent_handshake = Handshake(self.info_hash, self.local.peer_id_bytes)
         writer.write(sent_handshake.encode())
         await writer.drain()

@@ -186,8 +186,7 @@ class TrackerConnection:
                         return decoded_data
 
         except (TimeoutError, TrackerConnectionError) as tie:
-            logger.error(f"{self}: {type(tie).__name__} received in write_task:_consume.")
-            logger.exception(tie, exc_info=True)
+            logger.exception(f"{self}: {type(tie).__name__} received in write_task:_consume.", exc_info=True)
             raise TrackerConnectionError(tie) from tie
 
     async def cancel(self) -> None:
