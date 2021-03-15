@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 
 """
-Model classes for messages received over the bittorrent protocol
-as well as an async iterator that can wrap a StreamReader and return
-parsed messages.
+Model classes for messages received over the bittorrent protocol.
+
+TODO: Evaluate abstractmethod/classmethod and multiple-inheritance use in the message classes.
 """
 from __future__ import annotations
 
