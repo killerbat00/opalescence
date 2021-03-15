@@ -9,31 +9,17 @@ No data is currently sent to the remote peer.
 """
 from __future__ import annotations
 
-__all__ = ['PeerConnection', 'PeerInfo']
-
 import asyncio
+import struct
 from logging import getLogger
 from typing import Optional
 
 from .errors import PeerError
 from .messages import *
 from .piece_handler import PieceRequester
+from ..utils import open_peer_connection
 
 logger = getLogger(__name__)
-
-
-async def open_peer_connection(host=None, port=None, **kwds) -> [asyncio.StreamReader, asyncio.StreamWriter]:
-    """
-    A wrapper for asyncio.open_connection() returning a (reader, writer) pair.
-    """
-    loop = asyncio.events.get_event_loop()
-    reader = asyncio.StreamReader(loop=loop)
-    protocol = asyncio.StreamReaderProtocol(reader, loop=loop)
-    transport, _ = await loop.create_connection(
-        lambda: protocol, host, port, **kwds)
-    transport.set_write_buffer_limits(0)  # let the OS handle buffering
-    writer = asyncio.StreamWriter(transport, protocol, reader, loop)
-    return reader, writer
 
 
 class PeerInfo:
@@ -99,7 +85,6 @@ class PeerConnection:
         """
         while not self._stop_forever:
             num_timeouts = 0
-            reader, writer = None, None
             try:
                 peer_info = await self.peer_queue.get()
                 self._task.set_name(f"{self}")
@@ -112,15 +97,13 @@ class PeerConnection:
                 logger.info(f"{self}: Opening connection with peer.")
                 # TODO: When we start allowing peers to connect to us, we'll need to listen
                 #       on a socket rather than just connecting with the peer.
-                reader, writer = await asyncio.wait_for(open_peer_connection(host=self.peer.ip, port=self.peer.port),
-                                                        timeout=self._msg_send_to)
+                async with PeerMessenger(self.peer) as messenger:
+                    if not await asyncio.wait_for(self._handshake(messenger), timeout=self._msg_send_to):
+                        raise PeerError
 
-                if not await asyncio.wait_for(self._handshake(reader, writer), timeout=self._msg_send_to):
-                    raise PeerError
-
-                produce_task = asyncio.create_task(self._produce(writer), name=f"Produce Task for {self}")
-                consume_task = asyncio.create_task(self._consume(reader), name=f"Consume Task for {self}")
-                await asyncio.gather(produce_task, consume_task)
+                    produce_task = asyncio.create_task(self._produce(messenger), name=f"Produce Task for {self}")
+                    consume_task = asyncio.create_task(self._consume(messenger), name=f"Consume Task for {self}")
+                    await asyncio.gather(produce_task, consume_task)
 
             except Exception as cpe:
                 if isinstance(cpe, ConnectionRefusedError):
@@ -135,32 +118,20 @@ class PeerConnection:
                 logger.info(f"{self}: Closing connection with peer.")
                 self._requester.remove_peer(self.peer.peer_id)
                 self._msg_to_send_q = asyncio.Queue()
-                if writer:
-                    await writer.drain()
-                    writer.close()
-                    await writer.wait_closed()
                 self.peer = None
                 self._task.set_name("[WAITING] PeerConnection")
         logger.debug(f"{self}: Stopped forever.")
 
-    async def _consume(self, reader):
+    async def _consume(self, messenger: PeerMessenger):
         """
         Iterates through messages we've received from the peer after the initial handshake,
         queuing up responses as appropriate.
 
-        :param reader: The StreamReader in which the peer sends data.
+        :param messenger: The `PeerMessenger` which receives data the peer sends.
         :raises PeerError: on any exception
         """
         try:
-            sentinel = object()
-            num_timeouts = 0
-            async for msg in MessageReader(reader, sentinel, self._msg_receive_to):
-                if msg is sentinel:
-                    num_timeouts += 1
-                    logger.debug(f"{self}: Timeout #{num_timeouts} received...")
-                    if num_timeouts >= 6:
-                        raise PeerError(f"{self}: Too many timeouts in _consume.")
-
+            async for msg in messenger:
                 logger.info(f"{self}: Sent {msg}")
                 if isinstance(msg, Choke):
                     self.peer.choking = True
@@ -196,13 +167,13 @@ class PeerConnection:
                 logger.exception(f"{self}: {type(ce).__name__} received in write_task:_consume.", exc_info=True)
             raise PeerError from ce
 
-    async def _produce(self, writer):
+    async def _produce(self, messenger):
         """
         Sends messages to the peer as they become available in the message queue.
         We wait 60 seconds when trying to send the next message. If we don't get
         a message in those 60 seconds, we send a KeepAlive.
 
-        :param writer: The StreamWriter on which we write data to the peer.
+        :param messenger: The `PeerMessenger` via which we write data to the peer.
         :raises PeerError: on any exception.
         """
         try:
@@ -252,8 +223,7 @@ class PeerConnection:
                     if not log:
                         log = f"{self.local}: Sending {msg} to {self}"
                     logger.debug(log)
-                    writer.write(msg.encode())
-                    await writer.drain()
+                    await messenger.send(msg)
 
                 self._msg_to_send_q.task_done()
 
@@ -262,31 +232,111 @@ class PeerConnection:
                 logger.exception(f"{self}: {type(ce).__name__} received in produce.", exc_info=True)
             raise PeerError from ce
 
-    async def _handshake(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> bool:
+    async def _handshake(self, messenger: PeerMessenger) -> bool:
         """
         Negotiates the handshake with the peer.
 
-        :param reader: The StreamReader on which the peer sends data.
-        :param writer: The StreamWriter on which we write data to the peer.
+        :param messenger: The `PeerMessenger` through which we exchange data.
         :return: True if the handshake is successful, False otherwise
         """
         logger.info(f"{self}: Negotiating handshake.")
         sent_handshake = Handshake(self.info_hash, self.local.peer_id_bytes)
-        writer.write(sent_handshake.encode())
-        await writer.drain()
+        await messenger.send(sent_handshake)
+        received_handshake = await messenger.receive_handshake()
+        if not received_handshake:
+            logger.error(f"{self}: Unable to initiate handshake.")
+            return False
+
+        if received_handshake.info_hash != self.info_hash:
+            logger.error(f"{self}: Unable in initiate handshake. Incorrect info hash received. expected: "
+                         f"{self.info_hash}, received {received_handshake.info_hash}")
+            return False
+
+        if received_handshake.peer_id:
+            self.peer.peer_id = received_handshake.peer_id
+        return True
+
+
+class PeerMessenger:
+    """An async API for sending and receiving BitTorrent connections.
+
+    Wraps `asyncio.StreamReader` and `asyncio.StreamWriter`, reading
+    and writing BitTorrent protocol messages.
+    """
+    _msg_id_to_cls = {0: Choke, 1: Unchoke, 2: Interested, 3: NotInterested,
+                      4: Have, 5: Bitfield, 6: Request, 7: Block, 8: Cancel}
+
+    def __init__(self, peer: PeerInfo):
+        self._stream_reader: Optional[asyncio.StreamReader] = None
+        self._stream_writer: Optional[asyncio.StreamWriter] = None
+        self._peer = peer
+
+    async def __aenter__(self):
+        self._stream_reader, self._stream_writer = await open_peer_connection(host=self._peer.ip, port=self._peer.port)
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self._stream_writer:
+            await self._stream_writer.drain()
+            self._stream_writer.close()
+            await self._stream_writer.wait_closed()
+        return False
+
+    def __aiter__(self):
+        if None in [self._stream_reader, self._stream_writer]:
+            raise PeerError("Cannot receive message on disconnected PeerMessenger.")
+        return self
+
+    async def __anext__(self):
+        if self._stream_reader is None:
+            raise PeerError("Cannot receive message on disconnected PeerMessenger.")
+
+        if self._stream_reader.at_eof():
+            raise StopAsyncIteration
 
         try:
-            data = await reader.readexactly(Handshake.msg_len)
-        except asyncio.IncompleteReadError as ire:
-            logger.error(f"{self}: Unable to initiate handshake, read: {len(ire.partial)}, expected: {ire.expected}")
-            return False
+            return await self.receive()
+        except PeerError:
+            raise StopAsyncIteration
 
-        received = Handshake.decode(data)
-        if received.info_hash != self.info_hash:
-            logger.error(f"{self}: Unable in initiate handshake. Incorrect info hash received. expected: "
-                         f"{self.info_hash}, received {received.info_hash}")
-            return False
+    async def send(self, msg: Message):
+        if not self._stream_writer:
+            raise PeerError("Cannot send message on disconnected PeerMessenger.")
+        self._stream_writer.write(msg.encode())
+        await self._stream_writer.drain()
 
-        if received.peer_id:
-            self.peer.peer_id = received.peer_id
-        return True
+    async def _read(self, msg_len: int) -> bytes:
+        return await self._stream_reader.readexactly(msg_len)
+
+    async def receive_handshake(self) -> Optional[Handshake]:
+        try:
+            data = await self._read(Handshake.msg_len)
+            return Handshake.decode(data)
+        except:
+            return None
+
+    async def receive(self):
+        _exc = self._stream_reader.exception()
+        if _exc:
+            logger.exception(f"{self}: Exception encountered...", exc_info=True)
+            raise PeerError from _exc
+
+        try:
+            msg_len = struct.unpack(">I", await self._read(4))[0]
+
+            if msg_len == 0:
+                return KeepAlive()
+
+            msg_id = struct.unpack(">B", await self._read(1))[0]
+
+            if msg_id is None or (not (0 <= msg_id <= 8)):
+                raise PeerError(f"{self}: Unknown message received: {msg_id}")
+
+            msg_len -= 1  # the msg_len includes 1 byte for the id, we've consumed that already
+            if msg_len == 0:
+                return self._msg_id_to_cls[msg_id].decode()
+            msg_data = await self._read(msg_len)
+            return self._msg_id_to_cls[msg_id].decode(msg_data)
+        except Exception as e:
+            logger.exception(f"{self}: Exception encountered...", exc_info=True)
+            raise PeerError from e

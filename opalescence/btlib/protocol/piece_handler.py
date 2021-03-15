@@ -52,7 +52,7 @@ class FileWriter:
         self._torrent = torrent
         self._base_dir = save_dir
         self._lock = asyncio.Lock()
-        self._fds = self._open_files()
+        # self._fds = self._open_files()
 
     def _open_files(self) -> List[BinaryIO]:
         logger.info(f"Opening files for {self._torrent}")
@@ -73,8 +73,9 @@ class FileWriter:
 
     def close_files(self):
         try:
-            for fd in self._fds:
-                fd.close()
+            pass
+            # for fd in self._fds:
+            #    fd.close()
         except (OSError, Exception):
             pass
 

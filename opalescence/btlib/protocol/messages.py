@@ -7,19 +7,15 @@ parsed messages.
 """
 from __future__ import annotations
 
-__all__ = ['Handshake', 'KeepAlive', 'Choke', 'Unchoke', 'Interested', 'NotInterested', 'Have',
-           'Bitfield', 'Request', 'Block', 'Piece', 'Cancel', 'MessageReader']
+__all__ = ['Message', 'Handshake', 'KeepAlive', 'Choke', 'Unchoke', 'Interested', 'NotInterested', 'Have',
+           'Bitfield', 'Request', 'Block', 'Piece', 'Cancel']
 
-import asyncio
 import struct
-from asyncio import IncompleteReadError, StreamReader
-from asyncio.exceptions import CancelledError
+from abc import abstractmethod
 from logging import getLogger
 from typing import Optional
 
 import bitstring
-
-from .errors import PeerError
 
 logger = getLogger(__name__)
 
@@ -40,6 +36,14 @@ class Message:
 
     def __eq__(self, other):
         return type(self) == type(other)
+
+    @abstractmethod
+    def encode(self):
+        pass
+
+    @abstractmethod
+    def decode(self, *args, **kwargs):
+        pass
 
 
 class NoInfoMessage:
@@ -103,12 +107,16 @@ class KeepAlive(Message):
     <0000>
     """
 
-    @staticmethod
-    def encode() -> bytes:
+    @classmethod
+    def encode(cls) -> bytes:
         """
         :return: encoded message to be sent to protocol
         """
         return struct.pack(">I", 0)
+
+    @classmethod
+    def decode(cls):
+        return cls()
 
 
 class Choke(NoInfoMessage, Message):
@@ -417,57 +425,3 @@ class Cancel(Message):
         """
         cancel_data = struct.unpack(">III", data)
         return cls(cancel_data[0], cancel_data[1], cancel_data[2])
-
-
-class MessageReader:
-    """
-    An async iterator that wraps a StreamReader to allow iterating over received bittorrent protocol messages.
-    """
-    _msg_id_to_cls = {0: Choke, 1: Unchoke, 2: Interested, 3: NotInterested,
-                      4: Have, 5: Bitfield, 6: Request, 7: Block, 8: Cancel}
-
-    def __init__(self, stream_reader: StreamReader, sentinel=None, timeout=10.0):
-        self.stream_reader = stream_reader
-        self._sentinel = sentinel
-        self._timeout = timeout
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        assert self.stream_reader is not None
-
-        if self.stream_reader.at_eof():
-            raise StopAsyncIteration
-
-        _exc = self.stream_reader.exception()
-        if _exc:
-            raise _exc
-
-        try:
-            msg_len = struct.unpack(">I", await asyncio.wait_for(self.stream_reader.readexactly(4),
-                                                                 timeout=self._timeout))[0]
-            if msg_len == 0:
-                return KeepAlive()
-
-            msg_id = struct.unpack(">B", await asyncio.wait_for(self.stream_reader.readexactly(1),
-                                                                timeout=self._timeout))[0]
-            if msg_id is None or (not (0 <= msg_id <= 8)):
-                raise PeerError(f"{self}: Unknown message received: {msg_id}")
-
-            msg_len -= 1  # the msg_len includes 1 byte for the id, we've consumed that already
-            if msg_len == 0:
-                return self._msg_id_to_cls[msg_id].decode()
-            msg_data = await asyncio.wait_for(self.stream_reader.readexactly(msg_len),
-                                              timeout=self._timeout * 5)
-            return self._msg_id_to_cls[msg_id].decode(msg_data)
-
-        except TimeoutError:
-            return self._sentinel
-        except IncompleteReadError:
-            logger.exception(f"{self}", exc_info=True)
-            raise PeerError
-        except Exception as e:
-            if not isinstance(e, CancelledError):
-                logger.exception(f"{self}: Exception encountered...", exc_info=True)
-            raise StopAsyncIteration
