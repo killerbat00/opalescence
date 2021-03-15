@@ -11,7 +11,7 @@ from unittest import TestCase, mock
 
 from requests import get
 
-from opalescence.btlib import metainfo, tracker_connection as tracker
+from opalescence.btlib import metainfo, tracker as tracker
 from tests.context import torrent_url
 from tests.utils import async_run, create_async_mock
 

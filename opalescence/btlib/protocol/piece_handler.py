@@ -48,10 +48,10 @@ class FileWriter:
 
     def __init__(self, torrent: MetaInfoFile, save_dir: str):
         self._files: Dict[int, FileItem] = dict(torrent.files)
+        self._total_size = sum([file.size for file in self._files.values()])
         self._torrent = torrent
         self._base_dir = save_dir
         self._lock = asyncio.Lock()
-        self._write_buffers = [WriteBuffer() for _ in range(len(self._files))]
         self._fds = self._open_files()
 
     def _open_files(self) -> List[BinaryIO]:
@@ -90,27 +90,6 @@ class FileWriter:
                 return i, file, file_offset
             size_sum += file.size
 
-    def _write_or_buffer(self, data_to_write: bytes, file_num: int, file: FileItem, offset: int):
-        """
-        Buffers the data up to WRITE_BUFFER_SIZE, writing data once our buffer exceeds that size.
-        :param data_to_write: data to buffer or write
-        :param file_num: index of file in torrent's file list
-        :param file: FileItem containing file path and size
-        :param offset: Offset into the file to begin writing this data
-        """
-        write_buffer = self._write_buffers[file_num]
-
-        data_to_write_length = len(data_to_write) + len(write_buffer.buffer)
-        if data_to_write_length >= self.WRITE_BUFFER_SIZE:
-            data_to_write = write_buffer.buffer + data_to_write
-            self._write_data(data_to_write, file, write_buffer.offset)
-            write_buffer.buffer = b''
-            write_buffer.offset += data_to_write_length
-        else:
-            write_buffer.buffer += data_to_write
-            if len(write_buffer.buffer) == 0:
-                write_buffer.offset = offset
-
     def _write_data(self, data_to_write, file, offset):
         """
         Writes data to the file in an executor so we don't block the main event loop.
@@ -139,6 +118,8 @@ class FileWriter:
         """
         # TODO: Handle trying to write incomplete pieces
         assert piece.complete
+
+        total_size = sum([file.size for file in self._torrent.files.values()])
 
         offset = piece.index * self._torrent.piece_length
         data_to_write = piece.data
@@ -183,7 +164,7 @@ class PieceRequester:
 
     def add_available_piece(self, peer_id: str, index: int) -> None:
         """
-        Sent when a peer has a piece of the torrent.
+        Called when a peer advertises it has a piece available.
 
         :param peer_id: The peer that has the piece
         :param index: The index of the piece

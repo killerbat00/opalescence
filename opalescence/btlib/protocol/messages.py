@@ -44,7 +44,7 @@ class Message:
 
 class NoInfoMessage:
     """
-    Base class for a protocol message with no only a
+    Base class for a protocol message with only a
     message identifier and no additional info
     """
     msg_id = None

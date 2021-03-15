@@ -27,11 +27,11 @@ install using poetry
 
 download a torrent
 
-`$ python <path-to-opalescence>/opl.py download <.torrent-file> <destination>`
+`$ python -m opalescence download <.torrent-file> <destination>`
 
 ## Testing Opalescence
 
-`$ python <path-to-opalescence>/opl.py test`
+`$ python -m opalescence test`
 
 [The philosophy of Opalescence](philosophy.md)
 

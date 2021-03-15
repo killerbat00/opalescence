@@ -39,7 +39,8 @@ def create_argparser() -> argparse.ArgumentParser:
     CLI argument parsing setup.
     :return:    argparse.ArgumentParser instance
     """
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(prog="python -m opalescence",
+                                     description="A download-only bittorrent client.")
     parser.add_argument("--version", action="version",
                         version=__version__)
     parser.add_argument("-d", "--debug", help="Print debug-level output.",

@@ -2,6 +2,7 @@
 
 """
 Support for communication with an external tracker.
+TODO: remove aiohttp
 """
 
 __all__ = ['Response', 'TrackerConnectionError', 'TrackerConnection']
@@ -113,6 +114,11 @@ def receive(data: bytes) -> Response:
     if tracker_resp.failed:
         raise TrackerConnectionError(tracker_resp.failure_reason)
     return tracker_resp
+
+
+class Tracker:
+    def __init__(self, url):
+        self.url = url
 
 
 class TrackerConnection:

@@ -1,11 +1,11 @@
 [tool.poetry]
 name = "opalescence"
-version = "0.1.0"
+version = "0.3.0"
 description = ""
-authors = ["brian houston morrow <killerbat00@users.noreply.github.com>"]
+authors = ["brian houston morrow <bhm@brianmorrow.net>"]
 
 [tool.poetry.dependencies]
-python = "^3.9.1"
+python = "^3.9"
 aiohttp = "^3.7.4"
 bitstring = "^3.1.7"
 
