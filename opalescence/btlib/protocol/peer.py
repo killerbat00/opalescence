@@ -9,7 +9,7 @@ No data is currently sent to the remote peer.
 """
 from __future__ import annotations
 
-__all__ = ['PeerConnection', 'PeerInfo', 'PeerError']
+__all__ = ['PeerConnection', 'PeerInfo']
 
 import asyncio
 from logging import getLogger

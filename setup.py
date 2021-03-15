@@ -18,7 +18,7 @@ requirements = [
 setup(
     name="opalescence",
     version=opalescence.__version__,
-    description="A torrent client written using Python 3.6 and asyncio",
+    description="A torrent client written using Python 3 and asyncio",
     long_description=readme,
     author="brian houston morrow",
     author_email="bhm@brianmorrow.net",
@@ -31,7 +31,7 @@ setup(
     classifiers=[
         "Development Status :: 4 - Beta",
         "License :: OSI Approved :: MIT License",
-        "Programming Language :: Python :: 3.8"
+        "Programming Language :: Python :: 3.9"
     ],
     test_suite="tests",
     include_package_data=True,

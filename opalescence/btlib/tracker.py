@@ -115,6 +115,11 @@ def receive(data: bytes) -> Response:
     return tracker_resp
 
 
+class Tracker:
+    def __init__(self, url):
+        self.url = url
+
+
 class TrackerConnection:
     """
     Communication with the tracker.

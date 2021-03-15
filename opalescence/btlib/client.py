@@ -15,7 +15,7 @@ from random import randint
 from .metainfo import MetaInfoFile
 from .protocol.peer import PeerConnection, PeerInfo
 from .protocol.piece_handler import PieceRequester, FileWriter
-from .tracker_connection import TrackerConnection, TrackerConnectionError
+from .tracker import TrackerConnection, TrackerConnectionError
 
 logger = getLogger(__name__)
 
@@ -96,7 +96,7 @@ class ClientTorrent:
                       for _ in range(MAX_PEER_CONNECTIONS)]
 
         try:
-            while not self.task.done():
+            while True:
                 if self.requester.complete:
                     await self.tracker.completed()
                     self.download_complete_cb()
