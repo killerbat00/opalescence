@@ -8,12 +8,13 @@ from __future__ import annotations
 
 __all__ = ['CreationError', 'FileItem', 'MetaInfoFile']
 
+import dataclasses
 import hashlib
 import os
 from collections import OrderedDict
 from logging import getLogger
 from pathlib import Path
-from typing import NamedTuple, List, Optional, Dict
+from typing import List, Optional, Dict
 
 from .bencode import Decoder, Encoder, DecodeError, EncodeError
 
@@ -26,7 +27,8 @@ class CreationError(Exception):
     """
 
 
-class FileItem(NamedTuple):
+@dataclasses.dataclass
+class FileItem:
     """
     An individual file within a torrent.
     """

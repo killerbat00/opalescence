@@ -8,12 +8,12 @@ TODO: Evaluate abstractmethod/classmethod and multiple-inheritance use in the me
 from __future__ import annotations
 
 __all__ = ['Message', 'Handshake', 'KeepAlive', 'Choke', 'Unchoke', 'Interested', 'NotInterested', 'Have',
-           'Bitfield', 'Request', 'Block', 'Piece', 'Cancel']
+           'Bitfield', 'Request', 'Block', 'Piece', 'Cancel', 'MESSAGE_TYPES', 'ProtocolMessage']
 
 import struct
 from abc import abstractmethod
 from logging import getLogger
-from typing import Optional
+from typing import Optional, Union
 
 import bitstring
 
@@ -425,3 +425,19 @@ class Cancel(Message):
         """
         cancel_data = struct.unpack(">III", data)
         return cls(cancel_data[0], cancel_data[1], cancel_data[2])
+
+
+MESSAGE_TYPES = {
+    0: Choke,
+    1: Unchoke,
+    2: Interested,
+    3: NotInterested,
+    4: Have,
+    5: Bitfield,
+    6: Request,
+    7: Block,
+    8: Cancel
+}
+
+ProtocolMessage = Union[Handshake, KeepAlive, Choke, Unchoke, Interested, NotInterested, Have, Bitfield, Request,
+                        Block, Cancel]
