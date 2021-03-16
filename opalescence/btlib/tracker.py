@@ -14,7 +14,7 @@ import logging
 import socket
 import struct
 import urllib
-from typing import Optional, List, Tuple, Union
+from typing import Optional, List, Tuple
 from urllib.parse import urlencode
 
 from .bencode import Decoder
@@ -130,13 +130,6 @@ class TrackerParameters:
     event: str
 
 
-@dataclasses.dataclass
-class Tracker:
-    url: str
-    interval: int
-    peers: list
-
-
 def delegate_to_executor(func):
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
@@ -146,36 +139,27 @@ def delegate_to_executor(func):
     return wrapper
 
 
-class TrackerConnection:
-    def __init__(self, url: str, params: TrackerParameters):
-        self._url = urllib.parse.urlparse(url)
-        self._params = params
-        self._conn: Optional[Union[http.client.HTTPConnection, http.client.HTTPSConnection]] = None
+@delegate_to_executor
+def request(url: str, params: TrackerParameters) -> Response:
+    url = urllib.parse.urlparse(url)
+    scheme = url.scheme
+    conn = None
+    if scheme == 'http':
+        conn = http.client.HTTPConnection(url.netloc, timeout=5)
+    elif scheme == 'https':
+        conn = http.client.HTTPSConnection(url.netloc, timeout=5)
 
-    async def __aenter__(self):
-        scheme = self._url.scheme
-        if scheme == 'http':
-            self._conn = http.client.HTTPConnection(self._url.netloc, timeout=5)
-        elif scheme == 'https':
-            self._conn = http.client.HTTPSConnection(self._url.netloc, timeout=5)
-        return self
+    try:
+        if conn is None or not params:
+            raise TrackerConnectionError('Cannot request on uninitialized tracker.')
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        return False
-
-    @delegate_to_executor
-    def request(self) -> Response:
-        try:
-            if self._conn is None or not self._params:
-                raise TrackerConnectionError('Cannot request on uninitialized tracker.')
-
-            q = urllib.parse.parse_qs(self._url.query)
-            q.update(dataclasses.asdict(self._params))
-            path = self._url._replace(scheme="", netloc="", query=urllib.parse.urlencode(q)).geturl()
-            self._conn.request("GET", path)
-            return receive(self._conn.getresponse().read())
-        finally:
-            self._conn.close()
+        q = urllib.parse.parse_qs(url.query)
+        q.update(dataclasses.asdict(params))
+        path = url._replace(scheme="", netloc="", query=urllib.parse.urlencode(q)).geturl()
+        conn.request("GET", path)
+        return receive(conn.getresponse().read())
+    finally:
+        conn.close()
 
 
 class TrackerManager:
@@ -196,14 +180,6 @@ class TrackerManager:
         self.port = local_info.port
         self.interval = self.DEFAULT_INTERVAL
 
-    def _get_url_params(self, event: str = "") -> TrackerParameters:
-        """
-        :param event: the event sent in the request when starting, stopping, and completing
-        :return: Returns a dictionary of the request parameters expected by the tracker.
-        """
-        return TrackerParameters(self.info_hash, self.peer_id, self.port, self.stats.get("uploaded", 0),
-                                 self.stats.get("downloaded", 0), self.stats.get("left", 0), 1, event)
-
     async def announce(self, event: str = "") -> Response:
         """
         Makes an announce request to the tracker.
@@ -222,16 +198,14 @@ class TrackerManager:
         if not url:
             raise TrackerConnectionError("Unable to make request - no url.")
 
-        params = self._get_url_params(event)
-        if not params:
-            raise TrackerConnectionError(f"{url}: Unable to make URL params.")
+        params = TrackerParameters(self.info_hash, self.peer_id, self.port, self.stats.get("uploaded", 0),
+                                   self.stats.get("downloaded", 0), self.stats.get("left", 0), 1, event)
 
         try:
-            async with TrackerConnection(url, params) as conn:
-                logger.info(f"Making {event} announce to: {url}")
-                decoded_data = await conn.request()
-                self.interval = decoded_data.interval
-                return decoded_data
+            logger.info(f"Making {event} announce to: {url}")
+            decoded_data = await request(url, params)
+            self.interval = decoded_data.interval
+            return decoded_data
 
         except Exception as e:
             logger.exception(f"{self}: {type(e).__name__} received in TrackerManager.announce", exc_info=True)
