@@ -15,7 +15,7 @@ from random import randint
 from .metainfo import MetaInfoFile
 from .protocol.peer import PeerConnection, PeerInfo
 from .protocol.piece_handler import PieceRequester, FileWriter
-from .tracker import TrackerConnection, TrackerConnectionError
+from .tracker import TrackerManager, TrackerConnectionError
 
 logger = getLogger(__name__)
 
@@ -49,7 +49,7 @@ class ClientTorrent:
         self.client_info = PeerInfo(LOCAL_IP, LOCAL_PORT, PEER_ID)
         self.torrent = torrent
         self.stats = {"uploaded": 0, "downloaded": 0, "left": torrent.total_size, "started": 0.0}
-        self.tracker = TrackerConnection(self.client_info, torrent, self.stats)
+        self.tracker = TrackerManager(self.client_info, torrent, self.stats)
         self.peer_q = asyncio.Queue()
         self.writer = FileWriter(torrent, destination)
         self.peers = []

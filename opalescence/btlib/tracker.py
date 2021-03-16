@@ -5,12 +5,17 @@ Support for communication with an external tracker.
 TODO: remove aiohttp
 """
 
-__all__ = ['Response', 'TrackerConnectionError', 'TrackerConnection']
+__all__ = ['Response', 'TrackerConnectionError', 'TrackerManager']
 
+import asyncio
+import dataclasses
+import functools
+import http.client
 import logging
 import socket
 import struct
-from typing import Optional, List, Tuple
+import urllib
+from typing import Optional, List, Tuple, Union
 from urllib.parse import urlencode
 
 from aiohttp import ClientSession, ClientTimeout
@@ -50,8 +55,8 @@ class Response:
         """
         min_interval = self.data.get("min interval", None)
         if not min_interval:
-            return self.data.get("interval", TrackerConnection.DEFAULT_INTERVAL)
-        interval = self.data.get("interval", TrackerConnection.DEFAULT_INTERVAL)
+            return self.data.get("interval", TrackerManager.DEFAULT_INTERVAL)
+        interval = self.data.get("interval", TrackerManager.DEFAULT_INTERVAL)
         return min(min_interval, interval)
 
     @property
@@ -116,19 +121,72 @@ def receive(data: bytes) -> Response:
     return tracker_resp
 
 
+@dataclasses.dataclass
+class TrackerParameters:
+    info_hash: bytes
+    peer_id: bytes
+    port: int
+    uploaded: int
+    downloaded: int
+    left: int
+    compact: int
+    event: str
+
+
+@dataclasses.dataclass
 class Tracker:
-    def __init__(self, url):
-        self.url = url
+    url: str
+    interval: int
+    peers: list
+
+
+def delegate_to_executor(func):
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        return await asyncio.get_running_loop().run_in_executor(None,
+                                                                functools.partial(func, *args, **kwargs))
+
+    return wrapper
 
 
 class TrackerConnection:
+    def __init__(self, url: str, params: TrackerParameters):
+        self._url = urllib.parse.urlparse(url)
+        self._params = params
+        self._conn: Optional[Union[http.client.HTTPConnection, http.client.HTTPSConnection]] = None
+
+    def __aenter__(self):
+        scheme = self._url.scheme
+        if scheme == 'http':
+            self._conn = http.client.HTTPConnection(self._url.netloc, timeout=5)
+        elif scheme == 'https':
+            self._conn = http.client.HTTPSConnection(self._url.netloc, timeout=5)
+
+    def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self._conn is not None:
+            self._conn.close()
+        return False
+
+    @delegate_to_executor
+    def request(self) -> Response:
+        if self._conn is None or not self._params:
+            raise TrackerConnectionError('Cannot request on uninitialized tracker.')
+
+        q = urllib.parse.parse_qs(self._url.query)
+        q.update(dataclasses.asdict(self._params))
+        path = self._url._replace(scheme="", netloc="", query=urllib.parse.urlencode(q)).geturl()
+        self._conn.request("GET", path)
+        return receive(self._conn.getresponse().read())
+
+
+class TrackerManager:
     """
     Communication with the tracker.
     Does not currently support the announce-list extension from
-    BEP 0012: http://bittorrent.org/beps/bep_0012.html
+    BEP 0012: http://bittorrent.org/beps/bep_0012.html. Instead, when one tracker
+    disconnects or fails, or runs out of trackers, we hop round robin to the next tracker.
     Does not support the scrape convention.
     """
-
     DEFAULT_INTERVAL: int = 60  # 1 minute
 
     def __init__(self, local_info: PeerInfo, meta_info: MetaInfoFile, stats: dict):
