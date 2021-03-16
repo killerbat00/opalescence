@@ -98,7 +98,7 @@ class PeerConnection:
                 # TODO: When we start allowing peers to connect to us, we'll need to listen
                 #       on a socket rather than just connecting with the peer.
                 async with PeerMessenger(self.peer) as messenger:
-                    if not self._handshake(messenger):
+                    if not await self._handshake(messenger):
                         raise PeerError
 
                     produce_task = asyncio.create_task(self._produce(messenger), name=f"Produce Task for {self}")

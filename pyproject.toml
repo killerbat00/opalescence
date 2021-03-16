@@ -6,7 +6,6 @@ authors = ["brian houston morrow <bhm@brianmorrow.net>"]
 
 [tool.poetry.dependencies]
 python = "^3.9"
-aiohttp = "^3.7.4"
 bitstring = "^3.1.7"
 
 [tool.poetry.dev-dependencies]

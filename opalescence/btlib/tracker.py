@@ -2,7 +2,6 @@
 
 """
 Support for communication with an external tracker.
-TODO: remove aiohttp
 """
 
 __all__ = ['Response', 'TrackerConnectionError', 'TrackerManager']
@@ -17,8 +16,6 @@ import struct
 import urllib
 from typing import Optional, List, Tuple, Union
 from urllib.parse import urlencode
-
-from aiohttp import ClientSession, ClientTimeout
 
 from .bencode import Decoder
 from .metainfo import MetaInfoFile
@@ -110,7 +107,7 @@ class TrackerConnectionError(Exception):
     Raised when there's an error with the Tracker.
     """
 
-    def __init__(self, failure_reason: Optional[str]):
+    def __init__(self, failure_reason: Optional[str] = ""):
         self.failure_reason = failure_reason
 
 
@@ -155,28 +152,30 @@ class TrackerConnection:
         self._params = params
         self._conn: Optional[Union[http.client.HTTPConnection, http.client.HTTPSConnection]] = None
 
-    def __aenter__(self):
+    async def __aenter__(self):
         scheme = self._url.scheme
         if scheme == 'http':
             self._conn = http.client.HTTPConnection(self._url.netloc, timeout=5)
         elif scheme == 'https':
             self._conn = http.client.HTTPSConnection(self._url.netloc, timeout=5)
+        return self
 
-    def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self._conn is not None:
-            self._conn.close()
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
         return False
 
     @delegate_to_executor
     def request(self) -> Response:
-        if self._conn is None or not self._params:
-            raise TrackerConnectionError('Cannot request on uninitialized tracker.')
+        try:
+            if self._conn is None or not self._params:
+                raise TrackerConnectionError('Cannot request on uninitialized tracker.')
 
-        q = urllib.parse.parse_qs(self._url.query)
-        q.update(dataclasses.asdict(self._params))
-        path = self._url._replace(scheme="", netloc="", query=urllib.parse.urlencode(q)).geturl()
-        self._conn.request("GET", path)
-        return receive(self._conn.getresponse().read())
+            q = urllib.parse.parse_qs(self._url.query)
+            q.update(dataclasses.asdict(self._params))
+            path = self._url._replace(scheme="", netloc="", query=urllib.parse.urlencode(q)).geturl()
+            self._conn.request("GET", path)
+            return receive(self._conn.getresponse().read())
+        finally:
+            self._conn.close()
 
 
 class TrackerManager:
@@ -197,20 +196,13 @@ class TrackerManager:
         self.port = local_info.port
         self.interval = self.DEFAULT_INTERVAL
 
-    def _get_url_params(self, event: str = "") -> dict:
+    def _get_url_params(self, event: str = "") -> TrackerParameters:
         """
         :param event: the event sent in the request when starting, stopping, and completing
         :return: Returns a dictionary of the request parameters expected by the tracker.
         """
-        params = {"info_hash": self.info_hash,
-                  "peer_id": self.peer_id,
-                  "port": self.port,
-                  "uploaded": self.stats.get("uploaded", 0),
-                  "downloaded": self.stats.get("downloaded", 0),
-                  "left": self.stats.get("left", 0),
-                  "compact": 1,
-                  "event": event}
-        return params
+        return TrackerParameters(self.info_hash, self.peer_id, self.port, self.stats.get("uploaded", 0),
+                                 self.stats.get("downloaded", 0), self.stats.get("left", 0), 1, event)
 
     async def announce(self, event: str = "") -> Response:
         """
@@ -235,23 +227,15 @@ class TrackerManager:
             raise TrackerConnectionError(f"{url}: Unable to make URL params.")
 
         try:
-            url = f"{url}?{urlencode(params)}"
-            logger.info(f"Making {event} announce to: {url}")
-            async with ClientSession(timeout=ClientTimeout(5)) as session:
-                async with session.get(url) as r:
-                    if r.status != 200:
-                        logger.error(f"{url}: Unable to connect to tracker.")
-                        raise TrackerConnectionError("Non-200 HTTP status.")
+            async with TrackerConnection(url, params) as conn:
+                logger.info(f"Making {event} announce to: {url}")
+                decoded_data = await conn.request()
+                self.interval = decoded_data.interval
+                return decoded_data
 
-                    if not event or event == EVENT_STARTED:
-                        data: bytes = await r.read()
-                        decoded_data: Response = receive(data)
-                        self.interval = decoded_data.interval
-                        return decoded_data
-
-        except (TimeoutError, TrackerConnectionError) as tie:
-            logger.exception(f"{self}: {type(tie).__name__} received in write_task:_consume.", exc_info=True)
-            raise TrackerConnectionError(tie) from tie
+        except Exception as e:
+            logger.exception(f"{self}: {type(e).__name__} received in TrackerManager.announce", exc_info=True)
+            raise TrackerConnectionError
 
     async def cancel(self) -> None:
         """
