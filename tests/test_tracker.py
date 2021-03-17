@@ -66,7 +66,7 @@ class TestTracker(TestCase):
         """
         t = tracker.TrackerManager(b"-bM0100-010293949201", self.torrent)
         resp = async_run(t.announce())
-        self.assertIsInstance(resp, tracker.Response)
+        self.assertIsInstance(resp, tracker.TrackerResponse)
         self.assertFalse(resp.failed)
         async_run(t.http_client.close())
 
@@ -159,8 +159,8 @@ class TestResponse(TestCase):
         """
         tests response creation
         """
-        r = tracker.Response(dict())
-        self.assertIsInstance(r, tracker.Response)
+        r = tracker.TrackerResponse(dict())
+        self.assertIsInstance(r, tracker.TrackerResponse)
         self.assertEqual(r.data, dict())
         self.assertEqual(r.failure_reason, None)
 
@@ -169,7 +169,7 @@ class TestResponse(TestCase):
         tests a failed response identifies itself properly
         """
         fail_dict = {"failure reason": b"reason"}
-        r = tracker.Response(fail_dict)
+        r = tracker.TrackerResponse(fail_dict)
         self.assertTrue(r.failed)
         self.assertEqual(r.failure_reason, "reason")
 
@@ -180,7 +180,7 @@ class TestResponse(TestCase):
         dictionary_peers = {"peers": [{"ip": b"127.0.0.1", "port": 6969},
                                       {"ip": b"0.0.0.0", "port": 1}]}
         peer_list = [("127.0.0.1", 6969), ("0.0.0.0", 1)]
-        r = tracker.Response(dictionary_peers)
+        r = tracker.TrackerResponse(dictionary_peers)
         peers = r.get_peers()
         for p in peers:
             self.assertIn(p, peer_list)
@@ -196,7 +196,7 @@ class TestResponse(TestCase):
         peer_bytes = b"%(ip1)s%(p1)s%(ip2)s%(p2)s" % {b"ip1": ip1, b"p1": p1, b"ip2": ip2, b"p2": p2}
         resp_dict = {"peers": peer_bytes}
         peer_list = [("127.0.0.1", 6969), ("0.0.0.0", 1)]
-        r = tracker.Response(resp_dict)
+        r = tracker.TrackerResponse(resp_dict)
         peers = r.get_peers()
         for p in peers:
             self.assertIn(p, peer_list)
@@ -206,13 +206,13 @@ class TestResponse(TestCase):
         tests we correctly reject an unknown peer response from the tracker
         """
         with self.subTest(msg="Empty dict."):
-            self.assertIsNone(tracker.Response({}).get_peers())
+            self.assertIsNone(tracker.TrackerResponse({}).get_peers())
         with self.subTest(msg="Key with empty value in dict."):
-            self.assertIsNone(tracker.Response({"peers": ""}).get_peers())
+            self.assertIsNone(tracker.TrackerResponse({"peers": ""}).get_peers())
 
         with self.assertRaises(tracker.TrackerConnectionError):
             resp_dict = {"peers": "not a dict or bytestring"}
-            tracker.Response(resp_dict).get_peers()
+            tracker.TrackerResponse(resp_dict).get_peers()
 
     def test_interval(self):
         """
@@ -220,24 +220,24 @@ class TestResponse(TestCase):
         """
         with self.subTest(msg="No interval specified."):
             default = tracker.TrackerManager.DEFAULT_INTERVAL
-            self.assertEqual(default, tracker.Response({}).interval)
+            self.assertEqual(default, tracker.TrackerResponse({}).interval)
         with self.subTest(msg="Only interval specified."):
             interval = 55
-            self.assertEqual(interval, tracker.Response({"interval": interval}).interval)
+            self.assertEqual(interval, tracker.TrackerResponse({"interval": interval}).interval)
         with self.subTest(msg="Only min interval, lower than default."):
             min_interval = 5
-            self.assertEqual(min_interval, tracker.Response({"min interval": min_interval}).interval)
+            self.assertEqual(min_interval, tracker.TrackerResponse({"min interval": min_interval}).interval)
         with self.subTest(msg="Only min interval, higher than default."):
             min_interval = 105
             self.assertEqual(tracker.TrackerManager.DEFAULT_INTERVAL,
-                             tracker.Response({"min interval": min_interval}).interval)
+                             tracker.TrackerResponse({"min interval": min_interval}).interval)
         with self.subTest(msg="Lower min interval."):
             min_interval = 5
             interval = 55
-            self.assertEqual(min_interval, tracker.Response({"min interval": min_interval,
-                                                             "interval": interval}).interval)
+            self.assertEqual(min_interval, tracker.TrackerResponse({"min interval": min_interval,
+                                                                    "interval": interval}).interval)
         with self.subTest(msg="Lower interval."):
             min_interval = 55
             interval = 5
-            self.assertEqual(interval, tracker.Response({"min interval": min_interval,
-                                                         "interval": interval}).interval)
+            self.assertEqual(interval, tracker.TrackerResponse({"min interval": min_interval,
+                                                                "interval": interval}).interval)

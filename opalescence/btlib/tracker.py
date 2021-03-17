@@ -4,7 +4,7 @@
 Support for communication with an external tracker.
 """
 
-__all__ = ['Response', 'TrackerConnectionError', 'TrackerManager']
+__all__ = ['TrackerResponse', 'TrackerConnectionError', 'TrackerManager']
 
 import asyncio
 import dataclasses
@@ -14,6 +14,7 @@ import logging
 import socket
 import struct
 import urllib
+from collections import deque
 from typing import Optional, List, Tuple
 from urllib.parse import urlencode
 
@@ -28,9 +29,9 @@ EVENT_COMPLETED = "completed"
 EVENT_STOPPED = "stopped"
 
 
-class Response:
+class TrackerResponse:
     """
-    Response received from the tracker after an announce request
+    TrackerResponse received from the tracker after an announce request
     """
 
     def __init__(self, data: dict):
@@ -43,7 +44,7 @@ class Response:
         :return: the failure reason
         """
         if self.failed:
-            return self.data["failure reason"].decode("UTF-8")
+            return self.data.get("failure reason", b"Unknown").decode("UTF-8")
 
     @property
     def interval(self) -> int:
@@ -61,19 +62,18 @@ class Response:
         """
         :return: the tracker id
         """
-        tracker_id = self.data.get("tracker id")
-        if tracker_id:
-            return tracker_id.decode("UTF-8")
+        if "tracker id" in self.data:
+            return self.data.get("tracker id", b"").decode("UTF-8")
 
     @property
-    def complete(self) -> int:
+    def seeders(self) -> int:
         """
         :return: seeders, the number of peers with the entire file
         """
         return self.data.get("complete", 0)
 
     @property
-    def incomplete(self) -> int:
+    def leechers(self) -> int:
         """
         :return: leechers, the number of peers that are not seeders
         """
@@ -99,7 +99,7 @@ class Response:
         elif isinstance(peers, list):
             return [(p["ip"].decode("UTF-8"), int(p["port"])) for p in peers]
         else:
-            raise TrackerConnectionError(f"Unable to decode `peers` key from response")
+            raise TrackerConnectionError(f"Unable to decode `peers` from tracker response")
 
 
 class TrackerConnectionError(Exception):
@@ -109,13 +109,6 @@ class TrackerConnectionError(Exception):
 
     def __init__(self, failure_reason: Optional[str] = ""):
         self.failure_reason = failure_reason
-
-
-def receive(data: bytes) -> Response:
-    tracker_resp = Response(Decoder(data).decode())
-    if tracker_resp.failed:
-        raise TrackerConnectionError(tracker_resp.failure_reason)
-    return tracker_resp
 
 
 @dataclasses.dataclass
@@ -133,14 +126,14 @@ class TrackerParameters:
 def delegate_to_executor(func):
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
-        return await asyncio.get_running_loop().run_in_executor(None,
-                                                                functools.partial(func, *args, **kwargs))
+        return await asyncio.get_running_loop(). \
+            run_in_executor(None, functools.partial(func, *args, **kwargs))
 
     return wrapper
 
 
 @delegate_to_executor
-def request(url: str, params: TrackerParameters) -> Response:
+def request(url: str, params: TrackerParameters) -> TrackerResponse:
     url = urllib.parse.urlparse(url)
     scheme = url.scheme
     conn = None
@@ -157,7 +150,11 @@ def request(url: str, params: TrackerParameters) -> Response:
         q.update(dataclasses.asdict(params))
         path = url._replace(scheme="", netloc="", query=urllib.parse.urlencode(q)).geturl()
         conn.request("GET", path)
-        return receive(conn.getresponse().read())
+        resp = conn.getresponse().read()
+        tracker_resp = TrackerResponse(Decoder(resp).decode())
+        if tracker_resp.failed:
+            raise TrackerConnectionError(tracker_resp.failure_reason)
+        return tracker_resp
     finally:
         conn.close()
 
@@ -173,14 +170,14 @@ class TrackerManager:
     DEFAULT_INTERVAL: int = 60  # 1 minute
 
     def __init__(self, local_info: PeerInfo, meta_info: MetaInfoFile, stats: dict):
-        self.peer_id: bytes = local_info.peer_id_bytes
         self.info_hash: bytes = meta_info.info_hash
-        self.announce_urls: List[List[str]] = meta_info.announce_urls
+        self.announce_urls: deque[str] = deque([url for tier in meta_info.announce_urls for url in tier])
         self.stats = stats
         self.port = local_info.port
+        self.peer_id = local_info.peer_id_bytes
         self.interval = self.DEFAULT_INTERVAL
 
-    async def announce(self, event: str = "") -> Response:
+    async def announce(self, event: str = "") -> TrackerResponse:
         """
         Makes an announce request to the tracker.
 
@@ -188,13 +185,16 @@ class TrackerManager:
                                         we timed out making a request to the tracker,
                                         the tracker sent a failure, or we
                                         are unable to bdecode the tracker's response.
-        :returns: Response object representing the tracker's response
+        :returns: TrackerResponse object representing the tracker's response
         """
         if not event:
             event = EVENT_STARTED
 
         # TODO: respect proper order of announce urls according to BEP 0012
-        url = self.announce_urls[0][0]
+        if len(self.announce_urls) == 0:
+            raise TrackerConnectionError("Unable to make request - no announce urls.")
+
+        url = self.announce_urls[0]
         if not url:
             raise TrackerConnectionError("Unable to make request - no url.")
 
@@ -214,13 +214,13 @@ class TrackerManager:
     async def cancel(self) -> None:
         """
         Informs the tracker we are gracefully shutting down.
-        :raises TrackerError:
+        :raises TrackerConnectionError:
         """
         await self.announce(event=EVENT_STOPPED)
 
     async def completed(self) -> None:
         """
         Informs the tracker we have completed downloading this torrent
-        :raises TrackerError:
+        :raises TrackerConnectionError:
         """
         await self.announce(event=EVENT_COMPLETED)

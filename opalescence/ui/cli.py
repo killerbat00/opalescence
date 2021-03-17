@@ -90,10 +90,6 @@ def download(file_path) -> None:
     logger.info(f"Shutting down. Thank you for using opalescence v{__version__}.")
 
 
-def d2(tfile, dest) -> None:
-    asyncio.run(do_download(tfile, dest))
-
-
 async def do_download(torrent_fp, dest_fp):
     logger = logging.getLogger("opalescence")
     logger.info(f"Downloading {torrent_fp} to {dest_fp}")
