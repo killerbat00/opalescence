@@ -46,7 +46,7 @@ class WriteBuffer:
 class FileWriter:
     WRITE_BUFFER_SIZE = 2 ** 13  # 8kb
 
-    def __init__(self, torrent: MetaInfoFile, save_dir: str):
+    def __init__(self, torrent: MetaInfoFile, save_dir: Path):
         self._files: Dict[int, FileItem] = dict(torrent.files)
         self._total_size = sum([file.size for file in self._files.values()])
         self._torrent = torrent

@@ -131,6 +131,7 @@ class MetaInfoFile:
         self.meta_info: Optional[OrderedDict] = None
         self.info_hash: bytes = b''
         self.piece_hashes: List[bytes] = []
+        self.destination: Optional[Path] = None
 
     def __str__(self):
         return f"{self.name}"
@@ -139,7 +140,7 @@ class MetaInfoFile:
         return f"<MetaInfoFile: {self}>"
 
     @classmethod
-    def from_file(cls, filename: str) -> MetaInfoFile:
+    def from_file(cls, filename: Path) -> MetaInfoFile:
         """
         Class method to create a torrent object from a .torrent metainfo file
 
@@ -187,15 +188,6 @@ class MetaInfoFile:
         :param comment:
         :param piece_size:
         :param private:
-        :raises CreationError:
-        """
-        raise NotImplementedError
-
-    def _collect_pieces(self):
-        """
-        The real workhorse of torrent creation.
-        Reads through all specified files, breaking them into piece_length chunks and storing their 20byte sha1
-        digest into the pieces list
         :raises CreationError:
         """
         raise NotImplementedError

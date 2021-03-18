@@ -11,6 +11,7 @@ __all__ = ['ClientError', 'Client']
 import asyncio
 import socket
 from logging import getLogger
+from pathlib import Path
 from typing import Optional, Set
 
 from .download import Download
@@ -87,13 +88,14 @@ class Client:
     async def stop_all(self):
         if not self._running:
             return
+        self._running = False
         for t in self._tasks:
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
 
-    def add_torrent(self, *, torrent: MetaInfoFile = None, torrent_fp: str = None, destination: str = None) -> bool:
-        if destination is None:
+    def add_torrent(self, *, torrent: MetaInfoFile = None, torrent_fp: Path = None, destination: Path = None) -> bool:
+        if destination is None or not destination.exists():
             raise ClientError("No download destination specified.")
 
         if torrent is not None:
@@ -103,11 +105,11 @@ class Client:
         else:
             raise ClientError("No torrent to download specified.")
 
-    def _add_torrent_metainfo(self, torrent: MetaInfoFile, destination: str) -> bool:
+    def _add_torrent_metainfo(self, torrent: MetaInfoFile, destination: Path) -> bool:
         ct = Download(torrent, destination, self._local_peer)
         return self._add_torrent(ct)
 
-    def _add_torrent_filepath(self, torrent_fp: str, destination: str) -> bool:
+    def _add_torrent_filepath(self, torrent_fp: Path, destination: Path) -> bool:
         ct = Download(MetaInfoFile.from_file(torrent_fp), destination, self._local_peer)
         return self._add_torrent(ct)
 
@@ -115,7 +117,7 @@ class Client:
         if self._downloading is None:
             self._downloading = []
         for t in self._downloading:
-            if t.torrent.info_hash == ct.torrent.info_hash:
+            if t.torrent.info_hash == ct.torrent.info_hash:  # already in the list
                 return False
         self._downloading.append(ct)
         return True

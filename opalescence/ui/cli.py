@@ -14,6 +14,7 @@ import os
 import signal
 import sys
 import unittest
+from pathlib import Path
 from queue import SimpleQueue as Queue
 
 from opalescence import __version__
@@ -52,14 +53,16 @@ def create_argparser() -> argparse.ArgumentParser:
                         const=logging.INFO)
 
     subparsers = parser.add_subparsers()
-    test_parser = subparsers.add_parser("test", help="Run the test suite")
+    test_parser = subparsers.add_parser("test", help="Run the test suite.")
     test_parser.set_defaults(func=test)
     download_parser = subparsers.add_parser("download",
                                             help="Download a .torrent file.")
     download_parser.add_argument('torrent_file',
-                                 help="Path to the .torrent file to download.")
+                                 help="Path to the .torrent file to download.",
+                                 type=Path)
     download_parser.add_argument('destination',
-                                 help="File destination path.")
+                                 help="File destination path.",
+                                 type=Path)
     download_parser.set_defaults(func=download)
     return parser
 
@@ -79,17 +82,33 @@ def test(_) -> None:
         runner.run(suite)
 
 
-def download(file_path) -> None:
+def download(args) -> None:
     """
     Downloads a .torrent file
-    :param file_path: .torrent filepath argparse.Namespace object
+    :param args: .torrent filepath argparse.Namespace object
     """
     logger = logging.getLogger("opalescence")
-    asyncio.run(do_download(file_path.torrent_file, file_path.destination))
-    logger.info(f"Shutting down. Thank you for using opalescence v{__version__}.")
+    torrent_fp: Path = args.torrent_file
+    dest_fp: Path = args.destination
+    try:
+        if not torrent_fp.exists():
+            logger.error(f"Torrent filepath does not exist.")
+            raise
+        if not dest_fp.exists():
+            if not dest_fp.is_dir():
+                logger.error(f"Destination filepath is not a directory. Saving files in containing directory.")
+                raise
+            logger.debug(f"Destination filepath does not exist. Creating {dest_fp}.")
+            dest_fp.mkdir()
+
+        asyncio.run(do_download(torrent_fp, dest_fp))
+    finally:
+        logger.info(f"Shutting down. Thank you for using opalescence v{__version__}.")
 
 
-async def do_download(torrent_fp, dest_fp):
+async def do_download(torrent_fp: Path, dest_fp: Path):
+    assert torrent_fp.exists() and dest_fp.exists()
+
     logger = logging.getLogger("opalescence")
     logger.info(f"Downloading {torrent_fp} to {dest_fp}")
 
