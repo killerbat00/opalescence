@@ -17,8 +17,7 @@ import unittest
 from queue import SimpleQueue as Queue
 
 from opalescence import __version__
-from opalescence.btlib.client import ClientTorrent
-from opalescence.btlib.metainfo import MetaInfoFile
+from opalescence.btlib.client import Client
 
 
 def main():
@@ -96,22 +95,21 @@ async def do_download(torrent_fp, dest_fp):
 
     loop = asyncio.get_event_loop()
     loop.set_debug(__debug__)
-    torrent = ClientTorrent(MetaInfoFile.from_file(torrent_fp), dest_fp)
-    start_task = torrent.download()
+    client = Client()
+    client.add_torrent(torrent_fp=torrent_fp, destination=dest_fp)
 
     def signal_received(s):
         logger.debug(f"{s} received. Shutting down...")
-        start_task.cancel()
+        client.stop()
 
     for signame in ('SIGINT', 'SIGTERM'):
         loop.add_signal_handler(getattr(signal, signame), functools.partial(signal_received, signame))
 
     try:
         # Main entry point
-        await start_task
+        await client.start_all()
     except asyncio.CancelledError:
-        start_task.cancel()
-        await asyncio.sleep(0)
+        await client.stop_all()
     except Exception as ex:
         if not isinstance(ex, KeyboardInterrupt):
             logger.exception(f"{type(ex).__name__} exception received.", exc_info=True)
