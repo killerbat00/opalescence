@@ -2,7 +2,13 @@ Big List of things To Do:
 1. Dynamically determine missing pieces for added torrents (+--resume option in CLI?)
 2. Add download-specific statistics: # of connected peers, % complete (# pieces downloaded/total pieces? or
 num pieces * piece size / total size), 2s window connection speed?, # of trackers.
-3. Refactor piece selection/requesting. Verify this works with multiple peers.
-4. Add overall statistics?
-5. Test/verify downloading multiple torrents at once.
-6. Actually bind to the port we tell the tracker we're listening on.
+3. Show better progress in the CLI.
+4. Refactor piece selection/requesting. Verify this works with multiple peers.
+5. Add overall statistics?
+6. Test/verify downloading multiple torrents at once.
+7. Add uploading/responding to requests from peers.
+8. Allow selecting the files to download.
+9. Simple TUI
+10. Add piece-selecting strategies?
+11. Tests.
+12. Actually bind to the port we tell the tracker we're listening on? (maybe eventually, but never intended to be a full-on seeding application, for now).
