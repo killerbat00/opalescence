@@ -150,8 +150,10 @@ def request(url: str, params: TrackerParameters) -> TrackerResponse:
         q.update(dataclasses.asdict(params))
         path = url._replace(scheme="", netloc="", query=urllib.parse.urlencode(q)).geturl()
         conn.request("GET", path)
-        resp = conn.getresponse().read()
-        tracker_resp = TrackerResponse(Decoder(resp).decode())
+        resp = conn.getresponse()
+        if resp.status != 200:
+            raise TrackerConnectionError('Non-200 response received from tracker.')
+        tracker_resp = TrackerResponse(Decoder(resp.read()).decode())
         if tracker_resp.failed:
             raise TrackerConnectionError(tracker_resp.failure_reason)
         return tracker_resp

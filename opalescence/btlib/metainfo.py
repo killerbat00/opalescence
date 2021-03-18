@@ -133,7 +133,7 @@ class MetaInfoFile:
         self.piece_hashes: List[bytes] = []
 
     def __str__(self):
-        return f"{self.name} <{self.info_hash}>"
+        return f"{self.name}"
 
     def __repr__(self):
         return f"<MetaInfoFile: {self}>"
@@ -269,7 +269,6 @@ class MetaInfoFile:
         if announce-list is present, it is used instead of announce.
         :return: a list of announce URLs for the tracker
         """
-        # TODO: Properly shuffle the list (either here or in the tracker)
         if "announce-list" in self.meta_info:
             return [[x.decode("UTF-8") for x in url_list] for url_list in self.meta_info["announce-list"]]
         return [[_get_and_decode(self.meta_info, "announce")]]
