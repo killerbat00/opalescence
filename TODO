@@ -1,3 +1,6 @@
 Big List of things To Do:
 1. Actually bind to the port we tell the tracker we're listening on.
-2. Convert peer communication to an asyncio.Protocol class.
+2. Dynamically determine missing pieces for added torrents (+--resume option in CLI?)
+3. Add download-specific statistics: # of connected peers, % complete (# pieces downloaded/total pieces? or
+num pieces * piece size / total size), 2s window connection speed?
+4. Refactor piece selection/requesting. Verify this works with multiple peers.
