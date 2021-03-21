@@ -95,11 +95,11 @@ def download(args) -> None:
             logger.error(f"Torrent filepath does not exist.")
             raise
         if not dest_fp.exists():
-            if not dest_fp.is_dir():
-                logger.error(f"Destination filepath is not a directory. Saving files in containing directory.")
-                raise
             logger.debug(f"Destination filepath does not exist. Creating {dest_fp}.")
             dest_fp.mkdir()
+        if not dest_fp.is_dir():
+            logger.error(f"Destination filepath is not a directory.")
+            raise SystemExit
 
         asyncio.run(do_download(torrent_fp, dest_fp))
     finally:
