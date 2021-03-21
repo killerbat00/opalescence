@@ -10,6 +10,7 @@ from __future__ import annotations
 __all__ = ['Message', 'Handshake', 'KeepAlive', 'Choke', 'Unchoke', 'Interested', 'NotInterested', 'Have',
            'Bitfield', 'Request', 'Block', 'Piece', 'Cancel', 'MESSAGE_TYPES', 'ProtocolMessage']
 
+import hashlib
 import struct
 from abc import abstractmethod
 from logging import getLogger
@@ -325,10 +326,10 @@ class Piece:
     Not really a message itself
     """
 
-    def __init__(self, index, length):
+    def __init__(self, index, length, data=b''):
         self.index: int = index
         self.length: int = length
-        self.data: bytes = b''
+        self.data: bytes = data
 
     def __str__(self):
         return f"Piece: (Index: {self.index}, Length: {self.length})"
@@ -377,6 +378,14 @@ class Piece:
         Used when we've downloaded the piece, but it turned out to be corrupt.
         """
         self.data = b''
+
+    def hash(self) -> Optional[bytes]:
+        """
+        Returns the hash of the piece's data.
+        """
+        if not self.data:
+            return None
+        return hashlib.sha1(self.data).digest()
 
 
 class Cancel(Message):
