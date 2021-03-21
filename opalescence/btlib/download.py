@@ -1,15 +1,23 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, IO
 
-from .metainfo import MetaInfoFile
+from .metainfo import MetaInfoFile, FileItem
 from .protocol.peer import PeerInfo, PeerConnection, Piece
 from .protocol.piece_handler import FileWriter, PieceRequester
 from .tracker import TrackerManager, TrackerConnectionError
 
 logger = logging.getLogger(__name__)
 MAX_PEER_CONNECTIONS = 5
+
+
+class DownloadError(Exception):
+    pass
+
+
+class Complete(Exception):
+    pass
 
 
 class Download:
@@ -22,7 +30,8 @@ class Download:
         self.client_info = local_peer
         self.present: Optional[list[Piece]] = None  # pieces we have
         self.missing: Optional[list[Piece]] = None  # pieces we are missing
-        self.torrent = torrent
+        self.all_pieces: list[Piece] = []
+        self.torrent: MetaInfoFile = torrent
         self.destination = destination
         self.stats = {"uploaded": 0, "downloaded": 0, "left": torrent.total_size, "started": 0.0}
         self.tracker = TrackerManager(self.client_info, torrent, self.stats)
@@ -55,74 +64,91 @@ class Download:
             self.task.cancel()
 
     def download(self):
+        self.present = []
+        self.missing = []
         self.check_pieces()
+        logger.info(f"We have: {self.present}")
+        logger.info(f"We need: {self.missing}")
+        if len(self.present) == self.torrent.num_pieces:
+            raise Complete
         self.stats["started"] = asyncio.get_event_loop().time()
         self.task = asyncio.create_task(self.download_coro(), name=f"Download for {self.torrent}")
         return self.task
+
+    def _file_for_offset(self, offset: int) -> tuple[int, FileItem, int]:
+        """
+        :param offset: the contiguous offset of the piece (as if all files were concatenated together)
+        :return: (file_num, FileItem, file_offset)
+        """
+        size_sum = 0
+        for i, file in self.torrent.files.items():
+            if offset - size_sum < file.size:
+                file_offset = offset - size_sum
+                return i, file, file_offset
+            size_sum += file.size
+
+    def _create_shell_pieces(self):
+        for pc in range(self.torrent.num_pieces):
+            piece_length = self.torrent.piece_length
+            if pc == self.torrent.num_pieces - 1:
+                piece_length = self.torrent.total_size - (pc * piece_length)
+
+            self.all_pieces.append(Piece(pc, piece_length))
+
+    def _load_single_piece(self, piece: Piece, fps: dict[int, IO]) -> Piece:
+        p = Piece(piece.index, piece.length)
+        file_index, _, offset = self._file_for_offset(p.index * self.torrent.piece_length)
+        fp = fps[file_index]
+        if fp is None:
+            return p
+        fp.seek(offset)
+        piece_data = fp.read(p.length)
+        if len(piece_data) == piece.length:
+            p.data = piece_data
+            return p
+        fp = fps[file_index + 1]
+        if fp is None:
+            return p
+        fp.seek(0)
+        piece_data += fp.read(p.length - len(piece_data))
+        if len(piece_data) == piece.length:
+            p.data = piece_data
+            return p
+        return p
+
+    def _verify_pieces(self, fps: dict[int, IO]):
+        for i, piece in enumerate(self.all_pieces):
+            p = self._load_single_piece(piece, fps)
+            if not p.complete:
+                self.missing.append(piece)
+            else:
+                if p.hash() == self.torrent.piece_hashes[i]:
+                    self.present.append(piece)
+                else:
+                    self.missing.append(piece)
 
     def check_pieces(self):
         """
         Checks which pieces already exist on disk and which need to be downloaded.
         :return:
         """
-        # get piece size
-        piece_size = self.torrent.piece_length
-        # loop over files
-        # for f in self.torrent.files:
-        # if file does not exist, increment chunk count until we catch up with data that does exist.
-        # if file exists, read piece size chunk and count each chunk
-        # # hash chunk and compare against self.torrent.piece_hashes[<chunk count>]
-        # # if it matches, we have it
-        # # if it does not, we need it
-        # update stats with downloaded=piece size * len(self.present), left=piece size * len(self.missing)
-        self.present, self.missing = self._collect_pieces()
+        fps = {}
+        try:
+            for i, file in self.torrent.files.items():
+                filepath = self.destination / file.path
+                if not filepath.exists():
+                    fps[i] = None
+                else:
+                    fps[i] = open(filepath, 'rb')
+        except:
+            raise DownloadError
 
-    def _collect_pieces(self) -> tuple[list[Piece], list[Piece]]:
-        """
-        The real workhorse of torrent creation.
-        Reads through all specified files, breaking them into piece_length chunks and storing their 20byte sha1
-        digest into the pieces list
-        :raises: CreationError
-        """
-        base_path = self.destination
-        left_in_piece = 0
-        next_pc = b""
-        piece_size = self.torrent.piece_length
+        self._create_shell_pieces()
+        self._verify_pieces(fps)
 
-        # how can I make this better? it'd be nice to have a generator that
-        # abstracts away the file handling and just gives me the
-        # sha1 digest of a self.piece_length chunk of the file
-        for i, file_itm in self.torrent.files.items():
-            with open(base_path / file_itm.path, mode="rb") as f:
-                current_pos = 0
-                if left_in_piece > 0:
-                    next_pc += f.read(left_in_piece)
-                    # self.pieces.append(hashlib.sha1(next_pc).digest().decode("ISO-8859-1"))
-                    current_pos = left_in_piece
-                    next_pc = b""
-                    left_in_piece = 0
-
-                while True:
-                    if current_pos + piece_size <= file_itm.size:
-                        # self.pieces.append(hashlib.sha1(f.read(self.piece_length)).digest().decode("ISO-8859-1"))
-                        current_pos += piece_size
-                    else:
-                        remainder_to_read = file_itm.size - current_pos
-                        if remainder_to_read < 0:
-                            break
-                        next_pc += f.read(remainder_to_read)
-                        left_in_piece = piece_size - remainder_to_read
-                        break
-        return [], []
-
-    def _compute_info_hash(self):
-        """
-        Computes the 20-byte sha1 info hash digest of the contents of the info dictionary
-        :raises: EncodeError
-        """
-        # obj = self._to_obj()
-        # info_str = bencode(obj["info"])
-        # self.info_hash = hashlib.sha1(info_str.encode("ISO-8859-1")).digest()
+        for _, fp in fps.items():
+            if fp is not None:
+                fp.close()
 
     async def download_coro(self):
         """

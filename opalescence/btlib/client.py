@@ -61,6 +61,7 @@ class Client:
         self._local_peer: Optional[PeerInfo] = None
         self._running = False
         self._tasks: Set[asyncio.Task] = set()
+        self._close_task = None
         self._setup()
 
     def _setup(self):
@@ -95,7 +96,7 @@ class Client:
             logger.info(f"{self}: Cancelled in start_all.")
 
     def stop(self):
-        asyncio.get_running_loop().run_until_complete(self.stop_all())
+        asyncio.create_task(self.stop_all())
 
     async def stop_all(self):
         if not self._running or len(self._tasks) == 0:
