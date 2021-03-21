@@ -56,21 +56,23 @@ class ClientError(Exception):
 
 
 class Client:
+    """
+    The client is the main entrypoint for downloading torrents. Add torrents to
+    the client and then start it in order to commence downloading.
+    """
+
     def __init__(self):
         self._downloading: Optional[list[Download]] = None
         self._local_peer: Optional[PeerInfo] = None
         self._running = False
         self._tasks: Set[asyncio.Task] = set()
-        self._setup()
-
-    def _setup(self):
-        assert not self._running, "Can't setup already running Client."
-        local_peer_id = _generate_peer_id()
-        local_ip = _retrieve_local_ip()
-        self._local_peer = PeerInfo(local_ip, 6881, local_peer_id)
-        # setup signal handler/loop?
+        self._close_task = None
+        self._local_peer = PeerInfo(_retrieve_local_ip(), 6881, _generate_peer_id())
 
     async def start_all(self):
+        """
+        Starts downloading all current torrents.
+        """
         if self._downloading is None or len(self._downloading) == 0:
             raise ClientError("No torrents added.")
 
@@ -95,9 +97,16 @@ class Client:
             logger.info(f"{self}: Cancelled in start_all.")
 
     def stop(self):
-        asyncio.get_running_loop().run_until_complete(self.stop_all())
+        """
+        Creates and schedules a task that will asynchronously
+        stop and clean up all running tasks.
+        """
+        asyncio.create_task(self.stop_all())
 
     async def stop_all(self):
+        """
+        Cancels and cleans up all running tasks for this Client.
+        """
         if not self._running or len(self._tasks) == 0:
             return
 
@@ -109,6 +118,14 @@ class Client:
         self._tasks.clear()
 
     def add_torrent(self, *, torrent: MetaInfoFile = None, torrent_fp: Path = None, destination: Path = None) -> bool:
+        """
+        Adds a torrent to the Client for downloading.
+        :param torrent: The torrent MetaInfoFile object.
+        :param torrent_fp: The filepath to the .torrent metainfo file.
+        :param destination: The destination in which to save the torrent.
+        :return: True if successfully added, False otherwise.
+        :raises ClientError: if no valid torrent to download or destination specified.
+        """
         if destination is None or not destination.exists():
             raise ClientError("No download destination specified.")
 
@@ -120,14 +137,32 @@ class Client:
             raise ClientError("No torrent to download specified.")
 
     def _add_torrent_metainfo(self, torrent: MetaInfoFile, destination: Path) -> bool:
+        """
+        Adds a torrent MetaInfoFile to the Client.
+        :param torrent: The torrent MetaInfoFile object.
+        :param destination: The destination in which to save the torrent.
+        :return: True if successfully added, False otherwise.
+        """
         ct = Download(torrent, destination, self._local_peer)
         return self._add_torrent(ct)
 
     def _add_torrent_filepath(self, torrent_fp: Path, destination: Path) -> bool:
+        """
+        Adds a .torrent metainfo file to the Client.
+        :param torrent_fp: The .torrent metainfo filepath.
+        :param destination: The destination in which to save the torrent.
+        :return: True if successfully added, False otherwise.
+        """
         ct = Download(MetaInfoFile.from_file(torrent_fp), destination, self._local_peer)
         return self._add_torrent(ct)
 
-    def _add_torrent(self, ct: Download):
+    def _add_torrent(self, ct: Download) -> bool:
+        """
+        Actually adds the constructed Download object for the torrent
+        to the downloading torrents in this Client.
+        :param ct: Download object
+        :return: True if successfully added, False if already in the list.
+        """
         if self._downloading is None:
             self._downloading = []
         for t in self._downloading:
