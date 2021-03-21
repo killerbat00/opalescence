@@ -14,7 +14,7 @@ from logging import getLogger
 from pathlib import Path
 from typing import Optional, Set
 
-from .download import Download
+from .download import Download, Complete
 from .metainfo import MetaInfoFile
 from .protocol.peer import PeerInfo
 
@@ -76,7 +76,19 @@ class Client:
 
         self._running = True
 
-        self._tasks = [torrent.download() for torrent in self._downloading]
+        tasks = []
+        for torrent in self._downloading:
+            try:
+                tasks.append(torrent.download())
+            except Complete:
+                logger.info(f"{self}: {torrent.torrent.name} already complete.")
+
+        if len(tasks) == 0:
+            logger.info(f"{self}: Complete. No torrents to download.")
+            return
+
+        self._tasks = set(tasks)
+
         try:
             await asyncio.gather(*self._tasks)
         except asyncio.CancelledError:
@@ -86,9 +98,11 @@ class Client:
         asyncio.get_running_loop().run_until_complete(self.stop_all())
 
     async def stop_all(self):
-        if not self._running:
+        if not self._running or len(self._tasks) == 0:
             return
+
         self._running = False
+
         for t in self._tasks:
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
