@@ -232,7 +232,7 @@ class MetaInfoFile:
                 data: bytes = Encoder(self.meta_info).encode()
                 f.write(data)
             except EncodeError as ee:
-                logger.exception(f"Encounter {type(ee).__name__} while writing metainfofile {output_filename}.",
+                logger.exception(f"Encounter {type(ee).__name__} while writing metainfo file {output_filename}.",
                                  exc_info=True)
                 raise CreationError from ee
 

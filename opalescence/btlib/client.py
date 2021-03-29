@@ -126,10 +126,7 @@ class Client:
         :return: True if successfully added, False otherwise.
         :raises ClientError: if no valid torrent to download or destination specified.
         """
-        assert destination is not None
-        assert destination.exists()
-
-        if torrent_fp is not None:
+        if destination and destination.exists() and torrent_fp is not None:
             return self._add_torrent_filepath(torrent_fp, destination)
         else:
             raise ClientError("No torrent to download specified.")
@@ -149,12 +146,12 @@ class Client:
         Actually adds the constructed Download object for the torrent
         to the downloading torrents in this Client.
         :param ct: Download object
-        :return: True if successfully added, False if already in the list.
+        :return: True if successfully added.
         """
         if self._downloading is None:
             self._downloading = []
         for t in self._downloading:
             if t.torrent.info_hash == ct.torrent.info_hash:  # already in the list
-                return False
+                return True
         self._downloading.append(ct)
         return True
