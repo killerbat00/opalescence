@@ -1,9 +1,8 @@
 import asyncio
+import functools
 import logging
-from pathlib import Path
-from typing import Optional, IO
 
-from .metainfo import MetaInfoFile, FileItem
+from .metainfo import MetaInfoFile
 from .protocol.peer import PeerInfo, PeerConnection, Piece
 from .protocol.piece_handler import FileWriter, PieceRequester
 from .tracker import TrackerManager, TrackerConnectionError
@@ -20,43 +19,34 @@ class Complete(Exception):
     pass
 
 
+def download_complete(stop_method, stats, log):
+    stop_method()
+    total_time = asyncio.get_event_loop().time() - stats['started']
+    log.info(f"Download stopped! Took {round(total_time, 5)}s")
+    log.info(f"Downloaded: {stats['downloaded']} Uploaded: {stats['uploaded']}")
+    log.info(f"Est download speed: "
+             f"{round((stats['downloaded'] / total_time) / 2 ** 20, 2)} MB/s")
+
+
 class Download:
     """
     A torrent currently being downloaded by the Client.
-    This wraps the tracker, requester, and peers into a single API.
+    This wraps the tracker, requester, and peer handling into a single API.
     """
 
-    def __init__(self, torrent: MetaInfoFile, destination: Path, local_peer: PeerInfo):
+    def __init__(self, torrent: MetaInfoFile, local_peer: PeerInfo):
         self.client_info = local_peer
-        self.present: Optional[list[Piece]] = None  # pieces we have
-        self.missing: Optional[list[Piece]] = None  # pieces we are missing
-        self.all_pieces: list[Piece] = []
+        self.present: list[Piece] = []  # pieces we have
+        self.missing: list[Piece] = []  # pieces we are missing
         self.torrent: MetaInfoFile = torrent
-        self.destination = destination
         self.stats = {"uploaded": 0, "downloaded": 0, "left": torrent.total_size, "started": 0.0}
         self.tracker = TrackerManager(self.client_info, torrent, self.stats)
         self.peer_q = asyncio.Queue()
-        self.writer = FileWriter(torrent, destination)
+        self.writer = FileWriter(torrent)
         self.peers = []
         self.abort = False
         self.task = None
-
-        def download_complete():
-            self.stop()
-            total_time = asyncio.get_event_loop().time() - self.stats['started']
-            log = logging.getLogger("opalescence")
-            old_level = log.getEffectiveLevel()
-            logger.setLevel(logging.INFO)
-            logger.info(f"Download stopped! Took {round(total_time, 5)}s")
-            logger.info(f"Downloaded: {self.stats['downloaded']} Uploaded: {self.stats['uploaded']}")
-            logger.info(f"Est download speed: "
-                        f"{round((self.stats['downloaded'] / total_time) / 2 ** 20, 2)} MB/s")
-            log.setLevel(old_level)
-
-            if self.writer:
-                self.writer.close_files()
-
-        self.download_complete_cb = download_complete
+        self.download_complete_cb = functools.partial(download_complete, self.stop, self.stats, logger, self.writer)
         self.requester = PieceRequester(torrent, self.writer, self.download_complete_cb, self.stats)
 
     def stop(self):
@@ -64,8 +54,6 @@ class Download:
             self.task.cancel()
 
     def download(self):
-        self.present = []
-        self.missing = []
         self.check_pieces()
         logger.info(f"We have: {self.present}")
         logger.info(f"We need: {self.missing}")
@@ -75,80 +63,18 @@ class Download:
         self.task = asyncio.create_task(self.download_coro(), name=f"Download for {self.torrent}")
         return self.task
 
-    def _file_for_offset(self, offset: int) -> tuple[int, FileItem, int]:
-        """
-        :param offset: the contiguous offset of the piece (as if all files were concatenated together)
-        :return: (file_num, FileItem, file_offset)
-        """
-        size_sum = 0
-        for i, file in self.torrent.files.items():
-            if offset - size_sum < file.size:
-                file_offset = offset - size_sum
-                return i, file, file_offset
-            size_sum += file.size
-
-    def _create_shell_pieces(self):
-        for pc in range(self.torrent.num_pieces):
-            piece_length = self.torrent.piece_length
-            if pc == self.torrent.num_pieces - 1:
-                piece_length = self.torrent.total_size - (pc * piece_length)
-
-            self.all_pieces.append(Piece(pc, piece_length))
-
-    def _load_single_piece(self, piece: Piece, fps: dict[int, IO]) -> Piece:
-        p = Piece(piece.index, piece.length)
-        file_index, _, offset = self._file_for_offset(p.index * self.torrent.piece_length)
-        fp = fps[file_index]
-        if fp is None:
-            return p
-        fp.seek(offset)
-        piece_data = fp.read(p.length)
-        if len(piece_data) == piece.length:
-            p.data = piece_data
-            return p
-        fp = fps[file_index + 1]
-        if fp is None:
-            return p
-        fp.seek(0)
-        piece_data += fp.read(p.length - len(piece_data))
-        if len(piece_data) == piece.length:
-            p.data = piece_data
-            return p
-        return p
-
-    def _verify_pieces(self, fps: dict[int, IO]):
-        for i, piece in enumerate(self.all_pieces):
-            p = self._load_single_piece(piece, fps)
-            if not p.complete:
-                self.missing.append(piece)
-            else:
-                if p.hash() == self.torrent.piece_hashes[i]:
-                    self.present.append(piece)
-                else:
-                    self.missing.append(piece)
-
     def check_pieces(self):
         """
         Checks which pieces already exist on disk and which need to be downloaded.
         :return:
         """
-        fps = {}
-        try:
-            for i, file in self.torrent.files.items():
-                filepath = self.destination / file.path
-                if not filepath.exists():
-                    fps[i] = None
-                else:
-                    fps[i] = open(filepath, 'rb')
-        except:
-            raise DownloadError
+        self.torrent.check_existing_pieces()
 
-        self._create_shell_pieces()
-        self._verify_pieces(fps)
-
-        for _, fp in fps.items():
-            if fp is not None:
-                fp.close()
+        for piece in self.torrent.pieces:
+            if not piece.complete:
+                self.missing.append(piece)
+            else:
+                self.present.append(piece)
 
     async def download_coro(self):
         """

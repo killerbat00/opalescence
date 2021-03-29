@@ -46,13 +46,12 @@ class WriteBuffer:
 class FileWriter:
     WRITE_BUFFER_SIZE = 2 ** 13  # 8kb
 
-    def __init__(self, torrent: MetaInfoFile, save_dir: Path):
+    def __init__(self, torrent: MetaInfoFile):
         self._files: Dict[int, FileItem] = dict(torrent.files)
         self._total_size = sum([file.size for file in self._files.values()])
         self._torrent = torrent
-        self._base_dir = save_dir
+        self._base_dir = torrent.destination
         self._lock = asyncio.Lock()
-        # self._fds = self._open_files()
 
     def _open_files(self) -> List[BinaryIO]:
         logger.info(f"Opening files for {self._torrent}")
@@ -70,26 +69,6 @@ class FileWriter:
                 f.close()
             raise
         return fds
-
-    def close_files(self):
-        try:
-            pass
-            # for fd in self._fds:
-            #    fd.close()
-        except (OSError, Exception):
-            pass
-
-    def _file_for_offset(self, offset: int):
-        """
-        :param offset: the contiguous offset of the piece (as if all files were concatenated together)
-        :return: (file_num, FileItem, file_offset)
-        """
-        size_sum = 0
-        for i, file in self._files.items():
-            if offset - size_sum < file.size:
-                file_offset = offset - size_sum
-                return i, file, file_offset
-            size_sum += file.size
 
     def _write_data(self, data_to_write, file, offset):
         """
@@ -120,12 +99,11 @@ class FileWriter:
         # TODO: Handle trying to write incomplete pieces
         assert piece.complete
 
-        total_size = sum([file.size for file in self._torrent.files.values()])
-
         offset = piece.index * self._torrent.piece_length
         data_to_write = piece.data
         while data_to_write:
-            file_num, file, file_offset = self._file_for_offset(offset)
+            file_num, file_offset = FileItem.file_for_offset(self._torrent.files, offset)
+            file = self._torrent.files[file_num]
             if file_num >= len(self._torrent.files):
                 logger.error("Too much data and not enough files...")
                 raise
@@ -148,7 +126,7 @@ class PieceRequester:
     We currently use a naive sequential strategy.
     """
 
-    def __init__(self, torrent: MetaInfoFile, writer, torrent_complete_cb, stats):
+    def __init__(self, torrent: MetaInfoFile, writer: FileWriter, torrent_complete_cb: Callable, stats: dict):
         self.torrent = torrent
         self.piece_peer_map: Dict[int, Set[str]] = {i: set() for i in range(self.torrent.num_pieces)}
         self.peer_piece_map: Dict[str, Set[int]] = defaultdict(set)

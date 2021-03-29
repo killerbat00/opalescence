@@ -118,34 +118,21 @@ class Client:
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
 
-    def add_torrent(self, *, torrent: MetaInfoFile = None, torrent_fp: Path = None, destination: Path = None) -> bool:
+    def add_torrent(self, *, torrent_fp: Path = None, destination: Path = None) -> bool:
         """
         Adds a torrent to the Client for downloading.
-        :param torrent: The torrent MetaInfoFile object.
         :param torrent_fp: The filepath to the .torrent metainfo file.
         :param destination: The destination in which to save the torrent.
         :return: True if successfully added, False otherwise.
         :raises ClientError: if no valid torrent to download or destination specified.
         """
-        if destination is None or not destination.exists():
-            raise ClientError("No download destination specified.")
+        assert destination is not None
+        assert destination.exists()
 
-        if torrent is not None:
-            return self._add_torrent_metainfo(torrent, destination)
-        elif torrent_fp is not None:
+        if torrent_fp is not None:
             return self._add_torrent_filepath(torrent_fp, destination)
         else:
             raise ClientError("No torrent to download specified.")
-
-    def _add_torrent_metainfo(self, torrent: MetaInfoFile, destination: Path) -> bool:
-        """
-        Adds a torrent MetaInfoFile to the Client.
-        :param torrent: The torrent MetaInfoFile object.
-        :param destination: The destination in which to save the torrent.
-        :return: True if successfully added, False otherwise.
-        """
-        ct = Download(torrent, destination, self._local_peer)
-        return self._add_torrent(ct)
 
     def _add_torrent_filepath(self, torrent_fp: Path, destination: Path) -> bool:
         """
@@ -154,7 +141,7 @@ class Client:
         :param destination: The destination in which to save the torrent.
         :return: True if successfully added, False otherwise.
         """
-        ct = Download(MetaInfoFile.from_file(torrent_fp), destination, self._local_peer)
+        ct = Download(MetaInfoFile.from_file(torrent_fp, destination), self._local_peer)
         return self._add_torrent(ct)
 
     def _add_torrent(self, ct: Download) -> bool:

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import List, Optional, Dict
 
 from .bencode import Decoder, Encoder, DecodeError, EncodeError
+from .protocol.messages import Piece
 
 logger = getLogger(__name__)
 
@@ -35,6 +36,21 @@ class FileItem:
     path: Path
     size: int
     offset: int
+    exists: bool
+
+    @staticmethod
+    def file_for_offset(files: dict[int, FileItem], offset: int) -> tuple[int, int]:
+        """
+        :param files: dictionary of `FileItem` keyed by their index order
+        :param offset: the contiguous offset to find the file for (as if all files were concatenated together)
+        :return: (file_num, file_offset)
+        """
+        size_sum = 0
+        for i, file in files.items():
+            if offset - size_sum < file.size:
+                file_offset = offset - size_sum
+                return i, file_offset
+            size_sum += file.size
 
 
 def _get_and_decode(d: dict, k: str, encoding="UTF-8"):
@@ -130,7 +146,8 @@ class MetaInfoFile:
         self.files: Dict[int, FileItem] = {}
         self.meta_info: Optional[OrderedDict] = None
         self.info_hash: bytes = b''
-        self.piece_hashes: List[bytes] = []
+        self.piece_hashes: list[bytes] = []
+        self.pieces: list[Piece] = []
         self.destination: Optional[Path] = None
 
     def __str__(self):
@@ -140,11 +157,12 @@ class MetaInfoFile:
         return f"<MetaInfoFile: {self}>"
 
     @classmethod
-    def from_file(cls, filename: Path) -> MetaInfoFile:
+    def from_file(cls, filename: Path, destination: Path) -> MetaInfoFile:
         """
         Class method to create a torrent object from a .torrent metainfo file
 
         :param filename: path to .torrent file
+        :param destination: destination ptah for torrent
         :raises CreationError:
         :return: Torrent instance
         """
@@ -154,6 +172,8 @@ class MetaInfoFile:
         if not os.path.exists(filename):
             logger.error(f"Path does not exist {filename}")
             raise CreationError
+
+        torrent.destination = destination
 
         try:
             with open(filename, 'rb') as f:
@@ -167,8 +187,10 @@ class MetaInfoFile:
             _validate_torrent_dict(torrent.meta_info)
             info: bytes = Encoder(torrent.meta_info["info"]).encode()
             torrent.info_hash = hashlib.sha1(info).digest()
+
             torrent._gather_files()
-            torrent.piece_hashes = list(_pc(torrent.meta_info["info"]["pieces"]))
+            torrent._collect_pieces()
+
         except (EncodeError, DecodeError, IOError, Exception) as e:
             logger.exception(f"Encountered {type(e).__name__} in MetaInfoFile.from_file", exc_info=True)
             raise CreationError from e
@@ -214,6 +236,57 @@ class MetaInfoFile:
                                  exc_info=True)
                 raise CreationError from ee
 
+    def check_existing_pieces(self) -> None:
+        """
+        Checks the existing files and disk and verifies their piece
+        hashes, collecting their data as necessary.
+        """
+        assert self.files
+
+        fps = {}
+        try:
+            for i, file in self.files.items():
+                if not file.exists:
+                    fps[i] = None
+                fps[i] = open(file.path, "rb")
+
+            last_pc_index = self.num_pieces - 1
+            piece_length = self.piece_length
+            for i, piece in enumerate(self.pieces):
+                file_index, file_offset = FileItem.file_for_offset(self.files, i * piece_length)
+                if not self.files[file_index].exists:
+                    continue
+
+                if i == last_pc_index:
+                    piece_length = self.last_piece_length
+
+                fp = fps[file_index]
+                if fp is None:
+                    continue
+
+                if file_offset + piece_length > self.files[file_index].size:
+                    if file_index + 1 > len(self.files) or fps[file_index + 1] is None:
+                        continue
+
+                    f1len = self.files[file_index].size - file_offset
+                    f2len = piece_length - f1len
+                    piece_data = fp.read(f1len)
+
+                    fp = fps[file_index + 1]
+                    piece_data += fp.read(f2len)
+                else:
+                    fp.seek(file_offset)
+                    piece_data = fp.read(piece_length)
+
+                if len(piece_data) == piece.length:
+                    piece.data = piece_data
+                    if piece.hash() != self.piece_hashes[i]:
+                        piece.reset()
+        finally:
+            for fp in fps.values():
+                if fp is not None:
+                    fp.close()
+
     def _gather_files(self) -> None:
         """
         Gathers the files located in the torrent
@@ -240,11 +313,31 @@ class MetaInfoFile:
             for i, f in enumerate(file_list):
                 length = f.get("length", 0)
                 path = Path("/".join([x.decode("UTF-8") for x in f.get("path", [])]))
-                self.files[i] = FileItem(path, length, offset)
+                filepath = self.destination / path
+                exists = filepath.exists()
+                self.files[i] = FileItem(filepath, length, offset, exists)
                 offset += length
         else:
-            self.files[0] = FileItem(Path(_get_and_decode(self.meta_info["info"], "name")),
-                                     self.meta_info["info"]["length"], 0)
+            filepath = self.destination / Path(_get_and_decode(self.meta_info["info"], "name"))
+            exists = filepath.exists()
+            length = self.meta_info["info"].get("length", 0)
+            self.files[0] = FileItem(filepath, length, 0, exists)
+
+    def _collect_pieces(self) -> None:
+        """
+        Collects the piece hashes from the metainfo file and
+        creates `Piece` objects for each piece.
+        """
+        logger.info(f"Collecting pieces and hashes for .torrent: {self}")
+        self.piece_hashes = list(_pc(self.meta_info["info"]["pieces"]))
+
+        num_pieces = len(self.piece_hashes)
+        for pc in range(num_pieces):
+            piece_length = self.piece_length
+            if pc == num_pieces - 1:
+                piece_length = self.total_size - (pc * piece_length)
+
+            self.pieces.append(Piece(pc, piece_length))
 
     @property
     def multi_file(self) -> bool:
