@@ -26,6 +26,7 @@ MAX_PEER_CONNECTIONS = 5
 def _generate_peer_id():
     """
     Generates a 20 byte long unique identifier for our peer.
+    TODO: generate dynamically
     :return: our unique peer ID
     """
     return f"-OP0001-010929102910".encode("UTF-8")
@@ -94,7 +95,7 @@ class Client:
         try:
             await asyncio.gather(*self._tasks)
         except asyncio.CancelledError:
-            logger.info(f"{self}: Cancelled in start_all.")
+            pass
 
     def stop(self):
         """
