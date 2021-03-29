@@ -137,14 +137,14 @@ def request(url: str, params: TrackerParameters) -> TrackerResponse:
     url = urllib.parse.urlparse(url)
     scheme = url.scheme
     conn = None
-    if scheme == 'http':
+    if scheme == "http":
         conn = http.client.HTTPConnection(url.netloc, timeout=5)
-    elif scheme == 'https':
+    elif scheme == "https":
         conn = http.client.HTTPSConnection(url.netloc, timeout=5)
 
     try:
         if conn is None or not params:
-            raise TrackerConnectionError('Cannot request on uninitialized tracker.')
+            raise TrackerConnectionError("Cannot request on uninitialized tracker.")
 
         q = urllib.parse.parse_qs(url.query)
         q.update(dataclasses.asdict(params))
@@ -152,7 +152,7 @@ def request(url: str, params: TrackerParameters) -> TrackerResponse:
         conn.request("GET", path)
         resp = conn.getresponse()
         if resp.status != 200:
-            raise TrackerConnectionError('Non-200 response received from tracker.')
+            raise TrackerConnectionError(f"Non-200 response received from tracker.")
         tracker_resp = TrackerResponse(Decoder(resp.read()).decode())
         if tracker_resp.failed:
             raise TrackerConnectionError(tracker_resp.failure_reason)
@@ -189,14 +189,11 @@ class TrackerManager:
                                         are unable to bdecode the tracker's response.
         :returns: TrackerResponse object representing the tracker's response
         """
-        if not event:
-            event = EVENT_STARTED
-
         # TODO: respect proper order of announce urls according to BEP 0012
         if len(self.announce_urls) == 0:
             raise TrackerConnectionError("Unable to make request - no announce urls.")
 
-        url = self.announce_urls[0]
+        url = self.announce_urls.popleft()
         if not url:
             raise TrackerConnectionError("Unable to make request - no url.")
 
@@ -204,9 +201,10 @@ class TrackerManager:
                                    self.stats.get("downloaded", 0), self.stats.get("left", 0), 1, event)
 
         try:
-            logger.info(f"Making {event} announce to: {url}")
+            logger.info(f"Making {event} announce to: {url}{params}")
             decoded_data = await request(url, params)
             self.interval = decoded_data.interval
+            self.announce_urls.appendleft(url)  # TODO: handle per-URL/tracker failures
             return decoded_data
 
         except Exception as e:
