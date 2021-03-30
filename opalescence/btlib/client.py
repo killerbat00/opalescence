@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Optional, Set
 
 from .download import Download, Complete
-from .metainfo import MetaInfoFile
 from .protocol.peer import PeerInfo
 
 logger = getLogger(__name__)
@@ -127,31 +126,22 @@ class Client:
         :raises ClientError: if no valid torrent to download or destination specified.
         """
         if destination and destination.exists() and torrent_fp is not None:
-            return self._add_torrent_filepath(torrent_fp, destination)
+            download = Download(torrent_fp, destination, self._local_peer)
+            return self._add_torrent(download)
         else:
             raise ClientError("No torrent to download specified.")
 
-    def _add_torrent_filepath(self, torrent_fp: Path, destination: Path) -> bool:
-        """
-        Adds a .torrent metainfo file to the Client.
-        :param torrent_fp: The .torrent metainfo filepath.
-        :param destination: The destination in which to save the torrent.
-        :return: True if successfully added, False otherwise.
-        """
-        ct = Download(MetaInfoFile.from_file(torrent_fp, destination), self._local_peer)
-        return self._add_torrent(ct)
-
-    def _add_torrent(self, ct: Download) -> bool:
+    def _add_torrent(self, download: Download) -> bool:
         """
         Actually adds the constructed Download object for the torrent
         to the downloading torrents in this Client.
-        :param ct: Download object
+        :param download: Download object
         :return: True if successfully added.
         """
         if self._downloading is None:
             self._downloading = []
         for t in self._downloading:
-            if t.torrent.info_hash == ct.torrent.info_hash:  # already in the list
+            if t.torrent.info_hash == download.torrent.info_hash:  # already in the list
                 return True
-        self._downloading.append(ct)
+        self._downloading.append(download)
         return True

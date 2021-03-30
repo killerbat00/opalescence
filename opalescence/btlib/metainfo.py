@@ -248,7 +248,8 @@ class MetaInfoFile:
             for i, file in self.files.items():
                 if not file.exists:
                     fps[i] = None
-                fps[i] = open(file.path, "rb")
+                else:
+                    fps[i] = open(file.path, "rb")
 
             last_pc_index = self.num_pieces - 1
             piece_length = self.piece_length
@@ -407,6 +408,36 @@ class MetaInfoFile:
         :return: the total size of the file(s) in the torrent metainfo
         """
         return sum([f.size for f in self.files.values()])
+
+    @property
+    def present(self) -> int:
+        """
+        :return: the number of bytes present
+        """
+        lengths = []
+        for i, piece in enumerate(self.pieces):
+            if not piece.complete:
+                continue
+            if i == self.num_pieces - 1:
+                lengths.append(self.last_piece_length)
+            else:
+                lengths.append(self.piece_length)
+        return sum(lengths)
+
+    @property
+    def remaining(self) -> int:
+        """
+        :return: remaining number of bytes
+        """
+        lengths = []
+        for i, piece in enumerate(self.pieces):
+            if piece.complete:
+                continue
+            if i == self.num_pieces - 1:
+                lengths.append(self.last_piece_length)
+            else:
+                lengths.append(self.piece_length)
+        return sum(lengths)
 
     @property
     def num_pieces(self) -> int:
