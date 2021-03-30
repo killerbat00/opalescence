@@ -8,7 +8,8 @@ complex system architecture.
 Current capabilities:
 
 1. Download a specified .torrent file, piece by piece employing a naive sequential, tit-for-tat piece requesting
-   strategy without unchoking remote peers.
+   strategy without unchoking remote peers. Opalescence checks for existing files in the given destination and will only
+   download what's necessary.
 
 ## Installing Opalescence
 

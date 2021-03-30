@@ -9,11 +9,10 @@ __all__ = ['PieceRequester', 'FileWriter']
 import asyncio
 import dataclasses
 import functools
-import hashlib
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Set, Callable, Optional, BinaryIO
+from typing import Dict, List, Set, Callable, Optional
 
 import bitstring
 
@@ -52,23 +51,6 @@ class FileWriter:
         self._torrent = torrent
         self._base_dir = torrent.destination
         self._lock = asyncio.Lock()
-
-    def _open_files(self) -> List[BinaryIO]:
-        logger.info(f"Opening files for {self._torrent}")
-        fds = []
-        try:
-            for file in self._files.values():
-                p = Path(self._base_dir) / file.path
-                ensure_dir_exists(p)
-                fd = open(p, "w+b")
-                fd.truncate(file.size)
-                fds.append(fd)
-        except (OSError, Exception):
-            logger.exception(f"Encountered exception when opening files.", exc_info=True)
-            for f in fds:
-                f.close()
-            raise
-        return fds
 
     def _write_data(self, data_to_write, file, offset):
         """
@@ -130,8 +112,6 @@ class PieceRequester:
         self.torrent = torrent
         self.piece_peer_map: Dict[int, Set[str]] = {i: set() for i in range(self.torrent.num_pieces)}
         self.peer_piece_map: Dict[str, Set[int]] = defaultdict(set)
-        self.downloaded_pieces: Dict[int, Piece] = {}
-        self.downloading_pieces: Dict[int, Piece] = {}
         self.pending_requests: List[Request] = []
         self.writer = writer
         self.torrent_complete_cb: Callable = torrent_complete_cb
@@ -139,9 +119,9 @@ class PieceRequester:
 
     @property
     def complete(self):
-        return len(self.downloaded_pieces) == self.torrent.num_pieces
+        return self.torrent.remaining == 0
 
-    def add_available_piece(self, peer_id: str, index: int) -> None:
+    def add_available_piece(self, peer_id: str, index: int):
         """
         Called when a peer advertises it has a piece available.
 
@@ -151,7 +131,7 @@ class PieceRequester:
         self.piece_peer_map[index].add(peer_id)
         self.peer_piece_map[peer_id].add(index)
 
-    def add_peer_bitfield(self, peer_id: str, bitfield: bitstring.BitArray) -> None:
+    def add_peer_bitfield(self, peer_id: str, bitfield: bitstring.BitArray):
         """
         Updates our dictionary of pieces with data from the remote peer
 
@@ -163,7 +143,7 @@ class PieceRequester:
             if b:
                 self.add_available_piece(peer_id, i)
 
-    def remove_pending_requests_for_peer(self, peer_id: str) -> None:
+    def remove_pending_requests_for_peer(self, peer_id: str):
         """
         Removes all pending requests for a peer.
         Called when the peer disconnects or chokes us.
@@ -174,7 +154,30 @@ class PieceRequester:
             if request.peer_id == peer_id:
                 self.pending_requests.remove(request)
 
-    def remove_peer(self, peer_id: str) -> None:
+    def remove_request(self, request: Request) -> bool:
+        """
+        Removes all pending requests that match the given request.
+
+        :param request: `Request` to remove from pending requests.
+        :return: True if removed, False otherwise
+        """
+        removed = False
+        while request in self.pending_requests:
+            self.pending_requests.remove(request)
+            removed = True
+        return removed
+
+    def remove_requests_for_piece(self, piece_index: int):
+        """
+        Removes all pending requests with the given piece index.
+
+        :param piece_index: piece index whose requests should be removed
+        """
+        for i, request in enumerate(self.pending_requests):
+            if request.index == piece_index:
+                del self.pending_requests[i]
+
+    def remove_peer(self, peer_id: str):
         """
         Removes a peer from this requester's data structures in the case
         that our communication with that peer has stopped
@@ -190,7 +193,7 @@ class PieceRequester:
 
         self.remove_pending_requests_for_peer(peer_id)
 
-    async def received_block(self, peer_id: str, block: Block) -> Optional[Piece]:
+    async def received_block(self, peer_id: str, block: Block):
         """
         Called when we've received a block from the remote peer.
         First, see if there are other blocks from that piece already downloaded.
@@ -204,56 +207,39 @@ class PieceRequester:
         self.peer_piece_map[peer_id].add(block.index)
         self.piece_peer_map[block.index].add(peer_id)
 
-        # Remove the pending requests for this block if there are any
-        r = Request(block.index, block.begin)
-        for i, rr in enumerate(self.pending_requests):
-            if r == rr:
-                del self.pending_requests[i]
-                break
+        if block.index > len(self.torrent.pieces):
+            logger.debug(f"Disregarding. Piece {block.index} does not exist.")
 
-        if block.index in self.downloaded_pieces:
+        piece = self.torrent.pieces[block.index]
+        if piece.complete:
             logger.debug(f"Disregarding. I already have {block}")
+            return
+
+        # Remove the pending requests for this block if there are any
+        r = Request(block.index, block.begin, min(piece.remaining, Request.size))
+        if not self.remove_request(r):
+            logger.debug(f"Disregarding. I did not request {block}")
             return
 
         self.stats["downloaded"] += len(block.data)
         self.stats["left"] -= len(block.data)
-        piece = self.downloading_pieces.get(block.index)
-        if piece:
-            piece.add_block(block)
-        else:
-            piece_length = self.torrent.last_piece_length if block.index == self.torrent.num_pieces - 1 else \
-                self.torrent.piece_length
-            piece = Piece(block.index, piece_length)
-            piece.add_block(block)
-            logger.info(f"Downloaded new piece: {piece}")
-            self.downloading_pieces[piece.index] = piece
 
+        piece.add_block(block)
         if piece.complete:
-            return await self.piece_complete(piece)
+            await self.piece_complete(piece)
 
     async def piece_complete(self, piece: Piece):
-        piece_hash = hashlib.sha1(piece.data).digest()
-        if piece_hash != self.torrent.piece_hashes[piece.index]:
+        h = piece.hash()
+        if h != self.torrent.piece_hashes[piece.index]:
             logger.error(
                 f"Hash for received piece {piece.index} doesn't match\n"
-                f"Received: {piece_hash}\n"
+                f"Received: {h}\n"
                 f"Expected: {self.torrent.piece_hashes[piece.index]}")
             piece.reset()
-            return piece
         else:
             logger.info(f"Completed piece received: {piece}")
-
-            self.downloaded_pieces[piece.index] = piece
-            if piece.index in self.downloading_pieces:
-                del self.downloading_pieces[piece.index]
-
-            # remove all pending requests for this piece
-            for i, pending_request in enumerate(self.pending_requests):
-                if pending_request.index == piece.index:
-                    del self.pending_requests[i]
-
+            self.remove_requests_for_piece(piece.index)
             await self.writer.write(piece)
-
             if self.complete:
                 self.torrent_complete_cb()
 
@@ -262,15 +248,18 @@ class PieceRequester:
         Finds the next request that we can send to the peer.
 
         Works like this:
-        1. Check the incomplete pieces we are downloading to see if peer has one
-        2. If there are no incomplete pieces the peer can give us, request
-           the next piece it can give us.
-        3. Look through the available pieces to find one the peer has
+        1. Check each piece the peer has to find the first incomplete piece.
+        2. Request the next block for the first incomplete piece found.
+        3. If we already have a request for an incomplete piece's next block, return.
         4. If none available, the peer is useless to us.
+
+        TODO: Multiple per-block pending requests.
+
         :param peer_id: peer requesting a piece
         :return: piece's index or None if not available
         """
         if self.complete:
+            logger.info("Already complete.")
             return
 
         if len(self.pending_requests) >= 50:
@@ -280,48 +269,19 @@ class PieceRequester:
         # Find the next piece index in the pieces we are downloading that the
         # peer said it could send us
         for i in self.peer_piece_map[peer_id]:
-            next_available = False
-            if i in self.downloaded_pieces:
+            piece = self.torrent.pieces[i]
+            if piece.complete:
                 continue
-            if i not in self.downloading_pieces:
-                piece_length = self.torrent.last_piece_length if i == self.torrent.num_pieces - 1 else \
-                    self.torrent.piece_length
-                piece = Piece(i, piece_length)
-                logger.info(f"{peer_id}: Adding new piece to downloading pieces: {piece}")
-                self.downloading_pieces[piece.index] = piece
-                size = min(piece.length, Request.size)
-                request = Request(i, piece.next_block, size, peer_id)
-                logger.info(f"{peer_id}: Successfully got request {request}.")
-                self.pending_requests.append(request)
-                return request
 
-            else:
-                piece = self.downloading_pieces[i]
-                nb = piece.next_block
-                size = min(piece.length - nb, Request.size)
-                if nb + size > piece.length:
-                    logger.info(f"{peer_id}: Can't request any more blocks for piece {piece.index}. Moving "
-                                f"along...")
-                    continue  # loop over peer_piece_map
-                request = Request(piece.index, nb, size, peer_id)
-                while request in self.pending_requests:
-                    logger.info(f"{peer_id}: We have an outstanding request for {request}")
-                    if nb + size > piece.length:
-                        logger.debug(f"{peer_id}: Can't request any more blocks for piece {piece.index}. Moving "
-                                     f"along...")
-                        next_available = True
-                        break
-                    else:
-                        nb = nb + size
-                        size = min(piece.length - nb, Request.size)
-                        if size <= 0:
-                            return
-                        request = Request(piece.index, nb, size, peer_id)
-                if next_available:
-                    continue
-                logger.info(f"{peer_id}: Successfully got request {request}.")
-                self.pending_requests.append(request)
-                return request
+            size = min(piece.remaining, Request.size)
+            request = Request(i, piece.next_block, size, peer_id)
+            while request in self.pending_requests:
+                logger.info(f"{peer_id}: We have an outstanding request for {request}")
+                return
+
+            logger.info(f"{peer_id}: Successfully got request {request}.")
+            self.pending_requests.append(request)
+            return request
 
         # There are no pieces the peer can send us :(
         logger.info(f"{peer_id}: Has no pieces available to send.")

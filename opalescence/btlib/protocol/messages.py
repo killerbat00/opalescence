@@ -32,6 +32,9 @@ class Message:
     def __str__(self):
         return str(type(self).__name__)
 
+    def __repr__(self):
+        return str(self)
+
     def __hash__(self):
         return hash(str(self))
 
@@ -286,8 +289,6 @@ class Block(Message):
         self.index = index  # index of the actual piece
         self.begin = begin  # offset into the piece
         self.data = data
-        if len(self.data) != Request.size:
-            logger.error(f"Block {self} received with an unrequested size: {len(self.data)}.")
 
     def __str__(self):
         return f"Block: (Index: {self.index}, Begin: {self.begin}, Length: {len(self.data)})"
@@ -334,6 +335,9 @@ class Piece:
     def __str__(self):
         return f"Piece: (Index: {self.index}, Length: {self.length})"
 
+    def __repr__(self):
+        return str(self)
+
     def __hash__(self):
         return hash((self.index, self.length, self.data))
 
@@ -371,6 +375,15 @@ class Piece:
         if self.complete:
             return
         return len(self.data)
+
+    @property
+    def remaining(self) -> Optional[int]:
+        """
+        :return: The number of bytes remaining in this piece.
+        """
+        if self.complete:
+            return
+        return self.length - len(self.data)
 
     def reset(self):
         """

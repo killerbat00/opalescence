@@ -1,9 +1,10 @@
 Big List of things To Do:
-1. Dynamically determine missing pieces for added torrents (+--resume option in CLI?)
+[DONE] 1. Dynamically determine missing pieces for added torrents (+--resume option in CLI?). Resume is automatic for now.
 2. Add download-specific statistics: # of connected peers, % complete (# pieces downloaded/total pieces? or
 num pieces * piece size / total size), 2s window connection speed?, # of trackers.
 3. Show better progress in the CLI.
-4. Refactor piece selection/requesting. Verify this works with multiple peers.
+[DONE] Refactor piece selection/requesting. Verify this works with multiple peers.
+4. Verify piece selection/requesting with multiple peers.
 5. More robust file access error handling.
 6. Add overall statistics?
 7. Test/verify downloading multiple torrents at once.
