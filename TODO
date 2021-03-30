@@ -1,16 +1,29 @@
-Big List of things To Do:
-[DONE] 1. Dynamically determine missing pieces for added torrents (+--resume option in CLI?). Resume is automatic for now.
-2. Add download-specific statistics: # of connected peers, % complete (# pieces downloaded/total pieces? or
-num pieces * piece size / total size), 2s window connection speed?, # of trackers.
-3. Show better progress in the CLI.
-[DONE] Refactor piece selection/requesting. Verify this works with multiple peers.
-4. Verify piece selection/requesting with multiple peers.
-5. More robust file access error handling.
-6. Add overall statistics?
-7. Test/verify downloading multiple torrents at once.
-8. Add uploading/responding to requests from peers.
-9. Allow selecting the files to download.
-10. Simple TUI
-11. Add piece-selecting strategies?
-12. Tests.
-13. Actually bind to the port we tell the tracker we're listening on? (maybe eventually, but never intended to be a full-on seeding application, for now).
+Roadmap to v1.0:
+1. Still download only
+2. Dynamic CLI (v0.5)
+   - Allow adding torrents (v0.5)
+   - - Test/verify downloading multiple torrents at once (v0.8)
+   - - More robust file access error handling (v0.7)
+   - Allow removing torrents (+ data) (v0.7)
+   - Basic per-download statistics (v0.5)
+   - - %/bytes downloaded (v0.5)
+   - - %/bytes remaining (v0.5)
+   - - # peers (v0.5)
+   - - - Verify piece selection/requesting with multiple peers (v0.8)
+   - - 2s window connection speed (v0.6)
+3. Save state between usages (v0.9)
+   - sqlite (v0.9)
+   - - save information in home directory (v0.9)
+4. ~90% test coverage of core architecture. (v1.0)
+
+
+Longer term to do/ideas:
+1. UDP protocol.
+2. GUI
+3. Add overall statistics?
+4. Allow selecting the files to download.
+5. Add piece-selecting strategies?
+6. Tests.
+7. Add uploading/responding to requests from peers.
+8. Actually bind to the port we tell the tracker we're listening on?
+   (maybe eventually, but never intended to be a full-on seeding application, for now).
