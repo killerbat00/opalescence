@@ -17,7 +17,6 @@ from typing import Optional
 from .errors import PeerError
 from .messages import *
 from .piece_handler import PieceRequester
-from ..utils import open_peer_connection
 
 logger = getLogger(__name__)
 
@@ -62,9 +61,9 @@ class PeerConnection:
         self._msg_to_send_q: asyncio.Queue = asyncio.Queue()
         self._msg_receive_to: float = 10.0
         self._msg_send_to: float = 60.0
-        self._task = asyncio.create_task(self.download(), name="[WAITING] PeerConnection")
         self._stop_forever = False
         self.peer: Optional[PeerInfo] = None
+        self._task = asyncio.create_task(self.download(), name="[WAITING] PeerConnection")
 
     def __str__(self):
         if not self.peer:
@@ -366,3 +365,17 @@ class PeerMessenger:
         except Exception as e:
             logger.exception(f"{self}: Exception encountered...", exc_info=True)
             raise PeerError from e
+
+
+async def open_peer_connection(host=None, port=None) -> [asyncio.StreamReader, asyncio.StreamWriter]:
+    """
+    A wrapper for asyncio.open_connection() returning a (reader, writer) pair.
+    """
+    loop = asyncio.events.get_event_loop()
+    reader = asyncio.StreamReader(loop=loop)
+    protocol = asyncio.StreamReaderProtocol(reader, loop=loop)
+    transport, _ = await loop.create_connection(
+        lambda: protocol, host, port)
+    transport.set_write_buffer_limits(0)  # let the OS handle buffering
+    writer = asyncio.StreamWriter(transport, protocol, reader, loop)
+    return reader, writer

@@ -15,7 +15,6 @@ import signal
 import sys
 import unittest
 from pathlib import Path
-from queue import SimpleQueue as Queue
 
 from opalescence import __version__
 from opalescence.btlib.client import Client
@@ -115,7 +114,6 @@ async def do_download(torrent_fp: Path, dest_fp: Path):
     loop = asyncio.get_event_loop()
     loop.set_debug(__debug__)
     client = Client()
-    client.add_torrent(torrent_fp=torrent_fp, destination=dest_fp)
 
     def signal_received(s):
         logger.debug(f"{s} received. Shutting down...")
@@ -126,12 +124,13 @@ async def do_download(torrent_fp: Path, dest_fp: Path):
 
     try:
         # Main entry point
+        client.add_torrent(torrent_fp=torrent_fp, destination=dest_fp)
         await client.start_all()
-    except asyncio.CancelledError:
-        await client.stop_all()
     except Exception as ex:
         if not isinstance(ex, KeyboardInterrupt):
             logger.exception(f"{type(ex).__name__} exception received.", exc_info=True)
+    finally:
+        await client.stop_all()
 
 
 def configure_logging(log_level):
@@ -139,24 +138,6 @@ def configure_logging(log_level):
     formatter = logging.Formatter(fmt="[%(levelname)12s] %(asctime)s : %(name)s : %(message)s")
     stream_handler.setFormatter(formatter)
 
-    queue = Queue()
-    queue_handler = LocalQueueHandler(queue)
-
     app_logger = logging.getLogger("opalescence")
     app_logger.setLevel(log_level)
-    app_logger.addHandler(queue_handler)
-
-    listener = logging.handlers.QueueListener(
-        queue, stream_handler, respect_handler_level=True
-    )
-    listener.start()
-
-
-class LocalQueueHandler(logging.handlers.QueueHandler):
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            self.enqueue(record)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            self.handleError(record)
+    app_logger.addHandler(stream_handler)

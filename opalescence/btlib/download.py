@@ -40,8 +40,8 @@ class Download:
         self.client_info = local_peer
         self.torrent: MetaInfoFile = MetaInfoFile.from_file(torrent_fp, destination)
         self.stats = {"uploaded": 0, "downloaded": self.torrent.present, "left": self.torrent.remaining, "started": 0.0}
-        self.tracker = TrackerManager(self.client_info, self.torrent, self.stats)
-        self.peer_q = asyncio.Queue()
+        self.peer_queue = asyncio.Queue()
+        self.tracker = TrackerManager(self.client_info, self.torrent, self.stats, self.peer_queue)
         self.writer = FileWriter(self.torrent)
         self.peers = []
         self.abort = False
@@ -54,25 +54,20 @@ class Download:
             self.task.cancel()
 
     def download(self):
-        self.torrent.check_existing_pieces()
-        logger.info(f"We have: {self.torrent.present}b")
-        logger.info(f"We need: {self.torrent.remaining}b")
-        if self.torrent.present == self.torrent.total_size:
-            raise Complete
         self.stats["started"] = asyncio.get_event_loop().time()
         self.task = asyncio.create_task(self.download_coro(), name=f"Download for {self.torrent}")
         return self.task
 
     def _add_peers(self, response: TrackerResponse) -> Optional[int]:
         if response:
-            while not self.peer_q.empty():
-                self.peer_q.get_nowait()
+            while not self.peer_queue.empty():
+                self.peer_queue.get_nowait()
 
             for peer in response.get_peers():
                 if peer[0] == self.client_info.ip and peer[1] == self.client_info.port:
                     logger.info(f"Ignoring peer. It's us...")
                     continue
-                self.peer_q.put_nowait(PeerInfo(peer[0], peer[1]))
+                self.peer_queue.put_nowait(PeerInfo(peer[0], peer[1]))
             if response.interval:
                 return response.interval
 
@@ -82,10 +77,10 @@ class Download:
         serves as the main entrypoint for a torrent.
         TODO: needs work
         """
+        self.peers = [PeerConnection(self.client_info, self.torrent.info_hash, self.requester, self.peer_queue)
+                      for _ in range(MAX_PEER_CONNECTIONS)]
         previous = None
         interval = self.tracker.DEFAULT_INTERVAL
-        self.peers = [PeerConnection(self.client_info, self.torrent.info_hash, self.requester, self.peer_q)
-                      for _ in range(MAX_PEER_CONNECTIONS)]
 
         try:
             event = EVENT_STARTED
@@ -117,8 +112,9 @@ class Download:
                 else:
                     await asyncio.sleep(interval)
         except (asyncio.CancelledError, Exception) as e:
-            logger.debug(f"{type(e).__name__} exception received in client.download.")
-            logger.exception(e, exc_info=True)
+            if not isinstance(e, asyncio.CancelledError):
+                logger.debug(f"{type(e).__name__} exception received in client.download.")
+                logger.exception(e, exc_info=True)
             await self.tracker.cancel()
         finally:
             logger.debug(f"Ending download loop. Cleaning up.")

@@ -14,16 +14,18 @@ Roadmap to v1.0:
 3. Save state between usages (v0.9)
    - sqlite (v0.9)
    - - save information in home directory (v0.9)
-4. ~90% test coverage of core architecture. (v1.0)
+4. ~90% test coverage of core architecture (v1.0)
 
+Roadmap to v2.0:
+1. UDP protocol
+2. Add uploading/responding to requests from peers
+   - Actually bind to the port we tell the tracker we're listening on
+3. File selection
+4. Add tests
 
-Longer term to do/ideas:
-1. UDP protocol.
-2. GUI
-3. Add overall statistics?
-4. Allow selecting the files to download.
-5. Add piece-selecting strategies?
-6. Tests.
-7. Add uploading/responding to requests from peers.
-8. Actually bind to the port we tell the tracker we're listening on?
-   (maybe eventually, but never intended to be a full-on seeding application, for now).
+Roadmap to v3.0:
+1. Simple GUI interface
+2. Daemonize
+3. Overall stats
+4. Piece selecting strategies
+

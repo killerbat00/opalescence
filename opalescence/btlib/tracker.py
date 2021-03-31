@@ -171,13 +171,27 @@ class TrackerManager:
     """
     DEFAULT_INTERVAL: int = 60  # 1 minute
 
-    def __init__(self, local_info: PeerInfo, meta_info: MetaInfoFile, stats: dict):
+    def __init__(self, local_info: PeerInfo, meta_info: MetaInfoFile, stats: dict, peer_queue: asyncio.Queue):
         self.info_hash: bytes = meta_info.info_hash
         self.announce_urls: deque[str] = deque([url for tier in meta_info.announce_urls for url in tier])
         self.stats = stats
-        self.port = local_info.port
+        self.local_peer = local_info
         self.peer_id = local_info.peer_id_bytes
         self.interval = self.DEFAULT_INTERVAL
+        self.peer_queue = peer_queue
+
+    def add_peers_to_queue(self, response: TrackerResponse) -> Optional[int]:
+        if response:
+            while not self.peer_queue.empty():
+                self.peer_queue.get_nowait()
+
+            for peer in response.get_peers():
+                if peer[0] == self.local_peer.ip and peer[1] == self.local_peer.port:
+                    logger.info(f"Ignoring peer. It's us...")
+                    continue
+                self.peer_queue.put_nowait(PeerInfo(peer[0], peer[1]))
+            if response.interval:
+                return response.interval
 
     async def announce(self, event: str = "") -> TrackerResponse:
         """
@@ -197,7 +211,7 @@ class TrackerManager:
         if not url:
             raise TrackerConnectionError("Unable to make request - no url.")
 
-        params = TrackerParameters(self.info_hash, self.peer_id, self.port, self.stats.get("uploaded", 0),
+        params = TrackerParameters(self.info_hash, self.peer_id, self.local_peer.port, self.stats.get("uploaded", 0),
                                    self.stats.get("downloaded", 0), self.stats.get("left", 0), 1, event)
 
         try:
