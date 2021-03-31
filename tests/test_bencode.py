@@ -198,7 +198,7 @@ class TestDecoder(TestCase):
         """
         data = b"e"
         decoder = bencode.Decoder(data)
-        with self.subTest(msg="Emtpy integer and onlydelim."):
+        with self.subTest(msg="Emtpy integer and only delim."):
             with self.assertRaises(bencode.DecodeError):
                 decoder._parse_num(bencode.BencodeDelimiters.END)
 
