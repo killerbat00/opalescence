@@ -14,37 +14,16 @@ import struct
 from logging import getLogger
 from typing import Optional
 
-from .errors import PeerError
 from .messages import *
 from .piece_handler import PieceRequester
 
 logger = getLogger(__name__)
 
 
-class PeerInfo:
-    def __init__(self, ip: str, port: int, peer_id: Optional[bytes] = None):
-        self.ip: str = ip
-        self.port: int = port
-        self._peer_id: Optional[bytes] = peer_id
-        self.choking = True
-        self.interested = False
-
-    def __str__(self):
-        return f"{self.ip}:{self.port}"
-
-    @property
-    def peer_id_bytes(self) -> bytes:
-        if self._peer_id:
-            return self._peer_id
-
-    @property
-    def peer_id(self) -> str:
-        return str(self)
-
-    @peer_id.setter
-    def peer_id(self, val):
-        if isinstance(val, bytes):
-            self._peer_id = val
+class PeerError(Exception):
+    """
+    Raised when we encounter an error communicating with the peer.
+    """
 
 
 class PeerConnection:
@@ -53,17 +32,15 @@ class PeerConnection:
     """
 
     # TODO: Add support for sending pieces to the peer
-    def __init__(self, local_peer: PeerInfo, info_hash: bytes, requester: PieceRequester, peer_queue: asyncio.Queue):
+    def __init__(self, local_peer, info_hash: bytes, requester: PieceRequester, peer_queue: asyncio.Queue):
         self.local = local_peer
         self.info_hash: bytes = info_hash
         self.peer_queue = peer_queue
         self._requester: PieceRequester = requester
         self._msg_to_send_q: asyncio.Queue = asyncio.Queue()
-        self._msg_receive_to: float = 10.0
-        self._msg_send_to: float = 60.0
         self._stop_forever = False
-        self.peer: Optional[PeerInfo] = None
-        self._task = asyncio.create_task(self.download(), name="[WAITING] PeerConnection")
+        self.peer = None
+        self.task = asyncio.create_task(self.download(), name="[WAITING] PeerConnection")
 
     def __str__(self):
         if not self.peer:
@@ -75,23 +52,22 @@ class PeerConnection:
 
     def stop_forever(self):
         self._stop_forever = True
-        if self._task:
-            self._task.cancel()
+        if self.task:
+            self.task.cancel()
 
     async def download(self):
         """
         :return:
         """
         while not self._stop_forever:
-            num_timeouts = 0
             try:
                 peer_info = await self.peer_queue.get()
-                self._task.set_name(f"{self}")
+                self.task.set_name(f"{self}")
                 if not peer_info:
                     raise PeerError
 
                 self.peer = peer_info
-                self._task.set_name(f"{self}")
+                self.task.set_name(f"{self}")
 
                 logger.info(f"{self}: Opening connection with peer.")
                 # TODO: When we start allowing peers to connect to us, we'll need to listen
@@ -102,11 +78,10 @@ class PeerConnection:
 
                     produce_task = asyncio.create_task(self._produce(messenger), name=f"Produce Task for {self}")
                     consume_task = asyncio.create_task(self._consume(messenger), name=f"Consume Task for {self}")
-                    await asyncio.gather(produce_task, consume_task)
+                    await asyncio.gather(produce_task, consume_task, return_exceptions=True)
 
             except Exception as cpe:
                 if isinstance(cpe, ConnectionRefusedError):
-                    num_timeouts += 1
                     await asyncio.sleep(0.5)
                     continue
                 elif not isinstance(cpe, asyncio.CancelledError):
@@ -118,7 +93,7 @@ class PeerConnection:
                 self._requester.remove_peer(self.peer.peer_id)
                 self._msg_to_send_q = asyncio.Queue()
                 self.peer = None
-                self._task.set_name("[WAITING] PeerConnection")
+                self.task.set_name("[WAITING] PeerConnection")
         logger.debug(f"{self}: Stopped forever.")
 
     async def _consume(self, messenger: PeerMessenger):
@@ -180,7 +155,7 @@ class PeerConnection:
             while True:
                 log, msg = None, None
                 try:
-                    msg = await asyncio.wait_for(self._msg_to_send_q.get(), timeout=self._msg_send_to)
+                    msg = await asyncio.wait_for(self._msg_to_send_q.get(), timeout=10)
                     if not msg:
                         continue
                 except TimeoutError:
@@ -265,7 +240,7 @@ class PeerMessenger:
     TODO: client vs server mode?
     """
 
-    def __init__(self, peer: PeerInfo):
+    def __init__(self, peer):
         self._stream_reader: Optional[asyncio.StreamReader] = None
         self._stream_writer: Optional[asyncio.StreamWriter] = None
         self._peer = peer

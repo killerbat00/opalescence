@@ -4,7 +4,7 @@
 Support for communication with an external tracker.
 """
 
-__all__ = ['TrackerResponse', 'TrackerConnectionError', 'TrackerManager']
+__all__ = ['TrackerResponse', 'TrackerConnectionError', 'TrackerConnection']
 
 import asyncio
 import dataclasses
@@ -20,7 +20,7 @@ from urllib.parse import urlencode
 
 from .bencode import Decoder
 from .metainfo import MetaInfoFile
-from .protocol.peer import PeerInfo
+from .protocol.peer_info import PeerInfo
 
 logger = logging.getLogger(__name__)
 
@@ -53,17 +53,9 @@ class TrackerResponse:
         """
         min_interval = self.data.get("min interval", None)
         if not min_interval:
-            return self.data.get("interval", TrackerManager.DEFAULT_INTERVAL)
-        interval = self.data.get("interval", TrackerManager.DEFAULT_INTERVAL)
+            return self.data.get("interval", TrackerConnection.DEFAULT_INTERVAL)
+        interval = self.data.get("interval", TrackerConnection.DEFAULT_INTERVAL)
         return min(min_interval, interval)
-
-    @property
-    def tracker_id(self) -> Optional[str]:
-        """
-        :return: the tracker id
-        """
-        if "tracker id" in self.data:
-            return self.data.get("tracker id", b"").decode("UTF-8")
 
     @property
     def seeders(self) -> int:
@@ -104,7 +96,7 @@ class TrackerResponse:
 
 class TrackerConnectionError(Exception):
     """
-    Raised when there's an error with the Tracker.
+    Raised when there's an error with the TrackerConnection.
     """
 
     def __init__(self, failure_reason: Optional[str] = ""):
@@ -133,67 +125,101 @@ def delegate_to_executor(func):
 
 
 @delegate_to_executor
-def request(url: str, params: TrackerParameters) -> TrackerResponse:
+def request(url, params: TrackerParameters) -> TrackerResponse:
     url = urllib.parse.urlparse(url)
-    scheme = url.scheme
+    query_params = urllib.parse.parse_qs(url.query)
+    query_params.update(dataclasses.asdict(params))
     conn = None
-    if scheme == "http":
-        conn = http.client.HTTPConnection(url.netloc, timeout=5)
-    elif scheme == "https":
-        conn = http.client.HTTPSConnection(url.netloc, timeout=5)
 
     try:
-        if conn is None or not params:
-            raise TrackerConnectionError("Cannot request on uninitialized tracker.")
+        if not (params or url):
+            raise TrackerConnectionError("No parameters or invalid URL scheme.")
 
-        q = urllib.parse.parse_qs(url.query)
-        q.update(dataclasses.asdict(params))
-        path = url._replace(scheme="", netloc="", query=urllib.parse.urlencode(q)).geturl()
+        if url.scheme == "http":
+            conn = http.client.HTTPConnection(url.netloc, timeout=5)
+        elif url.scheme == "https":
+            conn = http.client.HTTPSConnection(url.netloc, timeout=5)
+
+        path = url._replace(scheme="", netloc="", query=urllib.parse.urlencode(query_params)).geturl()
         conn.request("GET", path)
         resp = conn.getresponse()
         if resp.status != 200:
-            raise TrackerConnectionError(f"Non-200 response received from tracker.")
+            raise TrackerConnectionError(f"Non-200 response received from tracker {resp.status}.")
         tracker_resp = TrackerResponse(Decoder(resp.read()).decode())
         if tracker_resp.failed:
             raise TrackerConnectionError(tracker_resp.failure_reason)
         return tracker_resp
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
-class TrackerManager:
+@dataclasses.dataclass
+class TrackerStats:
+    uploaded: int = 0
+    downloaded: int = 0
+    left: int = 0
+    started: float = 0.0
+
+
+class TrackerConnection:
     """
     Communication with the tracker.
     Does not currently support the announce-list extension from
     BEP 0012: http://bittorrent.org/beps/bep_0012.html. Instead, when one tracker
     disconnects or fails, or runs out of trackers, we hop round robin to the next tracker.
     Does not support the scrape convention.
+
+    TODO: Allow multiple trackers to run concurrently?
     """
     DEFAULT_INTERVAL: int = 60  # 1 minute
 
-    def __init__(self, local_info: PeerInfo, meta_info: MetaInfoFile, stats: dict, peer_queue: asyncio.Queue):
-        self.info_hash: bytes = meta_info.info_hash
-        self.announce_urls: deque[str] = deque([url for tier in meta_info.announce_urls for url in tier])
+    def __init__(self, local_info, meta_info: MetaInfoFile, stats: TrackerStats, peer_queue: asyncio.Queue):
+        self.client_info = local_info
+        self.torrent = meta_info
+        self.announce_urls: deque[str] = deque(set(url for tier in meta_info.announce_urls for url in tier))
         self.stats = stats
-        self.local_peer = local_info
-        self.peer_id = local_info.peer_id_bytes
         self.interval = self.DEFAULT_INTERVAL
         self.peer_queue = peer_queue
+        self.task: Optional[asyncio.Task] = None
 
-    def add_peers_to_queue(self, response: TrackerResponse) -> Optional[int]:
-        if response:
-            while not self.peer_queue.empty():
-                self.peer_queue.get_nowait()
+    def start(self):
+        if self.task is None:
+            self.task = asyncio.create_task(self._recurring_announce())
 
-            for peer in response.get_peers():
-                if peer[0] == self.local_peer.ip and peer[1] == self.local_peer.port:
-                    logger.info(f"Ignoring peer. It's us...")
-                    continue
-                self.peer_queue.put_nowait(PeerInfo(peer[0], peer[1]))
-            if response.interval:
-                return response.interval
+    async def _recurring_announce(self):
+        try:
+            await self.announce(EVENT_STARTED)
+            while not self.task.cancelled():
+                if len(self.announce_urls) == 0:
+                    break
+                await asyncio.sleep(self.interval)
+                if not self.task.cancelled():
+                    await self.announce()
+        except Exception:
+            pass
 
-    async def announce(self, event: str = "") -> TrackerResponse:
+    def add_peers_to_queue(self, response: TrackerResponse):
+        """
+        Adds the peers in the given tracker response to the queue.
+        :param response: `TrackerResponse` received
+        """
+        peer_list = response.get_peers()
+        # we only add peers if the list we receive is bigger than the list we have.
+        if peer_list is None or len(peer_list) < self.peer_queue.qsize():
+            return
+
+        while not self.peer_queue.empty():
+            self.peer_queue.get_nowait()
+
+        for peer in response.get_peers():
+            peer_info = PeerInfo(peer[0], peer[1])
+            if peer_info == self.client_info:
+                logger.info(f"Ignoring peer. It's us...")
+                continue
+            self.peer_queue.put_nowait(peer_info)
+
+    async def announce(self, event: str = "") -> None:
         """
         Makes an announce request to the tracker.
 
@@ -203,33 +229,31 @@ class TrackerManager:
                                         are unable to bdecode the tracker's response.
         :returns: TrackerResponse object representing the tracker's response
         """
-        # TODO: respect proper order of announce urls according to BEP 0012
+        # TODO: respect proper order of announce urls according to BEP 0012.
         if len(self.announce_urls) == 0:
             raise TrackerConnectionError("Unable to make request - no announce urls.")
 
+        if self.stats.left == 0 and not event:
+            event = EVENT_COMPLETED
+
         url = self.announce_urls.popleft()
-        if not url:
-            raise TrackerConnectionError("Unable to make request - no url.")
+        params = TrackerParameters(self.torrent.info_hash, self.client_info.peer_id_bytes, self.client_info.port,
+                                   self.stats.uploaded, self.stats.downloaded, self.stats.left, 1, event)
 
-        params = TrackerParameters(self.info_hash, self.peer_id, self.local_peer.port, self.stats.get("uploaded", 0),
-                                   self.stats.get("downloaded", 0), self.stats.get("left", 0), 1, event)
-
-        try:
-            logger.info(f"Making {event} announce to: {url}{params}")
-            decoded_data = await request(url, params)
+        logger.info(f"Making {event} announce to: {url}{params}")
+        decoded_data = await request(url, params)
+        if event != EVENT_COMPLETED and event != EVENT_STOPPED:
             self.interval = decoded_data.interval
             self.announce_urls.appendleft(url)  # TODO: handle per-URL/tracker failures
-            return decoded_data
+            self.add_peers_to_queue(decoded_data)
 
-        except Exception as e:
-            logger.exception(f"{self}: {type(e).__name__} received in TrackerManager.announce", exc_info=True)
-            raise TrackerConnectionError
-
-    async def cancel(self) -> None:
+    async def cancel_announce(self) -> None:
         """
         Informs the tracker we are gracefully shutting down.
         :raises TrackerConnectionError:
         """
+        if not self.task.cancelled():
+            self.task.cancel()
         await self.announce(event=EVENT_STOPPED)
 
     async def completed(self) -> None:
@@ -237,4 +261,6 @@ class TrackerManager:
         Informs the tracker we have completed downloading this torrent
         :raises TrackerConnectionError:
         """
+        if not self.task.cancelled():
+            self.task.cancel()
         await self.announce(event=EVENT_COMPLETED)

@@ -12,7 +12,7 @@ import functools
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Set, Callable, Optional
+from typing import Dict, List, Set, Optional
 
 import bitstring
 
@@ -108,13 +108,12 @@ class PieceRequester:
     We currently use a naive sequential strategy.
     """
 
-    def __init__(self, torrent: MetaInfoFile, writer: FileWriter, torrent_complete_cb: Callable, stats: dict):
+    def __init__(self, torrent: MetaInfoFile, writer: FileWriter, stats):
         self.torrent = torrent
         self.piece_peer_map: Dict[int, Set[str]] = {i: set() for i in range(self.torrent.num_pieces)}
         self.peer_piece_map: Dict[str, Set[int]] = defaultdict(set)
         self.pending_requests: List[Request] = []
         self.writer = writer
-        self.torrent_complete_cb: Callable = torrent_complete_cb
         self.stats = stats
 
     @property
@@ -221,8 +220,8 @@ class PieceRequester:
             logger.debug(f"Disregarding. I did not request {block}")
             return
 
-        self.stats["downloaded"] += len(block.data)
-        self.stats["left"] -= len(block.data)
+        self.stats.downloaded += len(block.data)
+        self.stats.left -= len(block.data)
 
         piece.add_block(block)
         if piece.complete:
@@ -240,8 +239,6 @@ class PieceRequester:
             logger.info(f"Completed piece received: {piece}")
             self.remove_requests_for_piece(piece.index)
             await self.writer.write(piece)
-            if self.complete:
-                self.torrent_complete_cb()
 
     def next_request_for_peer(self, peer_id: str) -> Optional[Request]:
         """
