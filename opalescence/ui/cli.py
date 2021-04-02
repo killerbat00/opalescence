@@ -8,8 +8,6 @@ import argparse
 import asyncio
 import functools
 import logging
-import logging.config
-import logging.handlers
 import os
 import signal
 import sys
@@ -92,7 +90,7 @@ def download(args) -> None:
     try:
         if not torrent_fp.exists():
             logger.error(f"Torrent filepath does not exist.")
-            raise
+            raise SystemExit
         if not dest_fp.exists():
             logger.debug(f"Destination filepath does not exist. Creating {dest_fp}.")
             dest_fp.mkdir()

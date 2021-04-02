@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional, Set
 
 from .download import Download
-from .protocol.peer import PeerInfo
+from .protocol.peer_info import PeerInfo
 
 logger = getLogger(__name__)
 
@@ -62,6 +62,7 @@ class BorgError(Exception):
 
 
 class BorgTask:
+    # TODO: remove
     def __init__(self):
         self._task: Optional[asyncio.Task] = None
         self._running = False

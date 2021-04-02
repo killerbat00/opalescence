@@ -33,6 +33,3 @@ download a torrent
 ## Testing Opalescence
 
 `$ python -m opalescence test`
-
-[The philosophy of Opalescence](philosophy.md)
-
