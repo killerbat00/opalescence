@@ -1,7 +1,7 @@
 Roadmap to v1.0:
 1. Still download only
 2. Dynamic CLI (v0.5)
-   - Allow adding torrents (v0.5)
+   - [DONE] Allow adding torrents (v0.5)
    - - Test/verify downloading multiple torrents at once (v0.8)
    - - More robust file access error handling (v0.7)
    - Allow removing torrents (+ data) (v0.7)
@@ -15,6 +15,8 @@ Roadmap to v1.0:
    - sqlite (v0.9)
    - - save information in home directory (v0.9)
 4. ~90% test coverage of core architecture (v1.0)
+   - mock/fake peers
+   - mock/fake trackers
 
 Roadmap to v2.0:
 1. UDP protocol
