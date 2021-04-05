@@ -2,8 +2,6 @@
 
 """
 Model classes for messages received over the bittorrent protocol.
-
-TODO: Evaluate abstractmethod/classmethod and multiple-inheritance use in the message classes.
 """
 from __future__ import annotations
 
@@ -331,9 +329,10 @@ class Piece:
         self.index: int = index
         self.length: int = length
         self.data: bytes = data
+        self._complete = False
 
     def __str__(self):
-        return f"Piece: (Index: {self.index}, Length: {self.length})"
+        return f"Piece: (Index: {self.index}, Length: {self.length}, Remaining: {self.remaining})"
 
     def __repr__(self):
         return str(self)
@@ -360,12 +359,18 @@ class Piece:
             return
         self.data += block.data
 
-    @property
+    def mark_complete(self):
+        """
+        Marks the piece complete and flushes its data from memory.
+        """
+        self._complete = True
+        self.reset()
+
     def complete(self) -> bool:
         """
         :return: True if all blocks have been downloaded
         """
-        return len(self.data) == self.length
+        return self._complete
 
     @property
     def next_block(self) -> Optional[int]:
@@ -377,12 +382,12 @@ class Piece:
         return len(self.data)
 
     @property
-    def remaining(self) -> Optional[int]:
+    def remaining(self) -> int:
         """
         :return: The number of bytes remaining in this piece.
         """
         if self.complete:
-            return
+            return 0
         return self.length - len(self.data)
 
     def reset(self):
@@ -397,7 +402,7 @@ class Piece:
         Returns the hash of the piece's data.
         """
         if not self.data:
-            return None
+            return
         return hashlib.sha1(self.data).digest()
 
 

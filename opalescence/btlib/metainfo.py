@@ -83,9 +83,6 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
     min_info_req_keys: List[str] = ["piece length", "pieces"]
     min_files_req_keys: List[str] = ["length", "path"]
 
-    logger.info(
-        "Validating torrent metainfo dictionary {d}".format(d=decoded_dict))
-
     dict_keys: List = list(decoded_dict.keys())
     if not dict_keys:
         logger.error("No valid keys in dictionary.")
@@ -246,10 +243,7 @@ class MetaInfoFile:
         fps = {}
         try:
             for i, file in self.files.items():
-                if not file.exists:
-                    fps[i] = None
-                else:
-                    fps[i] = open(file.path, "rb")
+                fps[i] = open(file.path, "rb") if file.exists else None
 
             last_pc_index = self.num_pieces - 1
             piece_length = self.piece_length
@@ -283,6 +277,8 @@ class MetaInfoFile:
                     piece.data = piece_data
                     if piece.hash() != self.piece_hashes[i]:
                         piece.reset()
+                    else:
+                        piece.mark_complete()
         finally:
             for fp in fps.values():
                 if fp is not None:

@@ -266,7 +266,7 @@ class TrackerConnection:
             if decoded_data is None:
                 raise TrackerConnectionError(f"No data received from tracker: {url}")
         except Exception as e:
-            logger.info(f"{type(e).__name__} received in announce.")
+            logger.exception(f"{type(e).__name__} received in announce.")
             raise TrackerConnectionError from e
 
         if event != EVENT_COMPLETED and event != EVENT_STOPPED:

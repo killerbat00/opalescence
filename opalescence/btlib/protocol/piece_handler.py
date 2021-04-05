@@ -108,12 +108,12 @@ class PieceRequester:
     We currently use a naive sequential strategy.
     """
 
-    def __init__(self, torrent: MetaInfoFile, writer: FileWriter, stats):
+    def __init__(self, torrent: MetaInfoFile, stats):
         self.torrent = torrent
         self.piece_peer_map: Dict[int, Set[str]] = {i: set() for i in range(self.torrent.num_pieces)}
         self.peer_piece_map: Dict[str, Set[int]] = defaultdict(set)
         self.pending_requests: List[Request] = []
-        self.writer = writer
+        self.writer = FileWriter(torrent)
         self.stats = stats
 
     @property
@@ -239,6 +239,7 @@ class PieceRequester:
             logger.info(f"Completed piece received: {piece}")
             self.remove_requests_for_piece(piece.index)
             await self.writer.write(piece)
+            piece.mark_complete()
 
     def next_request_for_peer(self, peer_id: str) -> Optional[Request]:
         """
