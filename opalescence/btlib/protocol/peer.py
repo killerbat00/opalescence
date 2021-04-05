@@ -19,6 +19,7 @@ from logging import getLogger
 from typing import Optional
 
 from .messages import *
+from .peer_info import PeerInfo
 from .piece_handler import PieceRequester
 
 logger = getLogger(__name__)
@@ -45,7 +46,7 @@ class PeerConnection:
     # TODO: Add support for sending pieces to the peer
     def __init__(self, local_peer, info_hash: bytes, requester: PieceRequester, peer_queue: asyncio.Queue,
                  stats: PeerConnectionStats):
-        self.local = local_peer
+        self.local = PeerInfo(local_peer.ip, local_peer.port, local_peer.peer_id_bytes)
         self.info_hash: bytes = info_hash
         self.peer_queue = peer_queue
         self.peer = None
@@ -58,8 +59,8 @@ class PeerConnection:
 
     def __str__(self):
         if not self.peer:
-            return f"{self.task.get_name()}::{self.info_hash}"
-        return f"{self.task.get_name()}:{self.peer}:{self.info_hash}"
+            return f"{self.task.get_name()}:{self.info_hash}"
+        return f"{self.task.get_name()}:{self.info_hash}"
 
     def __repr__(self):
         return str(self)
@@ -100,6 +101,7 @@ class PeerConnection:
                 if not isinstance(cpe, asyncio.CancelledError):
                     logger.exception(f"{self}: {type(cpe).__name__} received in download.")
             finally:
+                self.local.reset_state()
                 if not self.peer:
                     continue
                 logger.info(f"{self}: Closing connection with peer.")

@@ -38,9 +38,7 @@ def download(args) -> None:
     asyncio.run(_download(torrent_fp, dest_fp))
 
 
-async def _download(torrent_fp: Path, dest_fp: Path):
-    assert torrent_fp.exists() and dest_fp.exists()
-
+async def _download(torrent_fp, dest_fp):
     logger.info(f"Downloading {torrent_fp} to {dest_fp}")
 
     loop = asyncio.get_event_loop()
@@ -54,12 +52,6 @@ async def _download(torrent_fp: Path, dest_fp: Path):
     for signame in ('SIGINT', 'SIGTERM'):
         loop.add_signal_handler(getattr(signal, signame), functools.partial(signal_received, signame))
 
-    try:
-        # Main entry point
-        client.add_torrent(torrent_fp=torrent_fp, destination=dest_fp)
-        await client.start_all()
-    except Exception as ex:
-        if not isinstance(ex, KeyboardInterrupt):
-            logger.exception(f"{type(ex).__name__} exception received.", exc_info=True)
-    finally:
-        await client.stop_all()
+    client.add_torrent(torrent_fp=torrent_fp, destination=dest_fp)
+    await client.start_all()
+    await client.stop_all()

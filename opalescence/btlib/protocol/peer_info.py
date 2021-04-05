@@ -23,6 +23,10 @@ class PeerInfo:
     def __str__(self):
         return f"{self.ip}:{self.port}"
 
+    def reset_state(self):
+        self.choking = True
+        self.interested = False
+
     @property
     def peer_id_bytes(self) -> bytes:
         if self._peer_id:
