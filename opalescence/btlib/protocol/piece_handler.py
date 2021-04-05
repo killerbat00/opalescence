@@ -116,10 +116,6 @@ class PieceRequester:
         self.writer = FileWriter(torrent)
         self.stats = stats
 
-    @property
-    def complete(self):
-        return self.torrent.remaining == 0
-
     def add_available_piece(self, peer_id: str, index: int):
         """
         Called when a peer advertises it has a piece available.
@@ -256,7 +252,7 @@ class PieceRequester:
         :param peer_id: peer requesting a piece
         :return: piece's index or None if not available
         """
-        if self.complete:
+        if self.torrent.complete:
             logger.info("Already complete.")
             return
 

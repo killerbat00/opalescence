@@ -366,6 +366,7 @@ class Piece:
         self._complete = True
         self.reset()
 
+    @property
     def complete(self) -> bool:
         """
         :return: True if all blocks have been downloaded

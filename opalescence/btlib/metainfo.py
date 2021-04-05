@@ -245,40 +245,32 @@ class MetaInfoFile:
             for i, file in self.files.items():
                 fps[i] = open(file.path, "rb") if file.exists else None
 
-            last_pc_index = self.num_pieces - 1
-            piece_length = self.piece_length
             for i, piece in enumerate(self.pieces):
-                file_index, file_offset = FileItem.file_for_offset(self.files, i * piece_length)
+                file_index, file_offset = FileItem.file_for_offset(self.files, i * piece.length)
                 if not self.files[file_index].exists:
                     continue
-
-                if i == last_pc_index:
-                    piece_length = self.last_piece_length
 
                 fp = fps[file_index]
                 if fp is None:
                     continue
 
-                if file_offset + piece_length > self.files[file_index].size:
+                if file_offset + piece.length > self.files[file_index].size:
                     if file_index + 1 > len(self.files) or fps[file_index + 1] is None:
                         continue
 
                     f1len = self.files[file_index].size - file_offset
-                    f2len = piece_length - f1len
+                    f2len = piece.length - f1len
                     piece_data = fp.read(f1len)
 
                     fp = fps[file_index + 1]
                     piece_data += fp.read(f2len)
                 else:
                     fp.seek(file_offset)
-                    piece_data = fp.read(piece_length)
+                    piece_data = fp.read(piece.length)
 
-                if len(piece_data) == piece.length:
+                if len(piece_data) == piece.length and piece.hash() == self.piece_hashes[i]:
                     piece.data = piece_data
-                    if piece.hash() != self.piece_hashes[i]:
-                        piece.reset()
-                    else:
-                        piece.mark_complete()
+                    piece.mark_complete()
         finally:
             for fp in fps.values():
                 if fp is not None:
@@ -332,7 +324,7 @@ class MetaInfoFile:
         for pc in range(num_pieces):
             piece_length = self.piece_length
             if pc == num_pieces - 1:
-                piece_length = self.total_size - (pc * piece_length)
+                piece_length = self.last_piece_length
 
             self.pieces.append(Piece(pc, piece_length))
 
@@ -434,6 +426,10 @@ class MetaInfoFile:
             else:
                 lengths.append(self.piece_length)
         return sum(lengths)
+
+    @property
+    def complete(self) -> bool:
+        return self.remaining == 0
 
     @property
     def num_pieces(self) -> int:
