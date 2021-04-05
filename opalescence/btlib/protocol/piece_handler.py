@@ -108,13 +108,12 @@ class PieceRequester:
     We currently use a naive sequential strategy.
     """
 
-    def __init__(self, torrent: MetaInfoFile, stats):
+    def __init__(self, torrent: MetaInfoFile):
         self.torrent = torrent
         self.piece_peer_map: Dict[int, Set[str]] = {i: set() for i in range(self.torrent.num_pieces)}
         self.peer_piece_map: Dict[str, Set[int]] = defaultdict(set)
         self.pending_requests: List[Request] = []
         self.writer = FileWriter(torrent)
-        self.stats = stats
 
     def add_available_piece(self, peer_id: str, index: int):
         """
@@ -216,9 +215,6 @@ class PieceRequester:
             logger.debug(f"Disregarding. I did not request {block}")
             return
 
-        self.stats.downloaded += len(block.data)
-        self.stats.left -= len(block.data)
-
         piece.add_block(block)
         if piece.complete:
             await self.piece_complete(piece)
@@ -271,6 +267,7 @@ class PieceRequester:
             request = Request(i, piece.next_block, size, peer_id)
             while request in self.pending_requests:
                 logger.info(f"{peer_id}: We have an outstanding request for {request}")
+                # TODO: move on to the next request/block
                 return
 
             logger.info(f"{peer_id}: Successfully got request {request}.")
