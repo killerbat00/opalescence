@@ -4,84 +4,21 @@
 Command Line Interface for Opalescence
 """
 
-import argparse
 import asyncio
 import functools
 import logging
-import os
 import signal
-import sys
-import unittest
 from pathlib import Path
 
 from opalescence import __version__
 from opalescence.btlib.client import Client
 
 
-def main():
-    """
-    CLI entry point
-    """
-    parser = create_argparser()
-    try:
-        args = parser.parse_args()
-        configure_logging(args.loglevel)
-        args.func(args)
-    except AttributeError:
-        parser.print_help()
-
-
-def create_argparser() -> argparse.ArgumentParser:
-    """
-    CLI argument parsing setup.
-    :return:    argparse.ArgumentParser instance
-    """
-    parser = argparse.ArgumentParser(prog="python -m opalescence",
-                                     description="A download-only bittorrent client.")
-    parser.add_argument("--version", action="version",
-                        version=__version__)
-    parser.add_argument("-d", "--debug", help="Print debug-level output.",
-                        action="store_const", dest="loglevel",
-                        const=logging.DEBUG, default=logging.ERROR)
-    parser.add_argument("-v", "--verbose", help="Print verbose output (but "
-                                                "still less verbose than "
-                                                "debug-level.)",
-                        action="store_const", dest="loglevel",
-                        const=logging.INFO)
-
-    subparsers = parser.add_subparsers()
-    test_parser = subparsers.add_parser("test", help="Run the test suite.")
-    test_parser.set_defaults(func=test)
-    download_parser = subparsers.add_parser("download",
-                                            help="Download a .torrent file.")
-    download_parser.add_argument('torrent_file',
-                                 help="Path to the .torrent file to download.",
-                                 type=Path)
-    download_parser.add_argument('destination',
-                                 help="File destination path.",
-                                 type=Path)
-    download_parser.set_defaults(func=download)
-    return parser
-
-
-def test(_) -> None:
-    """
-    Runs the test suite found in the tests/ directory
-    :param _: unused
-    """
-    logger = logging.getLogger("opalescence")
-    logger.info(f"Running the test suite on the files in development.")
-
-    loader = unittest.defaultTestLoader
-    runner = unittest.TextTestRunner()
-    suite = loader.discover(os.path.abspath(os.path.join(os.path.dirname(__package__), "tests")))
-    if suite:
-        runner.run(suite)
-
-
 def download(args) -> None:
     """
+    Main entrypoint for the CLI.
     Downloads a .torrent file
+
     :param args: .torrent filepath argparse.Namespace object
     """
     logger = logging.getLogger("opalescence")
@@ -129,13 +66,3 @@ async def do_download(torrent_fp: Path, dest_fp: Path):
             logger.exception(f"{type(ex).__name__} exception received.", exc_info=True)
     finally:
         await client.stop_all()
-
-
-def configure_logging(log_level):
-    stream_handler = logging.StreamHandler(stream=sys.stdout)
-    formatter = logging.Formatter(fmt="[%(levelname)12s] %(asctime)s : %(name)s : %(message)s")
-    stream_handler.setFormatter(formatter)
-
-    app_logger = logging.getLogger("opalescence")
-    app_logger.setLevel(log_level)
-    app_logger.addHandler(stream_handler)
