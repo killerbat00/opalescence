@@ -44,8 +44,11 @@ class PeerConnection:
 
     def __str__(self):
         if not self.peer:
-            return f"[NOPEER]:{self.local}:{self.info_hash}"
-        return f"{self.peer.ip}:{self.peer.port}:{self.info_hash}"
+            return f"{self.task.get_name()}:{self.local}:{self.info_hash}"
+        return f"{self.task.get_name()}:{self.local}:{self.info_hash}"
+
+    def __repr__(self):
+        return str(self)
 
     def __eq__(self, other: PeerConnection):
         return hash(self) == hash(other)
@@ -62,12 +65,11 @@ class PeerConnection:
         while not self._stop_forever:
             try:
                 peer_info = await self.peer_queue.get()
-                self.task.set_name(f"{self}")
-                if not peer_info:
-                    raise PeerError
+                if not peer_info or self._stop_forever:
+                    continue
 
                 self.peer = peer_info
-                self.task.set_name(f"{self}")
+                self.task.set_name(f"{self.peer}")
 
                 logger.info(f"{self}: Opening connection with peer.")
                 # TODO: When we start allowing peers to connect to us, we'll need to listen
@@ -85,15 +87,18 @@ class PeerConnection:
                     await asyncio.sleep(0.5)
                     continue
                 elif not isinstance(cpe, asyncio.CancelledError):
-                    logger.exception(f"{self}: {type(cpe).__name__} received in download.", exc_info=True)
+                    logger.exception(f"{self}: {type(cpe).__name__} received in download.")
+                else:
+                    logger.exception(f"{self}: CancelledError received in download.")
             finally:
                 if not self.peer:
                     continue
                 logger.info(f"{self}: Closing connection with peer.")
                 self._requester.remove_peer(self.peer.peer_id)
-                self._msg_to_send_q = asyncio.Queue()
-                self.peer = None
-                self.task.set_name("[WAITING] PeerConnection")
+                if not self._stop_forever:
+                    self._msg_to_send_q = asyncio.Queue()
+                    self.peer = None
+                    self.task.set_name("[WAITING] PeerConnection")
         logger.debug(f"{self}: Stopped forever.")
 
     async def _consume(self, messenger: PeerMessenger):
@@ -106,6 +111,8 @@ class PeerConnection:
         """
         try:
             async for msg in messenger:
+                if self._stop_forever:
+                    break
                 logger.info(f"{self}: Sent {msg}")
                 if isinstance(msg, Choke):
                     self.peer.choking = True
@@ -129,7 +136,6 @@ class PeerConnection:
                         self._msg_to_send_q.put_nowait(Interested())
                 elif isinstance(msg, Request):
                     pass
-                    # self._requester.add_peer_request(self.peer.peer_id, msg)
                 elif isinstance(msg, Block):
                     await self._requester.received_block(self.peer.peer_id, msg)
                     # TODO: better piece requesting, currently in-order tit for tat
@@ -150,20 +156,14 @@ class PeerConnection:
         :param messenger: The `PeerMessenger` via which we write data to the peer.
         :raises PeerError: on any exception.
         """
-        try:
-            num_timeouts = 0
-            while True:
-                log, msg = None, None
-                try:
+        num_timeouts = 0
+        log, msg = None, None
+        while True:
+            try:
+                if not msg:
                     msg = await asyncio.wait_for(self._msg_to_send_q.get(), timeout=10)
-                    if not msg:
-                        continue
-                except TimeoutError:
-                    num_timeouts += 1
-                    log = f"{self}: No message to send #{num_timeouts}, sending KeepAlive."
-                    msg = KeepAlive()
-                    if num_timeouts >= 3:
-                        raise PeerError(f"{self}: Too many timeouts in _produce.")
+                    if self._stop_forever:
+                        break
 
                 if isinstance(msg, Choke):
                     self.local.choking = True
@@ -198,13 +198,18 @@ class PeerConnection:
                         log = f"{self.local}: Sending {msg} to {self}"
                     logger.debug(log)
                     await messenger.send(msg)
-
+                    msg, log = None, None
                 self._msg_to_send_q.task_done()
-
-        except Exception as ce:
-            if not isinstance(ce, asyncio.CancelledError):
-                logger.exception(f"{self}: {type(ce).__name__} received in produce.", exc_info=True)
-            raise PeerError from ce
+            except Exception as ce:
+                if isinstance(ce, TimeoutError):
+                    num_timeouts += 1
+                    log = f"{self}: No message to send #{num_timeouts}, sending KeepAlive."
+                    msg = KeepAlive()
+                    if num_timeouts >= 3:
+                        raise PeerError(f"{self}: Too many timeouts in _produce.")
+                if not isinstance(ce, asyncio.CancelledError):
+                    logger.exception(f"{self}: {type(ce).__name__} received in produce.", exc_info=True)
+                    raise PeerError from ce
 
     async def _handshake(self, messenger: PeerMessenger) -> bool:
         """
