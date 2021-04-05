@@ -1,8 +1,11 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
 """
 Terminal User Interface for Opalescence
 """
+import logging
+
+logger = logging.getLogger("opalescence")
 
 
 def download(args):

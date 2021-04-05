@@ -3,6 +3,7 @@
 """
 Model classes for messages received over the bittorrent protocol.
 """
+
 from __future__ import annotations
 
 __all__ = ['Message', 'Handshake', 'KeepAlive', 'Choke', 'Unchoke', 'Interested', 'NotInterested', 'Have',

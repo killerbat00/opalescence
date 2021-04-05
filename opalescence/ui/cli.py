@@ -1,5 +1,5 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
 """
 Command Line Interface for Opalescence
 """
@@ -10,8 +10,9 @@ import logging
 import signal
 from pathlib import Path
 
-from opalescence import __version__
-from opalescence.btlib.client import Client
+from opalescence.btlib import Client
+
+logger = logging.getLogger("opalescence")
 
 
 def download(args) -> None:
@@ -21,29 +22,25 @@ def download(args) -> None:
 
     :param args: .torrent filepath argparse.Namespace object
     """
-    logger = logging.getLogger("opalescence")
     torrent_fp: Path = args.torrent_file
     dest_fp: Path = args.destination
-    try:
-        if not torrent_fp.exists():
-            logger.error(f"Torrent filepath does not exist.")
-            raise SystemExit
-        if not dest_fp.exists():
-            logger.debug(f"Destination filepath does not exist. Creating {dest_fp}.")
-            dest_fp.mkdir()
-        if not dest_fp.is_dir():
-            logger.error(f"Destination filepath is not a directory.")
-            raise SystemExit
 
-        asyncio.run(do_download(torrent_fp, dest_fp))
-    finally:
-        logger.info(f"Shutting down. Thank you for using opalescence v{__version__}.")
+    if not torrent_fp.exists():
+        logger.error(f"Torrent filepath does not exist.")
+        raise SystemExit
+    if not dest_fp.exists():
+        logger.debug(f"Destination filepath does not exist. Creating {dest_fp}.")
+        dest_fp.mkdir()
+    if not dest_fp.is_dir():
+        logger.error(f"Destination filepath is not a directory.")
+        raise SystemExit
+
+    asyncio.run(_download(torrent_fp, dest_fp))
 
 
-async def do_download(torrent_fp: Path, dest_fp: Path):
+async def _download(torrent_fp: Path, dest_fp: Path):
     assert torrent_fp.exists() and dest_fp.exists()
 
-    logger = logging.getLogger("opalescence")
     logger.info(f"Downloading {torrent_fp} to {dest_fp}")
 
     loop = asyncio.get_event_loop()

@@ -4,6 +4,7 @@
 Support for representing a .torrent file as a python class and
 creating a Torrent class (or .torrent file) from a specified file or directory.
 """
+
 from __future__ import annotations
 
 __all__ = ['CreationError', 'FileItem', 'MetaInfoFile']

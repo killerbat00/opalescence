@@ -1,8 +1,14 @@
+# -*- coding: utf-8 -*-
+
+"""
+Misc utility functions used throughout the btlib package.
+"""
+
+__all__ = ["ensure_dir_exists"]
+
 import errno
 import os
 from pathlib import Path
-
-__all__ = ["ensure_dir_exists"]
 
 
 def ensure_dir_exists(filename: Path) -> None:

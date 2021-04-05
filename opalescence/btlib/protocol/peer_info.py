@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+
+"""
+Contains basic information about a peer.
+"""
+
 from typing import Optional
 
 

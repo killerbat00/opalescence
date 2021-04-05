@@ -7,7 +7,10 @@ The coordination with peers is handled in ../client.py
 
 No data is currently sent to the remote peer.
 """
+
 from __future__ import annotations
+
+__all__ = ["PeerConnectionStats", "PeerError", "PeerConnection"]
 
 import asyncio
 import dataclasses

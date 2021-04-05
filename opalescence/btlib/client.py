@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 """
 Contains the client logic for opalescence.
 The client is responsible for orchestrating communication with the tracker and between peers.
