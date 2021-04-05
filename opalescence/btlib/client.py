@@ -59,7 +59,10 @@ class ClientError(Exception):
 class Client:
     """
     The client is the main entrypoint for downloading torrents. Add torrents to
-    the client and then start it in order to commence downloading.
+    the client and then start it in order to commence downloading. The client doesn't
+    currently monitor or supervise downloading torrents.
+
+    It has not been validated to work when downloading >1 torrent.
     """
 
     def __init__(self):
@@ -69,20 +72,14 @@ class Client:
         self._downloading: Optional[list[Download]] = None
         self._local_peer = PeerInfo(_retrieve_local_ip(), 6881, _generate_peer_id())
 
-    async def _start(self):
-        if self._tasks is None or len(self._tasks) == 0:
-            return
-
-        self._running = True
-
-        with contextlib.suppress(asyncio.CancelledError):
-            await asyncio.gather(*self._tasks, return_exceptions=True)
-
     def stop(self):
         """
         Creates and schedules a task that will asynchronously
-        stop and clean up all running tasks.
+        cancel all running downloads.
         """
+        if not self._running:
+            return
+
         asyncio.create_task(self.stop_all())
 
     async def stop_all(self):
@@ -105,7 +102,7 @@ class Client:
         Adds a task to the list of running tasks.
         :param task: task to add to this borg.
         """
-        if task is None or task.cancelled() or task.done():
+        if task is None or task.cancelled() or task.done() or self._running:
             return
         self._tasks.add(task)
 
@@ -114,12 +111,17 @@ class Client:
         Starts downloading all current torrents.
         """
         if self._downloading is None or len(self._downloading) == 0:
-            raise ClientError("No torrents added.")
+            raise ClientError
+
+        if self._running:
+            return
 
         for download in self._downloading:
             download.torrent.check_existing_pieces()
-            logger.info(f"We have {download.torrent.present} / {download.torrent.total_size} bytes.")
-            if download.torrent.present == download.torrent.total_size:
+            present = download.torrent.present
+            total_size = download.torrent.total_size
+            logger.info(f"We have {present} / {total_size} bytes.")
+            if present == total_size:
                 logger.info(f"{download.torrent.name} already complete.")
                 continue
             self.add_task(download.download())
@@ -128,7 +130,10 @@ class Client:
             logger.info(f"{self}: Complete. No torrents to download.")
             return
 
-        await self._start()
+        self._running = True
+
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.gather(*self._tasks, return_exceptions=True)
 
     def add_torrent(self, *, torrent_fp: Path = None, destination: Path = None):
         """
@@ -136,6 +141,9 @@ class Client:
         :param torrent_fp: The filepath to the .torrent metainfo file.
         :param destination: The destination in which to save the torrent.
         """
+        if self._running:
+            return
+
         download = Download(torrent_fp, destination, self._local_peer)
         if self._downloading is None:
             self._downloading = []
@@ -145,4 +153,5 @@ class Client:
 
         if any(filter(exists, self._downloading)):
             return
+
         self._downloading.append(download)

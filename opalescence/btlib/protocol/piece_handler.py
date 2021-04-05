@@ -17,6 +17,7 @@ from typing import Dict, List, Set, Optional
 import bitstring
 
 from .messages import Request, Piece, Block
+# TODO: stop importing from a parent package.
 from ..metainfo import MetaInfoFile, FileItem
 from ..utils import ensure_dir_exists
 

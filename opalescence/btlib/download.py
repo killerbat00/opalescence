@@ -56,7 +56,7 @@ class Download:
                     time_diff = now - last_speed_check
                     download_diff = downloaded - last_downloaded
                     if time_diff > 2:
-                        average_speed = round((download_diff / time_diff) / 2 ** 10, 2)
+                        average_speed = round((download_diff / time_diff) / 2 ** 10, 5)
                         last_speed_check = now
                         last_downloaded = self.download_stats.downloaded
 
@@ -66,7 +66,6 @@ class Download:
                 await asyncio.sleep(1)
 
                 # check peers? Re-announce if necessary.
-
                 peers_connected = len(list(filter(lambda x: x.peer is not None, self.peers)))
 
                 if self.download_task.cancelled():

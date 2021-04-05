@@ -37,16 +37,17 @@ class TrackerConnectionError(Exception):
     Raised when there's an error with the TrackerConnection.
     """
 
-    def __init__(self, failure_reason: Optional[str] = ""):
-        self.failure_reason = failure_reason
-
 
 class NoTrackersError(Exception):
-    pass
+    """
+    Raised when there are no trackers to accept an announce.
+    """
 
 
 class TrackerConnectionCancelledError(Exception):
-    pass
+    """
+    Raised when the connection has been cancelled by the application.
+    """
 
 
 @dataclasses.dataclass
@@ -69,7 +70,7 @@ async def http_request(url, params: TrackerParameters) -> TrackerResponse:
 
     try:
         if not (params or url):
-            raise TrackerConnectionError("No parameters or invalid URL scheme.")
+            raise TrackerConnectionError
 
         if url.scheme == "http":
             conn = http.client.HTTPConnection(url.netloc, timeout=5)
@@ -82,10 +83,10 @@ async def http_request(url, params: TrackerParameters) -> TrackerResponse:
         )
         resp = conn.getresponse()
         if resp.status != 200:
-            raise TrackerConnectionError(f"Non-200 response received from tracker {resp.status}.")
+            raise TrackerConnectionError
         tracker_resp = TrackerResponse(Decoder(resp.read()).decode())
         if tracker_resp.failed:
-            raise TrackerConnectionError(tracker_resp.failure_reason)
+            raise TrackerConnectionError
         return tracker_resp
     finally:
         if conn is not None:
@@ -193,7 +194,7 @@ class TrackerConnection:
         try:
             decoded_data = await http_request(url, params)
             if decoded_data is None:
-                raise TrackerConnectionError(f"No data received from tracker: {url}")
+                raise TrackerConnectionError
         except Exception as e:
             logger.exception(f"{type(e).__name__} received in announce.")
             raise TrackerConnectionError from e
@@ -286,4 +287,4 @@ class TrackerResponse:
         elif isinstance(peers, list):
             return [(p["ip"].decode("UTF-8"), int(p["port"])) for p in peers]
         else:
-            raise TrackerConnectionError(f"Unable to decode `peers` from tracker response")
+            raise TrackerConnectionError
