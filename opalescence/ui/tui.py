@@ -8,10 +8,8 @@ import logging
 logger = logging.getLogger("opalescence")
 
 
-def download(args):
+def start():
     """
     TUI entry point
-    :param args:
-    :return:
     """
     print("This would start the TUI.")

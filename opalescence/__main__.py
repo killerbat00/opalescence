@@ -9,7 +9,7 @@ import logging
 import sys
 from pathlib import Path
 
-from opalescence import __version__
+from opalescence import __version__, __author__, __year__
 from opalescence.ui import cli, tui
 
 
@@ -56,8 +56,9 @@ try:
     if args.ui_mode == "CLI":
         cli.download(args)
     else:
-        tui.download(args)
+        tui.start()
 except AttributeError:
     parser.print_help()
 finally:
     print(f"Thank you for using opalescence v{__version__}.")
+    print(f"Opalescence was created by: {__author__} (c) {__year__}")
