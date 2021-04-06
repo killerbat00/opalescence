@@ -24,19 +24,6 @@ from ..utils import ensure_dir_exists
 logger = logging.getLogger(__name__)
 
 
-def delegate_to_executor(func):
-    @functools.wraps(func)
-    async def wrapper(self, *args, **kwargs):
-        await self._lock.acquire()
-        try:
-            return await asyncio.get_running_loop().run_in_executor(None,
-                                                                    functools.partial(func, self, *args, **kwargs))
-        finally:
-            self._lock.release()
-
-    return wrapper
-
-
 @dataclasses.dataclass
 class WriteBuffer:
     buffer = b''
@@ -69,17 +56,26 @@ class FileWriter:
                 fd.write(data_to_write)
                 fd.flush()
         except (OSError, Exception):
-            logger.exception(f"Encountered exception when writing to {p}", exc_info=True)
+            logger.error(f"Encountered exception when writing to {p}")
             raise
 
-    @delegate_to_executor
-    def write(self, piece: Piece):
+    async def write(self, piece: Piece):
         """
-        Buffers (and eventually) writes the piece's
-        data to the appropriate file(s).
-        :param piece: piece to write
+        Writes the piece to the file in an executor.
+        :param piece: piece to write.
         """
-        # TODO: Handle trying to write incomplete pieces
+        await self._lock.acquire()
+        try:
+            await asyncio.get_running_loop().run_in_executor(None,
+                                                             functools.partial(self._write, piece))
+        finally:
+            self._lock.release()
+
+    def _write(self, piece: Piece):
+        """
+        Writes the piece's data to the appropriate file(s).
+        :param piece: piece to write.
+        """
         assert piece.complete
 
         offset = piece.index * self._torrent.piece_length
@@ -145,9 +141,9 @@ class PieceRequester:
 
         :param peer_id: peer whose pending requests ew should remove
         """
-        for request in self.pending_requests:
+        for i, request in enumerate(self.pending_requests):
             if request.peer_id == peer_id:
-                self.pending_requests.remove(request)
+                del self.pending_requests[i]
 
     def remove_request(self, request: Request) -> bool:
         """
@@ -157,9 +153,10 @@ class PieceRequester:
         :return: True if removed, False otherwise
         """
         removed = False
-        while request in self.pending_requests:
-            self.pending_requests.remove(request)
-            removed = True
+        for i, pending_rqst in enumerate(self.pending_requests):
+            if pending_rqst == request:
+                del self.pending_requests[i]
+                removed = True
         return removed
 
     def remove_requests_for_piece(self, piece_index: int):
