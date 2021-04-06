@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+
+"""
+Main logic for facilitating the download of a torrent.
+"""
+
 import asyncio
 import logging
 from pathlib import Path

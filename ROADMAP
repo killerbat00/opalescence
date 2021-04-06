@@ -1,6 +1,8 @@
 Roadmap to v1.0:
 1. Still download only
-2. Dynamic CLI (v0.5)
+2. Dynamic CLI/TUI (v0.5)
+   - Ensure CLI is helpful at various levels of logging. Don't overlog, can just give stat updates at the highest-level
+     now. (v0.5)
    - [DONE] Allow adding torrents (v0.5)
    - - Test/verify downloading multiple torrents at once (v0.8)
    - - More robust file access error handling (v0.7)

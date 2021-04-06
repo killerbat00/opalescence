@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import annotations
+"""
+Support for communication with HTTP trackers.
+"""
 
-"""
-Support for communication with an external tracker.
-"""
+from __future__ import annotations
 
 __all__ = ['TrackerResponse', 'TrackerConnectionError', 'TrackerConnection']
 

@@ -1,112 +1,44 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
 """
 Command Line Interface for Opalescence
 """
 
-import argparse
 import asyncio
 import functools
 import logging
-import os
 import signal
-import sys
-import unittest
 from pathlib import Path
 
-from opalescence import __version__
-from opalescence.btlib.client import Client
+from opalescence.btlib import Client
 
-
-def main():
-    """
-    CLI entry point
-    """
-    parser = create_argparser()
-    try:
-        args = parser.parse_args()
-        configure_logging(args.loglevel)
-        args.func(args)
-    except AttributeError:
-        parser.print_help()
-
-
-def create_argparser() -> argparse.ArgumentParser:
-    """
-    CLI argument parsing setup.
-    :return:    argparse.ArgumentParser instance
-    """
-    parser = argparse.ArgumentParser(prog="python -m opalescence",
-                                     description="A download-only bittorrent client.")
-    parser.add_argument("--version", action="version",
-                        version=__version__)
-    parser.add_argument("-d", "--debug", help="Print debug-level output.",
-                        action="store_const", dest="loglevel",
-                        const=logging.DEBUG, default=logging.ERROR)
-    parser.add_argument("-v", "--verbose", help="Print verbose output (but "
-                                                "still less verbose than "
-                                                "debug-level.)",
-                        action="store_const", dest="loglevel",
-                        const=logging.INFO)
-
-    subparsers = parser.add_subparsers()
-    test_parser = subparsers.add_parser("test", help="Run the test suite.")
-    test_parser.set_defaults(func=test)
-    download_parser = subparsers.add_parser("download",
-                                            help="Download a .torrent file.")
-    download_parser.add_argument('torrent_file',
-                                 help="Path to the .torrent file to download.",
-                                 type=Path)
-    download_parser.add_argument('destination',
-                                 help="File destination path.",
-                                 type=Path)
-    download_parser.set_defaults(func=download)
-    return parser
-
-
-def test(_) -> None:
-    """
-    Runs the test suite found in the tests/ directory
-    :param _: unused
-    """
-    logger = logging.getLogger("opalescence")
-    logger.info(f"Running the test suite on the files in development.")
-
-    loader = unittest.defaultTestLoader
-    runner = unittest.TextTestRunner()
-    suite = loader.discover(os.path.abspath(os.path.join(os.path.dirname(__package__), "tests")))
-    if suite:
-        runner.run(suite)
+logger = logging.getLogger("opalescence")
 
 
 def download(args) -> None:
     """
+    Main entrypoint for the CLI.
     Downloads a .torrent file
+
     :param args: .torrent filepath argparse.Namespace object
     """
-    logger = logging.getLogger("opalescence")
     torrent_fp: Path = args.torrent_file
     dest_fp: Path = args.destination
-    try:
-        if not torrent_fp.exists():
-            logger.error(f"Torrent filepath does not exist.")
-            raise SystemExit
-        if not dest_fp.exists():
-            logger.debug(f"Destination filepath does not exist. Creating {dest_fp}.")
-            dest_fp.mkdir()
-        if not dest_fp.is_dir():
-            logger.error(f"Destination filepath is not a directory.")
-            raise SystemExit
 
-        asyncio.run(do_download(torrent_fp, dest_fp))
-    finally:
-        logger.info(f"Shutting down. Thank you for using opalescence v{__version__}.")
+    if not torrent_fp.exists():
+        logger.error(f"Torrent filepath does not exist.")
+        raise SystemExit
+    if not dest_fp.exists():
+        logger.debug(f"Destination filepath does not exist. Creating {dest_fp}.")
+        dest_fp.mkdir()
+    if not dest_fp.is_dir():
+        logger.error(f"Destination filepath is not a directory.")
+        raise SystemExit
+
+    asyncio.run(_download(torrent_fp, dest_fp))
 
 
-async def do_download(torrent_fp: Path, dest_fp: Path):
-    assert torrent_fp.exists() and dest_fp.exists()
-
-    logger = logging.getLogger("opalescence")
+async def _download(torrent_fp, dest_fp):
     logger.info(f"Downloading {torrent_fp} to {dest_fp}")
 
     loop = asyncio.get_event_loop()
@@ -120,22 +52,6 @@ async def do_download(torrent_fp: Path, dest_fp: Path):
     for signame in ('SIGINT', 'SIGTERM'):
         loop.add_signal_handler(getattr(signal, signame), functools.partial(signal_received, signame))
 
-    try:
-        # Main entry point
-        client.add_torrent(torrent_fp=torrent_fp, destination=dest_fp)
-        await client.start_all()
-    except Exception as ex:
-        if not isinstance(ex, KeyboardInterrupt):
-            logger.exception(f"{type(ex).__name__} exception received.", exc_info=True)
-    finally:
-        await client.stop_all()
-
-
-def configure_logging(log_level):
-    stream_handler = logging.StreamHandler(stream=sys.stdout)
-    formatter = logging.Formatter(fmt="[%(levelname)12s] %(asctime)s : %(name)s : %(message)s")
-    stream_handler.setFormatter(formatter)
-
-    app_logger = logging.getLogger("opalescence")
-    app_logger.setLevel(log_level)
-    app_logger.addHandler(stream_handler)
+    client.add_torrent(torrent_fp=torrent_fp, destination=dest_fp)
+    await client.start_all()
+    await client.stop_all()
