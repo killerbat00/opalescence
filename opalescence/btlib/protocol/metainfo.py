@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import List, Optional, Dict
 
 from .bencode import Decoder, Encoder, DecodeError, EncodeError
-from .protocol.messages import Piece
-from .utils import ensure_dir_exists
+from .messages import Piece
+from ..utils import ensure_dir_exists
 
 logger = getLogger(__name__)
 
@@ -451,13 +451,11 @@ class MetaInfoFile:
 
 
 class FileWriter:
-    WRITE_BUFFER_SIZE = 2 ** 13  # 8kb
 
-    def __init__(self, torrent: MetaInfoFile):
-        self._files: Dict[int, FileItem] = dict(torrent.files)
+    def __init__(self, files: Dict[int, FileItem], destination: Path):
+        self._files: Dict[int, FileItem] = files
         self._total_size = sum([file.size for file in self._files.values()])
-        self._torrent = torrent
-        self._base_dir = torrent.destination
+        self._base_dir = destination
         self._lock = asyncio.Lock()
 
     def _write_data(self, data_to_write, file, offset):
@@ -488,6 +486,7 @@ class FileWriter:
         try:
             await asyncio.get_running_loop().run_in_executor(None,
                                                              functools.partial(self._write, piece))
+            piece.mark_complete()
         except Exception:
             raise
         finally:
@@ -500,12 +499,12 @@ class FileWriter:
         """
         assert piece.complete
 
-        offset = piece.index * self._torrent.piece_length
+        offset = piece.index * piece.length
         data_to_write = piece.data
         while data_to_write:
-            file_num, file_offset = FileItem.file_for_offset(self._torrent.files, offset)
-            file = self._torrent.files[file_num]
-            if file_num >= len(self._torrent.files):
+            file_num, file_offset = FileItem.file_for_offset(self._files, offset)
+            file = self._files[file_num]
+            if file_num >= len(self._files):
                 logger.error("Too much data and not enough files...")
                 raise
 
