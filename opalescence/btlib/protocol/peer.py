@@ -49,7 +49,7 @@ class PeerConnection:
         self.local = PeerInfo(local_peer.ip, local_peer.port, local_peer.peer_id_bytes)
         self.info_hash: bytes = info_hash
         self.peer_queue = peer_queue
-        self.peer = None
+        self.peer: Optional[PeerInfo] = None
         self._requester: PieceRequester = requester
         self._msg_to_send_q: asyncio.Queue = asyncio.Queue()
         self._stop_forever = False
@@ -106,7 +106,7 @@ class PeerConnection:
                 self.local.reset_state()
                 if not self.peer:
                     continue
-                self._requester.remove_peer(self.peer.peer_id)
+                self._requester.remove_peer(self.peer)
                 if not self._stop_forever:
                     logger.info(f"{self}: Resetting peer connection.")
                     self._msg_to_send_q = asyncio.Queue()
@@ -129,10 +129,10 @@ class PeerConnection:
                 logger.info(f"{self}: Sent {msg}")
                 if isinstance(msg, Choke):
                     self.peer.choking = True
-                    self._requester.remove_pending_requests_for_peer(self.peer.peer_id)
+                    self._requester.remove_pending_requests_for_peer(self.peer)
                 elif isinstance(msg, Unchoke):
                     self.peer.choking = False
-                    self._msg_to_send_q.put_nowait(self._requester.next_request_for_peer(self.peer.peer_id))
+                    self._msg_to_send_q.put_nowait(self._requester.next_request_for_peer(self.peer))
                 elif isinstance(msg, Interested):
                     self.peer.interested = True
                     # TODO: we don't send blocks to the peer
@@ -140,19 +140,19 @@ class PeerConnection:
                     self.peer.interested = False
                     # TODO: we don't send blocks to the peer
                 elif isinstance(msg, Have):
-                    self._requester.add_available_piece(self.peer.peer_id, msg.index)
+                    self._requester.add_available_piece(self.peer, msg.index)
                     if not self.local.interested:
                         self._msg_to_send_q.put_nowait(Interested())
                 elif isinstance(msg, Bitfield):
-                    self._requester.add_peer_bitfield(self.peer.peer_id, msg.bitfield)
+                    self._requester.add_peer_bitfield(self.peer, msg.bitfield)
                     if not self.local.interested:
                         self._msg_to_send_q.put_nowait(Interested())
                 elif isinstance(msg, Request):
                     pass
                 elif isinstance(msg, Block):
-                    await self._requester.received_block(self.peer.peer_id, msg)
+                    await self._requester.received_block(self.peer, msg)
                     # TODO: better piece requesting, currently in-order tit for tat
-                    self._msg_to_send_q.put_nowait(self._requester.next_request_for_peer(self.peer.peer_id))
+                    self._msg_to_send_q.put_nowait(self._requester.next_request_for_peer(self.peer))
                 elif isinstance(msg, Cancel):
                     pass
             raise PeerError  # out of messages

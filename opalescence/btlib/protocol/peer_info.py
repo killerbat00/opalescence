@@ -16,12 +16,16 @@ class PeerInfo:
         self.interested = False
 
     def __eq__(self, other):
+        # TODO: check equality across info hashes
         if isinstance(other, PeerInfo) and self.ip == other.ip and self.port == other.port:
             return True
         return False
 
     def __str__(self):
         return f"{self.ip}:{self.port}"
+
+    def __hash__(self):
+        return hash(str(self))
 
     def reset_state(self):
         self.choking = True
