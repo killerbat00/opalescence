@@ -196,7 +196,7 @@ class TrackerConnection:
             if decoded_data is None:
                 raise TrackerConnectionError
         except Exception as e:
-            logger.exception(f"{type(e).__name__} received in announce.")
+            logger.error(f"{type(e).__name__} received in announce.")
             raise TrackerConnectionError from e
 
         if event != EVENT_COMPLETED and event != EVENT_STOPPED:

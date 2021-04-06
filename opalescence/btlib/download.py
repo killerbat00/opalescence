@@ -87,8 +87,7 @@ class Download:
 
         except Exception as e:
             if not isinstance(e, asyncio.CancelledError):
-                logger.debug(f"{type(e).__name__} exception received in client.download.")
-                logger.exception(e, exc_info=True)
+                logger.error(f"{type(e).__name__} exception received in client.download.")
         finally:
             logger.debug(f"Ending download loop and cleaning up.")
             self.tracker.task.cancel()

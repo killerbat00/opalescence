@@ -190,7 +190,7 @@ class MetaInfoFile:
             torrent._collect_pieces()
 
         except (EncodeError, DecodeError, IOError, Exception) as e:
-            logger.exception(f"Encountered {type(e).__name__} in MetaInfoFile.from_file", exc_info=True)
+            logger.debug(f"Encountered {type(e).__name__} in MetaInfoFile.from_file")
             raise CreationError from e
 
         return torrent
@@ -230,8 +230,7 @@ class MetaInfoFile:
                 data: bytes = Encoder(self.meta_info).encode()
                 f.write(data)
             except EncodeError as ee:
-                logger.exception(f"Encounter {type(ee).__name__} while writing metainfo file {output_filename}.",
-                                 exc_info=True)
+                logger.error(f"Encounter {type(ee).__name__} while writing metainfo file {output_filename}.")
                 raise CreationError from ee
 
     def check_existing_pieces(self) -> None:
