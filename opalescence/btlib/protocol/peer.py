@@ -95,18 +95,20 @@ class PeerConnection:
 
                     produce_task = asyncio.create_task(self._produce(messenger), name=f"Produce Task for {self}")
                     consume_task = asyncio.create_task(self._consume(messenger), name=f"Consume Task for {self}")
-                    await asyncio.gather(produce_task, consume_task, return_exceptions=True)
+                    await asyncio.gather(produce_task, consume_task)
 
-            except Exception as cpe:
-                if not isinstance(cpe, asyncio.CancelledError):
-                    logger.exception(f"{self}: {type(cpe).__name__} received in download.")
+            except Exception as exc:
+                logger.error(f"{self}: {type(exc).__name__} received in download.")
+            except BaseException:
+                self._stop_forever = True
             finally:
+                logger.info(f"{self}: Closing connection with peer.")
                 self.local.reset_state()
                 if not self.peer:
                     continue
-                logger.info(f"{self}: Closing connection with peer.")
                 self._requester.remove_peer(self.peer.peer_id)
                 if not self._stop_forever:
+                    logger.info(f"{self}: Resetting peer connection.")
                     self._msg_to_send_q = asyncio.Queue()
                     self.peer = None
                     self.task.set_name("[WAITING] PeerConnection")
@@ -153,9 +155,8 @@ class PeerConnection:
                     self._msg_to_send_q.put_nowait(self._requester.next_request_for_peer(self.peer.peer_id))
                 elif isinstance(msg, Cancel):
                     pass
-        except Exception as exc:
-            if not isinstance(exc, asyncio.CancelledError):
-                logger.exception(f"{self}: {type(exc).__name__} received in _consume.", exc_info=True)
+            raise PeerError  # out of messages
+        except Exception:
             raise
 
     async def _produce(self, messenger):
@@ -167,12 +168,11 @@ class PeerConnection:
         :param messenger: The `PeerMessenger` via which we write data to the peer.
         :raises PeerError: on any exception.
         """
-        num_timeouts = 0
         log, msg = None, None
         while True:
             try:
                 if not msg:
-                    msg = await asyncio.wait_for(self._msg_to_send_q.get(), timeout=10)
+                    msg = await self._msg_to_send_q.get()
                     mark_done = True
                     if self._stop_forever:
                         break
@@ -196,15 +196,7 @@ class PeerConnection:
                 if mark_done:
                     self._msg_to_send_q.task_done()
 
-            except asyncio.TimeoutError:
-                num_timeouts += 1
-                log = f"{self}: No message to send #{num_timeouts}, sending KeepAlive."
-                msg = KeepAlive()
-                if num_timeouts >= 3:
-                    raise PeerError(f"{self}: Too many timeouts in _produce.")
-            except Exception as exc:
-                if not isinstance(exc, asyncio.CancelledError):
-                    logger.exception(f"{self}: {type(exc).__name__} received in _produce.", exc_info=True)
+            except Exception:
                 raise
 
     async def _handshake(self, messenger: PeerMessenger) -> bool:
@@ -285,7 +277,7 @@ class PeerMessenger:
 
         try:
             return await self._receive()
-        except PeerError:
+        except Exception:
             raise StopAsyncIteration
 
     async def send(self, msg: Message) -> None:
@@ -349,7 +341,6 @@ class PeerMessenger:
             self._stats.downloaded += msg_len
             return MESSAGE_TYPES[msg_id].decode(msg_data)
         except Exception as e:
-            logger.exception(f"{self}: Exception encountered...", exc_info=True)
             raise PeerError from e
 
 
