@@ -23,7 +23,7 @@ from urllib.parse import urlencode
 
 from .bencode import Decoder
 from .metainfo import MetaInfoFile
-from .protocol.peer_info import PeerInfo
+from .peer_info import PeerInfo
 
 logger = logging.getLogger(__name__)
 

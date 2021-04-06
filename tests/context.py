@@ -9,7 +9,7 @@ import sys
 
 # noinspection PyUnresolvedReferences
 # noinspection PyUnresolvedReferences
-from opalescence.btlib import client, protocol, metainfo
+from opalescence.btlib import client, protocol
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 

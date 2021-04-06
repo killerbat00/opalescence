@@ -6,6 +6,7 @@ Contains the logic for requesting pieces, as well as that for writing them to di
 
 __all__ = ['PieceRequester']
 
+import asyncio
 import dataclasses
 import logging
 from collections import defaultdict
@@ -14,9 +15,7 @@ from typing import Dict, List, Set, Optional
 import bitstring
 
 from .messages import Request, Piece, Block
-# TODO: stop importing from a parent package.
 from .peer_info import PeerInfo
-from ..metainfo import MetaInfoFile, FileWriter
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +34,12 @@ class PieceRequester:
     We currently use a naive sequential strategy.
     """
 
-    def __init__(self, torrent: MetaInfoFile):
+    def __init__(self, torrent, piece_queue: asyncio.Queue):
         self.torrent = torrent
         self.piece_peer_map: Dict[int, Set[PeerInfo]] = {i: set() for i in range(self.torrent.num_pieces)}
         self.peer_piece_map: Dict[PeerInfo, Set[int]] = defaultdict(set)
         self.pending_requests: List[Request] = []
-        self.writer = FileWriter(torrent)
+        self.complete_piece_queue: asyncio.Queue = piece_queue
 
     def add_available_piece(self, peer: PeerInfo, index: int):
         """
@@ -83,8 +82,8 @@ class PieceRequester:
         :return: True if removed, False otherwise
         """
         removed = False
-        for i, pending_rqst in enumerate(self.pending_requests):
-            if pending_rqst == request:
+        for i, pending_request in enumerate(self.pending_requests):
+            if pending_request == request:
                 del self.pending_requests[i]
                 removed = True
         return removed
@@ -163,8 +162,7 @@ class PieceRequester:
         else:
             logger.info(f"Completed piece received: {piece}")
             self.remove_requests_for_piece(piece.index)
-            await self.writer.write(piece)
-            piece.mark_complete()
+            self.complete_piece_queue.put_nowait(piece)
 
     def next_request_for_peer(self, peer: PeerInfo) -> Optional[Request]:
         """
@@ -209,4 +207,3 @@ class PieceRequester:
 
         # There are no pieces the peer can send us :(
         logger.info(f"{peer}: Has no pieces available to send.")
-        return

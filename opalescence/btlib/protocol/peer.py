@@ -132,6 +132,7 @@ class PeerConnection:
                     self._requester.remove_pending_requests_for_peer(self.peer)
                 elif isinstance(msg, Unchoke):
                     self.peer.choking = False
+                    # TODO: add multiple requests
                     self._msg_to_send_q.put_nowait(self._requester.next_request_for_peer(self.peer))
                 elif isinstance(msg, Interested):
                     self.peer.interested = True
@@ -168,16 +169,11 @@ class PeerConnection:
         :param messenger: The `PeerMessenger` via which we write data to the peer.
         :raises PeerError: on any exception.
         """
-        log, msg = None, None
         while True:
             try:
-                if not msg:
-                    msg = await self._msg_to_send_q.get()
-                    mark_done = True
-                    if self._stop_forever:
-                        break
-                else:
-                    mark_done = False
+                msg = await self._msg_to_send_q.get()
+                if self._stop_forever:
+                    break
 
                 if isinstance(msg, Interested):
                     if self.local.interested:
@@ -187,15 +183,10 @@ class PeerConnection:
                     self.local.interested = False
 
                 if msg:
-                    if not log:
-                        log = f"{self.local}: Sending {msg} to {self}"
-                    logger.debug(log)
+                    logger.debug(f"{self.local}: Sending {msg} to {self.peer}")
                     await messenger.send(msg)
-                    msg, log = None, None
 
-                if mark_done:
-                    self._msg_to_send_q.task_done()
-
+                self._msg_to_send_q.task_done()
             except Exception:
                 raise
 
