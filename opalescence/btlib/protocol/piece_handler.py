@@ -4,22 +4,19 @@
 Contains the logic for requesting pieces, as well as that for writing them to disk.
 """
 
-__all__ = ['PieceRequester', 'FileWriter']
+__all__ = ['PieceRequester']
 
-import asyncio
 import dataclasses
-import functools
 import logging
 from collections import defaultdict
-from pathlib import Path
 from typing import Dict, List, Set, Optional
 
 import bitstring
 
 from .messages import Request, Piece, Block
 # TODO: stop importing from a parent package.
-from ..metainfo import MetaInfoFile, FileItem
-from ..utils import ensure_dir_exists
+from .peer_info import PeerInfo
+from ..metainfo import MetaInfoFile, FileWriter
 
 logger = logging.getLogger(__name__)
 
@@ -28,73 +25,6 @@ logger = logging.getLogger(__name__)
 class WriteBuffer:
     buffer = b''
     offset = 0
-
-
-class FileWriter:
-    WRITE_BUFFER_SIZE = 2 ** 13  # 8kb
-
-    def __init__(self, torrent: MetaInfoFile):
-        self._files: Dict[int, FileItem] = dict(torrent.files)
-        self._total_size = sum([file.size for file in self._files.values()])
-        self._torrent = torrent
-        self._base_dir = torrent.destination
-        self._lock = asyncio.Lock()
-
-    def _write_data(self, data_to_write, file, offset):
-        """
-        Writes data to the file in an executor so we don't block the main event loop.
-        :param data_to_write: data to write to file
-        :param file: FileItem containing file path and size
-        :param offset: Offset into the file to begin writing this data
-        """
-        p = Path(self._base_dir) / file.path
-        logger.info(f"Writing data to: {p}")
-        try:
-            ensure_dir_exists(p)
-            with open(p, "ab+") as fd:
-                fd.seek(offset, 0)
-                fd.write(data_to_write)
-                fd.flush()
-        except (OSError, Exception):
-            logger.error(f"Encountered exception when writing to {p}")
-            raise
-
-    async def write(self, piece: Piece):
-        """
-        Writes the piece to the file in an executor.
-        :param piece: piece to write.
-        """
-        await self._lock.acquire()
-        try:
-            await asyncio.get_running_loop().run_in_executor(None,
-                                                             functools.partial(self._write, piece))
-        finally:
-            self._lock.release()
-
-    def _write(self, piece: Piece):
-        """
-        Writes the piece's data to the appropriate file(s).
-        :param piece: piece to write.
-        """
-        assert piece.complete
-
-        offset = piece.index * self._torrent.piece_length
-        data_to_write = piece.data
-        while data_to_write:
-            file_num, file_offset = FileItem.file_for_offset(self._torrent.files, offset)
-            file = self._torrent.files[file_num]
-            if file_num >= len(self._torrent.files):
-                logger.error("Too much data and not enough files...")
-                raise
-
-            if file_offset + len(data_to_write) > file.size:
-                data_for_file = data_to_write[:file.size - file_offset]
-                data_to_write = data_to_write[file.size - file_offset:]
-                offset += len(data_for_file)
-            else:
-                data_for_file = data_to_write
-                data_to_write = None
-            self._write_data(data_for_file, file, file_offset)
 
 
 class PieceRequester:
@@ -107,42 +37,42 @@ class PieceRequester:
 
     def __init__(self, torrent: MetaInfoFile):
         self.torrent = torrent
-        self.piece_peer_map: Dict[int, Set[str]] = {i: set() for i in range(self.torrent.num_pieces)}
-        self.peer_piece_map: Dict[str, Set[int]] = defaultdict(set)
+        self.piece_peer_map: Dict[int, Set[PeerInfo]] = {i: set() for i in range(self.torrent.num_pieces)}
+        self.peer_piece_map: Dict[PeerInfo, Set[int]] = defaultdict(set)
         self.pending_requests: List[Request] = []
         self.writer = FileWriter(torrent)
 
-    def add_available_piece(self, peer_id: str, index: int):
+    def add_available_piece(self, peer: PeerInfo, index: int):
         """
         Called when a peer advertises it has a piece available.
 
-        :param peer_id: The peer that has the piece
+        :param peer: The peer that has the piece
         :param index: The index of the piece
         """
-        self.piece_peer_map[index].add(peer_id)
-        self.peer_piece_map[peer_id].add(index)
+        self.piece_peer_map[index].add(peer)
+        self.peer_piece_map[peer].add(index)
 
-    def add_peer_bitfield(self, peer_id: str, bitfield: bitstring.BitArray):
+    def add_peer_bitfield(self, peer: PeerInfo, bitfield: bitstring.BitArray):
         """
         Updates our dictionary of pieces with data from the remote peer
 
-        :param peer_id:  The peer who sent this bitfield, kept around
+        :param peer:  The peer who sent this bitfield, kept around
                          to know where to eventually send requests
         :param bitfield: The bitfield sent by the peer
         """
         for i, b in enumerate(bitfield):
             if b:
-                self.add_available_piece(peer_id, i)
+                self.add_available_piece(peer, i)
 
-    def remove_pending_requests_for_peer(self, peer_id: str):
+    def remove_pending_requests_for_peer(self, peer: PeerInfo):
         """
         Removes all pending requests for a peer.
         Called when the peer disconnects or chokes us.
 
-        :param peer_id: peer whose pending requests ew should remove
+        :param peer: peer whose pending requests ew should remove
         """
         for i, request in enumerate(self.pending_requests):
-            if request.peer_id == peer_id:
+            if request.peer_id == peer.peer_id:
                 del self.pending_requests[i]
 
     def remove_request(self, request: Request) -> bool:
@@ -169,35 +99,35 @@ class PieceRequester:
             if request.index == piece_index:
                 del self.pending_requests[i]
 
-    def remove_peer(self, peer_id: str):
+    def remove_peer(self, peer: PeerInfo):
         """
         Removes a peer from this requester's data structures in the case
         that our communication with that peer has stopped
 
-        :param peer_id: peer to remove
+        :param peer: peer to remove
         """
         for _, peer_set in self.piece_peer_map.items():
-            if peer_id in peer_set:
-                peer_set.discard(peer_id)
+            if peer in peer_set:
+                peer_set.discard(peer)
 
-        if peer_id in self.peer_piece_map:
-            del self.peer_piece_map[peer_id]
+        if peer in self.peer_piece_map:
+            del self.peer_piece_map[peer]
 
-        self.remove_pending_requests_for_peer(peer_id)
+        self.remove_pending_requests_for_peer(peer)
 
-    async def received_block(self, peer_id: str, block: Block):
+    async def received_block(self, peer: PeerInfo, block: Block):
         """
         Called when we've received a block from the remote peer.
         First, see if there are other blocks from that piece already downloaded.
         If so, add this block to the piece and pend a request for the remaining blocks
         that we would need.
 
-        :param peer_id: The peer who sent the block
+        :param peer: The peer who sent the block
         :param block: The piece message with the data and e'erthang
         """
-        logger.info(f"{peer_id} sent {block}")
-        self.peer_piece_map[peer_id].add(block.index)
-        self.piece_peer_map[block.index].add(peer_id)
+        logger.info(f"{peer} sent {block}")
+        self.peer_piece_map[peer].add(block.index)
+        self.piece_peer_map[block.index].add(peer)
 
         if block.index > len(self.torrent.pieces):
             logger.debug(f"Disregarding. Piece {block.index} does not exist.")
@@ -218,6 +148,11 @@ class PieceRequester:
             await self.piece_complete(piece)
 
     async def piece_complete(self, piece: Piece):
+        """
+        Called when the last block of a piece has been received.
+        Validates the piece hash matches, writes the data, and marks the piece complete.
+        :param piece: the completed piece.
+        """
         h = piece.hash()
         if h != self.torrent.piece_hashes[piece.index]:
             logger.error(
@@ -231,7 +166,7 @@ class PieceRequester:
             await self.writer.write(piece)
             piece.mark_complete()
 
-    def next_request_for_peer(self, peer_id: str) -> Optional[Request]:
+    def next_request_for_peer(self, peer: PeerInfo) -> Optional[Request]:
         """
         Finds the next request that we can send to the peer.
 
@@ -243,7 +178,7 @@ class PieceRequester:
 
         TODO: Multiple per-block pending requests.
 
-        :param peer_id: peer requesting a piece
+        :param peer: peer requesting a piece
         :return: piece's index or None if not available
         """
         if self.torrent.complete:
@@ -256,22 +191,22 @@ class PieceRequester:
 
         # Find the next piece index in the pieces we are downloading that the
         # peer said it could send us
-        for i in self.peer_piece_map[peer_id]:
+        for i in self.peer_piece_map[peer]:
             piece = self.torrent.pieces[i]
             if piece.complete:
                 continue
 
             size = min(piece.remaining, Request.size)
-            request = Request(i, piece.next_block, size, peer_id)
+            request = Request(i, piece.next_block, size, peer.peer_id)
             while request in self.pending_requests:
-                logger.info(f"{peer_id}: We have an outstanding request for {request}")
+                logger.info(f"{peer}: We have an outstanding request for {request}")
                 # TODO: move on to the next request/block
                 return
 
-            logger.info(f"{peer_id}: Successfully got request {request}.")
+            logger.info(f"{peer}: Successfully got request {request}.")
             self.pending_requests.append(request)
             return request
 
         # There are no pieces the peer can send us :(
-        logger.info(f"{peer_id}: Has no pieces available to send.")
+        logger.info(f"{peer}: Has no pieces available to send.")
         return

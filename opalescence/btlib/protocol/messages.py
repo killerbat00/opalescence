@@ -372,7 +372,7 @@ class Piece:
         """
         :return: True if all blocks have been downloaded
         """
-        return self._complete
+        return self._complete or len(self.data) == self.length
 
     @property
     def next_block(self) -> Optional[int]:
