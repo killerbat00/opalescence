@@ -1,18 +1,17 @@
 Roadmap to v1.0:
 1. Still download only
-2. Dynamic CLI/TUI (v0.5)
-   - Ensure CLI is helpful at various levels of logging. Don't overlog, can just give stat updates at the highest-level
+2. [DONE] Dynamic CLI/TUI (v0.5)
+   - [DONE] Ensure CLI is helpful at various levels of logging. Don't overlog, can just give stat updates at the highest-level
      now. (v0.5)
    - [DONE] Allow adding torrents (v0.5)
    - - Test/verify downloading multiple torrents at once (v0.8)
    - - More robust file access error handling (v0.7)
    - Allow removing torrents (+ data) (v0.7)
-   - Basic per-download statistics (v0.5)
-   - - %/bytes downloaded (v0.5)
-   - - %/bytes remaining (v0.5)
-   - - # peers (v0.5)
+   - [DONE] Basic per-download statistics (v0.5)
+   - - [DONE] %/bytes downloaded (v0.5)
+   - - [DONE] # peers (v0.5)
    - - - Verify piece selection/requesting with multiple peers (v0.8)
-   - - 2s window connection speed (v0.6)
+   - - [DONE] 2s window connection speed (v0.6)
 3. Save state between usages (v0.9)
    - sqlite (v0.9)
    - - save information in home directory (v0.9)
