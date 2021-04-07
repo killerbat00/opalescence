@@ -7,11 +7,14 @@ Main logic for facilitating the download of a torrent.
 import asyncio
 import logging
 from pathlib import Path
+from typing import Optional
 
-from .protocol.metainfo import MetaInfoFile, FileWriter
+from .protocol.file_writer import FileWriter
+from .protocol.metainfo import MetaInfoFile
 from .protocol.peer import PeerConnection, PeerConnectionStats
 from .protocol.piece_handler import PieceRequester
 from .protocol.tracker import TrackerConnection
+from .. import get_app_config
 
 logger = logging.getLogger(__name__)
 MAX_PEER_CONNECTIONS = 2
@@ -30,23 +33,29 @@ class Download:
         self.piece_queue = asyncio.Queue()
         self.tracker = TrackerConnection(self.client_info, self.torrent, self.peer_queue)
         self.file_writer = FileWriter(self.torrent.files, destination)
-        self.download_stats = PeerConnectionStats(0.0, 0, 0)
+        self.download_stats = PeerConnectionStats(0.0, 0, 0, 0)
         self.peers = []
-        self.download_task = None
+        self.download_task: Optional[asyncio.Task] = None
+        self.write_task: Optional[asyncio.Task] = None
 
     def download(self):
         self.download_stats.started = asyncio.get_event_loop().time()
         self.tracker.start()
         self.download_task = asyncio.create_task(self._download(), name=f"Download for {self.torrent}")
+        self.write_task = asyncio.create_task(self._write_files(), name=f"Write task for {self.torrent}")
         return self.download_task
 
     async def _write_files(self):
+        """
+        Task that handles writing received pieces to a file.
+        """
         try:
             while True:
                 piece = await self.piece_queue.get()
                 await self.file_writer.write(piece)
         except Exception:
-            raise
+            if not self.download_task.cancelled() or not self.download_task.done():
+                self.download_task.cancel()
 
     async def _download(self):
         """
@@ -58,11 +67,9 @@ class Download:
                                      self.download_stats)
                       for _ in range(MAX_PEER_CONNECTIONS)]
 
-        peers_connected = 0
         last_speed_check = None
-        average_speed = 0
+        average_speed = 0.0
         last_downloaded = self.download_stats.downloaded
-        write_task = asyncio.create_task(self._write_files(), name=f"Write task for {self.torrent}")
         try:
             while not self.torrent.complete:
                 if last_speed_check is None:
@@ -74,17 +81,23 @@ class Download:
                     time_diff = now - last_speed_check
                     download_diff = downloaded - last_downloaded
                     if time_diff > 2:
-                        average_speed = round((download_diff / time_diff) / 2 ** 10, 5)
+                        average_speed = round((download_diff / time_diff) / 2 ** 10, 2)
                         last_speed_check = now
                         last_downloaded = self.download_stats.downloaded
 
-                logger.info(f"{self.torrent} progress: {self.torrent.present}/{self.torrent.total_size} bytes."
-                            f"\t{peers_connected} peers.\t{average_speed} KB/s 2 sec. speed average.")
-
-                await asyncio.sleep(1)
-
+                # TODO: Fix this, smoother CLI/TUI separation.
                 # check peers? Re-announce if necessary.
-                # peers_connected = len(list(filter(lambda x: x.peer is not None, self.peers)))
+                peers_connected = len(list(filter(lambda x: x.peer is not None, self.peers)))
+                pct_complete = round((self.torrent.present / self.torrent.total_size) * 100, 2)
+                msg = f"{self.torrent} progress: " \
+                      f"{pct_complete} % ({self.torrent.present}/{self.torrent.total_size}b)" \
+                      f"\t{peers_connected} peers.\t{average_speed} KB/s 2 sec. speed average."
+                conf = get_app_config()
+                if conf.use_cli:
+                    print(msg)
+                logger.info(msg)
+
+                await asyncio.sleep(2)
 
                 if self.download_task.cancelled():
                     logger.info(f"{self.torrent}: Download task cancelled.")
@@ -100,7 +113,7 @@ class Download:
         except Exception as e:
             if not isinstance(e, asyncio.CancelledError):
                 logger.error(f"{type(e).__name__} exception received in client.download.")
-            write_task.cancel()
+            self.write_task.cancel()
         finally:
             logger.debug(f"Ending download loop and cleaning up.")
 

@@ -330,6 +330,7 @@ class Piece:
         self.index: int = index
         self.length: int = length
         self.data: bytes = data
+        self.present: int = len(data)
         self._complete = False
 
     def __str__(self):
@@ -355,10 +356,11 @@ class Piece:
         :param block: The block message containing the block's info
         """
         assert self.index == block.index
-        if block.begin != len(self.data):
+        if block.begin != self.present:
             logger.error(f"{self}: Block begin index is non-sequential for: {self}\t{block}")
             return
         self.data += block.data
+        self.present += len(block.data)
 
     def mark_complete(self):
         """
@@ -366,13 +368,14 @@ class Piece:
         """
         self._complete = True
         self.reset()
+        self.present = self.length
 
     @property
     def complete(self) -> bool:
         """
         :return: True if all blocks have been downloaded
         """
-        return self._complete or len(self.data) == self.length
+        return self._complete or self.present == self.length
 
     @property
     def next_block(self) -> Optional[int]:
@@ -381,7 +384,7 @@ class Piece:
         """
         if self.complete:
             return
-        return len(self.data)
+        return self.present
 
     @property
     def remaining(self) -> int:
@@ -390,7 +393,7 @@ class Piece:
         """
         if self.complete:
             return 0
-        return self.length - len(self.data)
+        return self.length - self.present
 
     def reset(self):
         """
@@ -398,6 +401,7 @@ class Piece:
         Used when we've downloaded the piece, but it turned out to be corrupt.
         """
         self.data = b''
+        self.present = 0
 
     def hash(self) -> Optional[bytes]:
         """

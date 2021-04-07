@@ -30,6 +30,7 @@ class PeerConnectionStats:
     started: float
     uploaded: int
     downloaded: int
+    torrent_bytes_downloaded: int
 
 
 class PeerError(Exception):
@@ -151,7 +152,8 @@ class PeerConnection:
                 elif isinstance(msg, Request):
                     pass
                 elif isinstance(msg, Block):
-                    await self._requester.received_block(self.peer, msg)
+                    if self._requester.received_block(self.peer, msg):
+                        self._stats.torrent_bytes_downloaded += len(msg.data)
                     # TODO: better piece requesting, currently in-order tit for tat
                     self._msg_to_send_q.put_nowait(self._requester.next_request_for_peer(self.peer))
                 elif isinstance(msg, Cancel):

@@ -7,11 +7,9 @@ creating a Torrent class (or .torrent file) from a specified file or directory.
 
 from __future__ import annotations
 
-__all__ = ['CreationError', 'FileItem', 'MetaInfoFile', 'FileWriter']
+__all__ = ['CreationError', 'FileItem', 'MetaInfoFile']
 
-import asyncio
 import dataclasses
-import functools
 import hashlib
 import os
 from collections import OrderedDict
@@ -21,7 +19,6 @@ from typing import List, Optional, Dict
 
 from .bencode import Decoder, Encoder, DecodeError, EncodeError
 from .messages import Piece
-from ..utils import ensure_dir_exists
 
 logger = getLogger(__name__)
 
@@ -405,30 +402,14 @@ class MetaInfoFile:
         """
         :return: the number of bytes present
         """
-        lengths = []
-        for i, piece in enumerate(self.pieces):
-            if not piece.complete:
-                continue
-            if i == self.num_pieces - 1:
-                lengths.append(self.last_piece_length)
-            else:
-                lengths.append(self.piece_length)
-        return sum(lengths)
+        return sum([piece.present for piece in self.pieces])
 
     @property
     def remaining(self) -> int:
         """
         :return: remaining number of bytes
         """
-        lengths = []
-        for i, piece in enumerate(self.pieces):
-            if piece.complete:
-                continue
-            if i == self.num_pieces - 1:
-                lengths.append(self.last_piece_length)
-            else:
-                lengths.append(self.piece_length)
-        return sum(lengths)
+        return sum([piece.remaining for piece in self.pieces])
 
     @property
     def complete(self) -> bool:
@@ -450,69 +431,3 @@ class MetaInfoFile:
         return _get_and_decode(self.meta_info["info"], "name")
 
 
-class FileWriter:
-
-    def __init__(self, files: Dict[int, FileItem], destination: Path):
-        self._files: Dict[int, FileItem] = files
-        self._total_size = sum([file.size for file in self._files.values()])
-        self._base_dir = destination
-        self._lock = asyncio.Lock()
-
-    def _write_data(self, data_to_write, file, offset):
-        """
-        Writes data to the file in an executor so we don't block the main event loop.
-        :param data_to_write: data to write to file
-        :param file: FileItem containing file path and size
-        :param offset: Offset into the file to begin writing this data
-        """
-        p = Path(self._base_dir) / file.path
-        logger.info(f"Writing data to: {p}")
-        try:
-            ensure_dir_exists(p)
-            with open(p, "ab+") as fd:
-                fd.seek(offset, 0)
-                fd.write(data_to_write)
-                fd.flush()
-        except (OSError, Exception):
-            logger.error(f"Encountered exception when writing to {p}")
-            raise
-
-    async def write(self, piece: Piece):
-        """
-        Writes the piece to the file in an executor.
-        :param piece: piece to write.
-        """
-        await self._lock.acquire()
-        try:
-            await asyncio.get_running_loop().run_in_executor(None,
-                                                             functools.partial(self._write, piece))
-            piece.mark_complete()
-        except Exception:
-            raise
-        finally:
-            self._lock.release()
-
-    def _write(self, piece: Piece):
-        """
-        Writes the piece's data to the appropriate file(s).
-        :param piece: piece to write.
-        """
-        assert piece.complete
-
-        offset = piece.index * piece.length
-        data_to_write = piece.data
-        while data_to_write:
-            file_num, file_offset = FileItem.file_for_offset(self._files, offset)
-            file = self._files[file_num]
-            if file_num >= len(self._files):
-                logger.error("Too much data and not enough files...")
-                raise
-
-            if file_offset + len(data_to_write) > file.size:
-                data_for_file = data_to_write[:file.size - file_offset]
-                data_to_write = data_to_write[file.size - file_offset:]
-                offset += len(data_for_file)
-            else:
-                data_for_file = data_to_write
-                data_to_write = None
-            self._write_data(data_for_file, file, file_offset)
