@@ -378,7 +378,7 @@ class Piece:
     @property
     def complete(self) -> bool:
         """
-        :return: True if all blocks have been downloaded
+        :return: True if all blocks have been total_downloaded
         """
         return self._complete or self.present == self.length
 
@@ -403,7 +403,7 @@ class Piece:
     def reset(self):
         """
         Resets the piece leaving it in a state equivalent to immediately after initializing.
-        Used when we've downloaded the piece, but it turned out to be corrupt.
+        Used when we've total_downloaded the piece, but it turned out to be corrupt.
         """
         self.data = b''
         self.present = 0

@@ -49,14 +49,27 @@ class Download:
         """
         Task that handles writing received pieces to a file.
         """
-        try:
-            while True:
-                piece = await self.piece_queue.get()
-                await self.file_writer.write(piece)
-                self.piece_queue.task_done()
-        except Exception:
-            if not self.download_task.cancelled() or not self.download_task.done():
-                self.download_task.cancel()
+        try_write_on_exc = True
+
+        with FileWriter(self.torrent.files) as file_writer:
+            try:
+                while True:
+                    piece = await self.piece_queue.get()
+                    await file_writer.write(piece)
+                    self.piece_queue.task_done()
+            except Exception as exc:
+                if not self.download_task.cancelled() or not self.download_task.done():
+                    self.download_task.cancel()
+                if isinstance(exc, asyncio.CancelledError):
+                    try_write_on_exc = False
+            finally:
+                if try_write_on_exc:
+                    with contextlib.suppress(Exception):
+                        while not self.piece_queue.empty():
+                            await file_writer.write(self.piece_queue.get_nowait())
+
+    def _try_update_stats(self):
+        pass
 
     async def _download(self):
         """

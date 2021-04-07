@@ -4,11 +4,12 @@
 Handles writing completed pieces to their appropriate files on disk.
 """
 
+from __future__ import annotations
+
 import asyncio
 import functools
 import logging
-from pathlib import Path
-from typing import Dict
+from typing import Optional, BinaryIO
 
 from .messages import Piece
 from .metainfo import FileItem
@@ -19,34 +20,66 @@ logger = logging.getLogger(__name__)
 
 class FileWriter:
 
-    def __init__(self, files: Dict[int, FileItem], destination: Path):
-        self._files: Dict[int, FileItem] = files
+    def __init__(self, files: dict[int, FileItem]):
+        self._files: dict[int, FileItem] = files
         self._total_size = sum([file.size for file in self._files.values()])
-        self._base_dir = destination
         self._lock = asyncio.Lock()
+        self._fps: Optional[dict[int, BinaryIO]] = None
 
-    def _write_data(self, data_to_write, file, offset):
+    def __enter__(self):
+        if self._fps is None:
+            self._fps = self._open_files(self._files)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            self._close_files()
+
+            if exc_type is None and exc_val is None and exc_tb is None:
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _close_files(self):
+        if self._fps is None:
+            return
+
+        for fp in self._fps.values():
+            fp.flush()
+            fp.close()
+
+    def _open_files(self, files: dict[int, FileItem]) -> dict[int, BinaryIO]:
+        file = ""
+        self._fps = {}
+        try:
+            for i, file in files.items():
+                ensure_dir_exists(file.path)
+                self._fps[i] = open(file.path, "wb+")
+        except Exception:
+            logger.error(f"Encountered exception opening {file.path}")
+            raise
+        return self._fps
+
+    def _write_data(self, data_to_write, file_num, offset):
         """
         Writes data to the file in an executor so we don't block the main thread.
         :param data_to_write: data to write to file
-        :param file: FileItem containing file path and size
+        :param file_num: file index in self._fps to write to
         :param offset: Offset into the file to begin writing this data
         """
-        p = Path(self._base_dir) / file.path
-        logger.info(f"Writing data to: {p}")
+        fp = self._fps[file_num]
         try:
-            ensure_dir_exists(p)
-            with open(p, "ab+") as fd:
-                fd.seek(offset, 0)
-                fd.write(data_to_write)
-                fd.flush()
+            fp.seek(offset, 0)
+            fp.write(data_to_write)
+            # fp.flush()
         except (OSError, Exception):
-            logger.error(f"Encountered exception when writing to {p}")
+            logger.error(f"Encountered exception when writing to {fp.name}")
             raise
 
     async def write(self, piece: Piece):
         """
-        Writes the piece to the file in an executor.
+        Writes the `Piece` to the file in an executor. Pieces can be written in any order.
         :param piece: piece to write.
         """
         await self._lock.acquire()
@@ -55,14 +88,15 @@ class FileWriter:
             await asyncio.get_running_loop().run_in_executor(None,
                                                              functools.partial(self._write, piece))
             piece.mark_complete()
-        except Exception:
+        except Exception as e:
+            logger.exception(e)
             raise
         finally:
             self._lock.release()
 
     def _write(self, piece: Piece):
         """
-        Writes the piece's data to the appropriate file(s).
+        Writes the piece's data to the appropriate file(s). Pieces can be written in any order.
         :param piece: piece to write.
         """
         assert piece.complete
@@ -76,6 +110,8 @@ class FileWriter:
                 logger.error("Too much data and not enough files...")
                 raise
 
+            logger.info(f"Writing data to {file.path}")
+
             if file_offset + len(data_to_write) > file.size:
                 data_for_file = data_to_write[:file.size - file_offset]
                 data_to_write = data_to_write[file.size - file_offset:]
@@ -83,4 +119,4 @@ class FileWriter:
             else:
                 data_for_file = data_to_write
                 data_to_write = None
-            self._write_data(data_for_file, file, file_offset)
+            self._write_data(data_for_file, file_num, file_offset)
