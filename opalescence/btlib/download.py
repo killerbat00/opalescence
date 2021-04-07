@@ -32,7 +32,7 @@ class Download:
         self.peer_queue = asyncio.Queue()
         self.piece_queue = asyncio.Queue()
         self.tracker = TrackerConnection(self.client_info, self.torrent, self.peer_queue)
-        self.file_writer = FileWriter(self.torrent.files, destination, self.torrent.piece_length)
+        self.file_writer = FileWriter(self.torrent.files, destination)
         self.download_stats = PeerConnectionStats(0.0, 0, 0, 0)
         self.peers = []
         self.download_task: Optional[asyncio.Task] = None

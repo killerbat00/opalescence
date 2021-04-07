@@ -42,9 +42,12 @@ class FileItem:
     @staticmethod
     def file_for_offset(files: dict[int, FileItem], offset: int) -> tuple[int, int]:
         """
-        :param files: dictionary of `FileItem` keyed by their index order
+        Given a contiguous offset (as if all files were concatenated together), returns the corresponding file index
+        and offset within the file.
+
+        :param files: dictionary of `FileItem`s keyed by their index order
         :param offset: the contiguous offset to find the file for (as if all files were concatenated together)
-        :return: (file_num, file_offset)
+        :return: (file_index, offset_within_file)
         """
         size_sum = 0
         for i, file in files.items():
@@ -52,6 +55,18 @@ class FileItem:
                 file_offset = offset - size_sum
                 return i, file_offset
             size_sum += file.size
+
+    @staticmethod
+    def file_for_piece(files: dict[int, FileItem], piece: Piece) -> tuple[int, int]:
+        """
+        Given a piece, returns the corresponding file index and offset within that file where the piece begins.
+
+        :param files: dictionary of `FileItem`s keyed by their index order
+        :param piece: `Piece` to find the file and offset for
+        :return: (file_index, offset_within_file)
+        """
+        offset = piece.index * piece.mi_length
+        return FileItem.file_for_offset(files, offset)
 
 
 def _get_and_decode(d: dict, k: str, encoding="UTF-8"):
@@ -246,29 +261,28 @@ class MetaInfoFile:
                 fps[i] = open(file.path, "rb") if file.exists else None
 
             for i, piece in enumerate(self.pieces):
-                piece_length = piece.length
-                if i == len(self.pieces) - 1:
-                    piece_length = self.piece_length
-                file_index, file_offset = FileItem.file_for_offset(self.files, i * piece_length)
-                if not self.files[file_index].exists:
+                file_index, file_offset = FileItem.file_for_piece(self.files, piece)
+
+                if file_index not in fps:
+                    continue  # probably raise an error.
+
+                fp, file = fps[file_index], self.files[file_index]
+                if fp is None or not file.exists:
                     continue
 
-                fp = fps[file_index]
-                if fp is None:
-                    continue
+                fp.seek(file_offset)
+                if file_offset + piece.length > file.size:
+                    next_file_index = file_index + 1
 
-                if file_offset + piece.length > self.files[file_index].size:
-                    if file_index + 1 > len(self.files) or fps[file_index + 1] is None:
+                    if next_file_index not in fps or fps[next_file_index] is None:
                         continue
 
-                    f1len = self.files[file_index].size - file_offset
-                    f2len = piece.length - f1len
-                    piece_data = fp.read(f1len)
-
-                    fp = fps[file_index + 1]
-                    piece_data += fp.read(f2len)
+                    first_file_len = file.size - file_offset
+                    piece_data = fp.read(first_file_len)
+                    fp = fps[next_file_index]
+                    fp.seek(0)
+                    piece_data += fp.read(piece.length - first_file_len)
                 else:
-                    fp.seek(file_offset)
                     piece_data = fp.read(piece.length)
 
                 if len(piece_data) == piece.length:
@@ -327,12 +341,12 @@ class MetaInfoFile:
         self.piece_hashes = list(_pc(self.meta_info["info"]["pieces"]))
 
         num_pieces = len(self.piece_hashes)
-        for pc in range(num_pieces):
+        for piece_index in range(num_pieces):
             piece_length = self.piece_length
-            if pc == num_pieces - 1:
+            if piece_index == num_pieces - 1:
                 piece_length = self.last_piece_length
 
-            self.pieces.append(Piece(pc, piece_length))
+            self.pieces.append(Piece(piece_index, piece_length, self.piece_length))
 
     @property
     def multi_file(self) -> bool:
@@ -435,5 +449,3 @@ class MetaInfoFile:
         name.
         """
         return _get_and_decode(self.meta_info["info"], "name")
-
-

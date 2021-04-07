@@ -323,15 +323,16 @@ class Piece:
     Represents a piece of the torrent.
     Pieces are made up of blocks.
 
-    Not really a message itself
+    Not really a message itself.
     """
 
-    def __init__(self, index, length, data=b''):
+    def __init__(self, index, length, mi_length, data=b''):
         self.index: int = index
         self.length: int = length
         self.data: bytes = data
         self.present: int = len(data)
-        self._complete = False
+        self._complete: bool = False
+        self.mi_length: int = mi_length
 
     def __str__(self):
         return f"Piece: (Index: {self.index}, Length: {self.length}, Remaining: {self.remaining})"
@@ -355,7 +356,11 @@ class Piece:
         Adds a block to this piece.
         :param block: The block message containing the block's info
         """
+        if self.complete:
+            return
+
         assert self.index == block.index
+
         if block.begin != self.present:
             logger.error(f"{self}: Block begin index is non-sequential for: {self}\t{block}")
             return
@@ -383,7 +388,7 @@ class Piece:
         :return: The offset of the next block, or None if there are no blocks left.
         """
         if self.complete:
-            return
+            return 0
         return self.present
 
     @property
