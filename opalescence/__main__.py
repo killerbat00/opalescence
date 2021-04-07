@@ -6,21 +6,26 @@ Opalescence is a simple torrent client.
 """
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
-from opalescence import __version__, __author__, __year__
+from opalescence import __version__, __author__, __year__, get_app_config
 from opalescence.ui import cli, tui
 
 
-def configure_logging(log_level):
-    stream_handler = logging.StreamHandler(stream=sys.stdout)
+def configure_logging(log_level, app_config):
     formatter = logging.Formatter(fmt="[%(levelname)12s] %(asctime)s : %(name)s : %(message)s")
-    stream_handler.setFormatter(formatter)
-
+    file_handler = logging.FileHandler(os.path.expanduser("~") + "/opl.log")
+    file_handler.setFormatter(formatter)
     app_logger = logging.getLogger("opalescence")
     app_logger.setLevel(log_level)
-    app_logger.addHandler(stream_handler)
+    app_logger.addHandler(file_handler)
+
+    if not app_config.use_cli:
+        stream_handler = logging.StreamHandler(stream=sys.stdout)
+        stream_handler.setFormatter(formatter)
+        app_logger.addHandler(stream_handler)
 
 
 parser = argparse.ArgumentParser(prog="python -m opalescence",
@@ -52,10 +57,14 @@ download_parser.add_argument('destination',
 try:
     print(f"Welcome to opalescence v{__version__}.")
     args = parser.parse_args()
-    configure_logging(args.loglevel)
+    config = get_app_config()
     if args.ui_mode == "CLI":
+        config.use_cli = True
+        configure_logging(args.loglevel, config)
         cli.download(args)
     else:
+        config.use_cli = False
+        configure_logging(args.loglevel, config)
         tui.start()
 except AttributeError:
     parser.print_help()
