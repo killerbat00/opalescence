@@ -35,6 +35,8 @@ def download(args) -> None:
         logger.error(f"Destination filepath is not a directory.")
         raise SystemExit
 
+    print(f"Downloading {torrent_fp.name} to {dest_fp}")
+
     asyncio.run(_download(torrent_fp, dest_fp))
 
 

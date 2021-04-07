@@ -114,7 +114,7 @@ class PieceRequester:
 
         self.remove_pending_requests_for_peer(peer)
 
-    async def received_block(self, peer: PeerInfo, block: Block):
+    def received_block(self, peer: PeerInfo, block: Block) -> bool:
         """
         Called when we've received a block from the remote peer.
         First, see if there are other blocks from that piece already downloaded.
@@ -130,23 +130,25 @@ class PieceRequester:
 
         if block.index > len(self.torrent.pieces):
             logger.debug(f"Disregarding. Piece {block.index} does not exist.")
+            return False
 
         piece = self.torrent.pieces[block.index]
         if piece.complete:
             logger.debug(f"Disregarding. I already have {block}")
-            return
+            return False
 
         # Remove the pending requests for this block if there are any
         r = Request(block.index, block.begin, min(piece.remaining, Request.size))
         if not self.remove_request(r):
             logger.debug(f"Disregarding. I did not request {block}")
-            return
+            return False
 
         piece.add_block(block)
         if piece.complete:
-            await self.piece_complete(piece)
+            self.piece_complete(piece)
+        return True
 
-    async def piece_complete(self, piece: Piece):
+    def piece_complete(self, piece: Piece):
         """
         Called when the last block of a piece has been received.
         Validates the piece hash matches, writes the data, and marks the piece complete.
