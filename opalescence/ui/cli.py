@@ -55,5 +55,7 @@ async def _download(torrent_fp, dest_fp):
         loop.add_signal_handler(getattr(signal, signame), functools.partial(signal_received, signame))
 
     client.add_torrent(torrent_fp=torrent_fp, destination=dest_fp)
-    await client.start_all()
-    await client.stop_all()
+    try:
+        await client.start_all()
+    finally:
+        client.stop()

@@ -81,9 +81,9 @@ class Client:
         if not self._running:
             return
 
-        asyncio.create_task(self.stop_all())
+        asyncio.create_task(self._stop_all())
 
-    async def stop_all(self):
+    async def _stop_all(self):
         """
         Cancels and cleans up all running tasks for this client.
         """
@@ -98,7 +98,7 @@ class Client:
             await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
 
-    def add_task(self, task: asyncio.Task):
+    def _add_task(self, task: asyncio.Task):
         """
         Adds a task to the list of running tasks.
         :param task: task to add to this borg.
@@ -122,10 +122,12 @@ class Client:
             present = download.torrent.present
             total_size = download.torrent.total_size
             logger.info(f"We have {present} / {total_size} bytes.")
+
             if present == total_size:
                 logger.info(f"{download.torrent.name} already complete.")
                 continue
-            self.add_task(download.download())
+
+            self._add_task(download.download())
 
         if len(self._tasks) == 0:
             logger.info(f"{self}: Complete. No torrents to download.")
@@ -134,6 +136,7 @@ class Client:
         self._running = True
 
         with contextlib.suppress(asyncio.CancelledError):
+            # TODO: we return as soon as any download errors. Revisit this.
             await asyncio.gather(*self._tasks, return_exceptions=True)
 
     def add_torrent(self, *, torrent_fp: Path = None, destination: Path = None):
