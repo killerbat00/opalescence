@@ -246,7 +246,10 @@ class MetaInfoFile:
                 fps[i] = open(file.path, "rb") if file.exists else None
 
             for i, piece in enumerate(self.pieces):
-                file_index, file_offset = FileItem.file_for_offset(self.files, i * piece.length)
+                piece_length = piece.length
+                if i == len(self.pieces) - 1:
+                    piece_length = self.piece_length
+                file_index, file_offset = FileItem.file_for_offset(self.files, i * piece_length)
                 if not self.files[file_index].exists:
                     continue
 
@@ -268,9 +271,12 @@ class MetaInfoFile:
                     fp.seek(file_offset)
                     piece_data = fp.read(piece.length)
 
-                if len(piece_data) == piece.length and piece.hash() == self.piece_hashes[i]:
+                if len(piece_data) == piece.length:
                     piece.data = piece_data
-                    piece.mark_complete()
+                    if piece.hash() == self.piece_hashes[i]:
+                        piece.mark_complete()
+                    else:
+                        piece.reset()
         finally:
             for fp in fps.values():
                 if fp is not None:

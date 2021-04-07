@@ -19,15 +19,16 @@ logger = logging.getLogger(__name__)
 
 class FileWriter:
 
-    def __init__(self, files: Dict[int, FileItem], destination: Path):
+    def __init__(self, files: Dict[int, FileItem], destination: Path, piece_length: int):
         self._files: Dict[int, FileItem] = files
         self._total_size = sum([file.size for file in self._files.values()])
         self._base_dir = destination
         self._lock = asyncio.Lock()
+        self._piece_length = piece_length
 
     def _write_data(self, data_to_write, file, offset):
         """
-        Writes data to the file in an executor so we don't block the main event loop.
+        Writes data to the file in an executor so we don't block the main thread.
         :param data_to_write: data to write to file
         :param file: FileItem containing file path and size
         :param offset: Offset into the file to begin writing this data
@@ -67,7 +68,7 @@ class FileWriter:
         """
         assert piece.complete
 
-        offset = piece.index * piece.length
+        offset = piece.index * self._piece_length
         data_to_write = piece.data
         while data_to_write:
             file_num, file_offset = FileItem.file_for_offset(self._files, offset)

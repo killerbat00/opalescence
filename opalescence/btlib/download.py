@@ -32,7 +32,7 @@ class Download:
         self.peer_queue = asyncio.Queue()
         self.piece_queue = asyncio.Queue()
         self.tracker = TrackerConnection(self.client_info, self.torrent, self.peer_queue)
-        self.file_writer = FileWriter(self.torrent.files, destination)
+        self.file_writer = FileWriter(self.torrent.files, destination, self.torrent.piece_length)
         self.download_stats = PeerConnectionStats(0.0, 0, 0, 0)
         self.peers = []
         self.download_task: Optional[asyncio.Task] = None
@@ -53,6 +53,7 @@ class Download:
             while True:
                 piece = await self.piece_queue.get()
                 await self.file_writer.write(piece)
+                self.piece_queue.task_done()
         except Exception:
             if not self.download_task.cancelled() or not self.download_task.done():
                 self.download_task.cancel()
@@ -67,6 +68,7 @@ class Download:
                                      self.download_stats)
                       for _ in range(MAX_PEER_CONNECTIONS)]
 
+        conf = get_app_config()
         last_speed_check = None
         average_speed = 0.0
         last_downloaded = self.download_stats.downloaded
@@ -92,7 +94,6 @@ class Download:
                 msg = f"{self.torrent} progress: " \
                       f"{pct_complete} % ({self.torrent.present}/{self.torrent.total_size}b)" \
                       f"\t{peers_connected} peers.\t{average_speed} KB/s 2 sec. speed average."
-                conf = get_app_config()
                 if conf.use_cli:
                     print(msg)
                 logger.info(msg)
@@ -113,11 +114,17 @@ class Download:
         except Exception as e:
             if not isinstance(e, asyncio.CancelledError):
                 logger.error(f"{type(e).__name__} exception received in client.download.")
-            self.write_task.cancel()
         finally:
             logger.debug(f"Ending download loop and cleaning up.")
+            self.write_task.cancel()
+            while not self.piece_queue.empty():
+                await self.file_writer.write(self.piece_queue.get_nowait())
 
             total_time = asyncio.get_event_loop().time() - self.download_stats.started
-            logger.info(f"Download stopped! Took {round(total_time, 5)}s")
-            logger.info(f"Downloaded: {self.download_stats.downloaded} Uploaded: {self.download_stats.uploaded}")
-            logger.info(f"Est download speed: {round((self.download_stats.downloaded / total_time) / 2 ** 20, 2)} MB/s")
+            msg = f"Download stopped! Took {round(total_time, 5)}s" \
+                  f"\tDownloaded: {self.download_stats.downloaded}\tUploaded: {self.download_stats.uploaded}" \
+                  f"\tEst download speed: {round((self.download_stats.downloaded / total_time) / 2 ** 20, 2)} MB/s"
+
+            if conf.use_cli:
+                print(msg)
+            logger.info(msg)
