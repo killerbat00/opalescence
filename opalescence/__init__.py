@@ -12,12 +12,15 @@ __year__ = "2021"
 import dataclasses
 
 
+# TODO: Remove ASAP
 @dataclasses.dataclass
 class AppConfig:
-    use_cli: bool
+    use_cli: bool = False
+    update_sec: int = 2
+    max_peers: int = 2
 
 
-_AppConfig = AppConfig(False)
+_AppConfig = AppConfig()
 
 
 def get_app_config():
