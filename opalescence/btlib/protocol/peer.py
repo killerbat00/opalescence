@@ -10,7 +10,7 @@ No data is currently sent to the remote peer.
 
 from __future__ import annotations
 
-__all__ = ["PeerConnectionStats", "PeerError", "PeerConnection"]
+__all__ = ["PeerConnectionStats", "PeerError", "PeerPool"]
 
 import asyncio
 import dataclasses
@@ -27,16 +27,56 @@ logger = getLogger(__name__)
 
 @dataclasses.dataclass
 class PeerConnectionStats:
-    started: float
-    uploaded: int
-    downloaded: int
-    torrent_bytes_downloaded: int
+    total_uploaded: int = 0
+    total_downloaded: int = 0
+    torrent_bytes_downloaded: int = 0
 
 
 class PeerError(Exception):
     """
     Raised when we encounter an error communicating with the peer.
     """
+
+
+class PeerPool:
+    """
+    Manages a number of `PeerConnection`s.
+    """
+
+    def __init__(self, client_info: PeerInfo, info_hash: bytes, peer_queue: asyncio.Queue,
+                 num_peers: int, requester: PieceRequester):
+        self.client_info = client_info
+        self.info_hash = info_hash
+        self.peer_queue = peer_queue
+        self.num_peers = num_peers
+        self.requester = requester
+        self.stats = PeerConnectionStats()
+        self.peers: list[Optional[PeerConnection]] = []
+
+    def start(self):
+        """
+        Creates and starts all `PeerConnection`s
+        """
+        if len(self.peers) != 0:
+            return
+
+        self.peers = [PeerConnection(self.client_info, self.info_hash, self.requester,
+                                     self.peer_queue, self.stats)
+                      for _ in range(self.num_peers)]
+
+    def stop(self):
+        """
+        Stops all `PeerConnection`s forever.
+        """
+        for peer in self.peers:
+            peer.stop_forever()
+
+    @property
+    def num_connected(self):
+        """
+        :return: The number of currently connected peers.
+        """
+        return len([peer for peer in self.peers if peer.peer is not None])
 
 
 class PeerConnection:
@@ -75,9 +115,6 @@ class PeerConnection:
             self.task.cancel()
 
     async def download(self):
-        """
-        :return:
-        """
         while not self._stop_forever:
             try:
                 peer_info = await self.peer_queue.get()
@@ -284,7 +321,7 @@ class PeerMessenger:
             raise PeerError("Cannot send message on disconnected PeerMessenger.")
         data = msg.encode()
         self._stream_writer.write(data)
-        self._stats.uploaded += len(data)
+        self._stats.total_uploaded += len(data)
         await self._stream_writer.drain()
 
     async def receive_handshake(self) -> Optional[Handshake]:
@@ -301,7 +338,7 @@ class PeerMessenger:
             data = await self._stream_reader.readexactly(Handshake.msg_len)
         except asyncio.IncompleteReadError:
             data = await self._stream_reader.readexactly(Handshake.msg_len)
-        self._stats.downloaded += Handshake.msg_len
+        self._stats.total_downloaded += Handshake.msg_len
         return Handshake.decode(data)
 
     async def _receive(self) -> ProtocolMessage:
@@ -316,13 +353,13 @@ class PeerMessenger:
 
         try:
             msg_len = struct.unpack(">I", await self._stream_reader.readexactly(4))[0]
-            self._stats.downloaded += 4
+            self._stats.total_downloaded += 4
 
             if msg_len == 0:
                 return KeepAlive()
 
             msg_id = struct.unpack(">B", await self._stream_reader.readexactly(1))[0]
-            self._stats.downloaded += 1
+            self._stats.total_downloaded += 1
 
             if msg_id is None or (not (0 <= msg_id <= 8)):
                 raise PeerError(f"{self}: Unknown message received: {msg_id}")
@@ -331,7 +368,7 @@ class PeerMessenger:
             if msg_len == 0:
                 return MESSAGE_TYPES[msg_id].decode()
             msg_data = await self._stream_reader.readexactly(msg_len)
-            self._stats.downloaded += msg_len
+            self._stats.total_downloaded += msg_len
             return MESSAGE_TYPES[msg_id].decode(msg_data)
         except Exception as e:
             raise PeerError from e
