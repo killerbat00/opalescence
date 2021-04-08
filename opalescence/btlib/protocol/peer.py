@@ -110,11 +110,20 @@ class PeerConnection:
         return hash(self) == hash(other)
 
     def stop_forever(self):
+        """
+        Stop this `PeerConnection` forever and prevent it from connecting to new peers or exchanging messages.
+        """
         self._stop_forever = True
         if self.task:
             self.task.cancel()
 
     async def download(self):
+        """
+        This coroutine is scheduled as a task when the `PeerConnection` is initialized.
+        It is responsible for consuming a peer connection from the queue and exchanging
+        BitTorrent protocol messages with that queue. The `PeerConnection` will rest itself
+        on any error until its been told to stop forever.
+        """
         while not self._stop_forever:
             try:
                 peer_info = await self.peer_queue.get()
@@ -129,7 +138,10 @@ class PeerConnection:
                 #       on a socket rather than just connecting with the peer.
                 async with PeerMessenger(self.peer, self._stats) as messenger:
                     if not await self._handshake(messenger):
-                        raise PeerError
+                        continue
+
+                    if self._stop_forever:
+                        continue
 
                     produce_task = asyncio.create_task(self._produce(messenger), name=f"Produce Task for {self}")
                     consume_task = asyncio.create_task(self._consume(messenger), name=f"Consume Task for {self}")
@@ -141,12 +153,12 @@ class PeerConnection:
                 self._stop_forever = True
             finally:
                 logger.info(f"{self}: Closing connection with peer.")
-                self.local.reset_state()
-                if not self.peer:
-                    continue
-                self._requester.remove_peer(self.peer)
+                if self.peer:
+                    self._requester.remove_peer(self.peer)
+
                 if not self._stop_forever:
                     logger.info(f"{self}: Resetting peer connection.")
+                    self.local.reset_state()
                     self._msg_to_send_q = asyncio.Queue()
                     self.peer = None
                     self.task.set_name("[WAITING] PeerConnection")
@@ -155,14 +167,14 @@ class PeerConnection:
     async def _consume(self, messenger: PeerMessenger):
         """
         Iterates through messages we've received from the peer after the initial handshake,
-        queuing up responses as appropriate.
+        updating state, queuing up responses, and handling downloaded blocks as appropriate.
 
         :param messenger: The `PeerMessenger` which receives data the peer sends.
         :raises PeerError: on any exception
         """
         try:
             async for msg in messenger:
-                if self._stop_forever:
+                if self._stop_forever or self._requester.torrent.complete:
                     break
                 logger.info(f"{self}: Sent {msg}")
                 if isinstance(msg, Choke):
@@ -189,15 +201,17 @@ class PeerConnection:
                 elif isinstance(msg, Request):
                     pass
                 elif isinstance(msg, Block):
+                    # TODO: add BlockReceived event to main event queue
                     if self._requester.received_block(self.peer, msg):
                         self._stats.torrent_bytes_downloaded += len(msg.data)
                     # TODO: better piece requesting, currently in-order tit for tat
                     self._msg_to_send_q.put_nowait(self._requester.next_request_for_peer(self.peer))
                 elif isinstance(msg, Cancel):
                     pass
+            # TODO: add PeerDisconnected event to main event queue
             raise PeerError  # out of messages
-        except Exception:
-            raise
+        except Exception as exc:
+            raise PeerError from exc
 
     async def _produce(self, messenger):
         """
@@ -208,7 +222,7 @@ class PeerConnection:
         :param messenger: The `PeerMessenger` via which we write data to the peer.
         :raises PeerError: on any exception.
         """
-        while True:
+        while not self._stop_forever:
             try:
                 msg = await self._msg_to_send_q.get()
                 if self._stop_forever:
@@ -226,8 +240,8 @@ class PeerConnection:
                     await messenger.send(msg)
 
                 self._msg_to_send_q.task_done()
-            except Exception:
-                raise
+            except Exception as exc:
+                raise PeerError from exc
 
     async def _handshake(self, messenger: PeerMessenger) -> bool:
         """
@@ -236,10 +250,18 @@ class PeerConnection:
         :param messenger: The `PeerMessenger` through which we exchange data.
         :return: True if the handshake is successful, False otherwise
         """
+        if self._stop_forever:
+            return False
+
         logger.info(f"{self}: Negotiating handshake.")
         sent_handshake = Handshake(self.info_hash, self.local.peer_id_bytes)
         await messenger.send(sent_handshake)
+
+        if self._stop_forever:
+            return False
+
         received_handshake = await messenger.receive_handshake()
+
         if not received_handshake:
             logger.error(f"{self}: Unable to initiate handshake.")
             return False
@@ -268,10 +290,17 @@ class PeerMessenger:
         self._stream_writer: Optional[asyncio.StreamWriter] = None
         self._peer = peer
         self._stats = connection_stats
+        self._connected = False
+
+    async def _connect(self):
+        if self._connected:
+            return
+        self._stream_reader, self._stream_writer = await open_peer_connection(host=self._peer.ip, port=self._peer.port)
+        self._connected = True
 
     async def __aenter__(self) -> PeerMessenger:
         """Opens the connection with the remote peer."""
-        self._stream_reader, self._stream_writer = await open_peer_connection(host=self._peer.ip, port=self._peer.port)
+        await self._connect()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
@@ -290,8 +319,7 @@ class PeerMessenger:
         :returns: The asynchronous iterator for reading messages from the remote peer.
         :raises `PeerError`: if disconnected.
         """
-        if None in [self._stream_reader, self._stream_writer]:
-            raise PeerError("Cannot receive message on disconnected PeerMessenger.")
+        await self._connect()
         return self
 
     async def __anext__(self) -> ProtocolMessage:
@@ -299,10 +327,7 @@ class PeerMessenger:
         :return: The next protocol message sent by the peer.
         :raises `StopAsyncIteration`: on exception or if disconnected.
         """
-        if self._stream_reader is None:
-            raise PeerError("Cannot receive message on disconnected PeerMessenger.")
-
-        if self._stream_reader.at_eof():
+        if not self._connected or self._stream_reader.at_eof():
             raise StopAsyncIteration
 
         try:
@@ -317,7 +342,7 @@ class PeerMessenger:
         :param msg: The `Message` object to encode and send.
         :raises `PeerError`: if disconnected.
         """
-        if self._stream_writer is None:
+        if not self._connected:
             raise PeerError("Cannot send message on disconnected PeerMessenger.")
         data = msg.encode()
         self._stream_writer.write(data)
@@ -331,13 +356,10 @@ class PeerMessenger:
         :return: Decoded handshake if successfully read, otherwise None.
         :raises `PeerError`: if disconnected.
         """
-        if self._stream_reader is None or self._stream_reader.exception():
+        if not self._connected:
             raise PeerError("Cannot receive message on disconnected PeerMessenger.")
 
-        try:
-            data = await self._stream_reader.readexactly(Handshake.msg_len)
-        except asyncio.IncompleteReadError:
-            data = await self._stream_reader.readexactly(Handshake.msg_len)
+        data = await self._stream_reader.readexactly(Handshake.msg_len)
         self._stats.total_downloaded += Handshake.msg_len
         return Handshake.decode(data)
 
@@ -348,7 +370,7 @@ class PeerMessenger:
         :return: The decoded message if successfully read.
         :raises `PeerError`: on exception or if disconnected.
         """
-        if self._stream_reader is None or self._stream_reader.exception():
+        if not self._connected:
             raise PeerError("Cannot receive message on disconnected PeerMessenger.")
 
         try:
@@ -367,8 +389,10 @@ class PeerMessenger:
             msg_len -= 1  # the msg_len includes 1 byte for the id, we've consumed that already
             if msg_len == 0:
                 return MESSAGE_TYPES[msg_id].decode()
+
             msg_data = await self._stream_reader.readexactly(msg_len)
             self._stats.total_downloaded += msg_len
+
             return MESSAGE_TYPES[msg_id].decode(msg_data)
         except Exception as e:
             raise PeerError from e
