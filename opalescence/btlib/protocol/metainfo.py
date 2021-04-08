@@ -17,7 +17,8 @@ from logging import getLogger
 from pathlib import Path
 from typing import List, Optional, Dict
 
-from .bencode import Decoder, Encoder, DecodeError, EncodeError
+import bencode
+from .errors import DecodeError, EncodeError
 from .messages import Piece
 
 logger = getLogger(__name__)
@@ -191,14 +192,14 @@ class MetaInfoFile:
         try:
             with open(filename, 'rb') as f:
                 data: bytes = f.read()
-                torrent.meta_info = Decoder(data).decode()
+                torrent.meta_info = bencode.decode(data)
 
             if not torrent.meta_info or not isinstance(torrent.meta_info, OrderedDict):
                 logger.error(f"Unable to create torrent object. No metainfo decoded from file.")
                 raise CreationError
 
             _validate_torrent_dict(torrent.meta_info)
-            info: bytes = Encoder(torrent.meta_info["info"]).encode()
+            info: bytes = bencode.encode(torrent.meta_info["info"])
             torrent.info_hash = hashlib.sha1(info).digest()
 
             torrent._gather_files()
@@ -242,7 +243,7 @@ class MetaInfoFile:
 
         with open(output_filename, 'wb+') as f:
             try:
-                data: bytes = Encoder(self.meta_info).encode()
+                data: bytes = bencode.encode(self.meta_info)
                 f.write(data)
             except EncodeError as ee:
                 logger.error(f"Encounter {type(ee).__name__} while writing metainfo file {output_filename}.")
