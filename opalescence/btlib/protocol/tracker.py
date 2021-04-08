@@ -50,6 +50,25 @@ class TrackerConnectionCancelledError(Exception):
     """
 
 
+class TrackerEvent:
+    """
+    An event associated with the tracker.
+    """
+
+    def __init__(self):
+        self.data = None
+
+
+class PeersReceived(TrackerEvent):
+    """
+    Raised when peers are received from the tracker.
+    """
+
+    def __init__(self, data: list[PeerInfo]):
+        super().__init__()
+        self.data = data
+
+
 @dataclasses.dataclass
 class TrackerParameters:
     info_hash: bytes
@@ -105,12 +124,12 @@ class TrackerConnection:
     """
     DEFAULT_INTERVAL: int = 60  # 1 minute
 
-    def __init__(self, local_info, meta_info: MetaInfoFile, peer_queue: asyncio.Queue):
+    def __init__(self, local_info, meta_info: MetaInfoFile, download_queue: asyncio.Queue):
         self.client_info = local_info
         self.torrent = meta_info
         self.announce_urls = deque(set(url for tier in meta_info.announce_urls for url in tier))
         self.interval = self.DEFAULT_INTERVAL
-        self.peer_queue = peer_queue
+        self.download_queue = download_queue
         self.task: Optional[asyncio.Task] = None
 
     def start(self):
@@ -142,26 +161,6 @@ class TrackerConnection:
             except NoTrackersError:
                 self.task.cancel()
         logger.info(f"Recurring announce task ended.")
-
-    def add_peers_to_queue(self, response: TrackerResponse):
-        """
-        Adds the peers in the given tracker response to the queue.
-        :param response: `TrackerResponse` received
-        """
-        peer_list = response.get_peers()
-        # we only add peers if the list we receive is bigger than the list we have.
-        if peer_list is None or len(peer_list) < self.peer_queue.qsize():
-            return
-
-        while not self.peer_queue.empty():
-            self.peer_queue.get_nowait()
-
-        for peer in response.get_peers():
-            peer_info = PeerInfo(peer[0], peer[1])
-            if peer_info == self.client_info:
-                logger.info(f"Ignoring peer. It's us...")
-                continue
-            self.peer_queue.put_nowait(peer_info)
 
     async def announce(self, event: str = "") -> None:
         """
@@ -202,7 +201,15 @@ class TrackerConnection:
         if event != EVENT_COMPLETED and event != EVENT_STOPPED:
             self.interval = decoded_data.interval
             self.announce_urls.appendleft(url)
-            self.add_peers_to_queue(decoded_data)
+
+            peers = []
+            for peer in decoded_data.get_peers():
+                peer_info = PeerInfo(peer[0], peer[1])
+                if peer_info == self.client_info:
+                    logger.info(f"Ignoring peer. It's us...")
+                    continue
+                peers.append(peer_info)
+                self.download_queue.put_nowait(PeersReceived(peers))
 
     async def cancel_announce(self) -> None:
         """
@@ -219,7 +226,7 @@ class TrackerConnection:
         Informs the tracker we have completed downloading this torrent
         :raises TrackerConnectionError:
         """
-        with contextlib.suppress(TrackerConnectionError):
+        with contextlib.suppress(TrackerConnectionError, NoTrackersError, TrackerConnectionCancelledError):
             await self.announce(event=EVENT_COMPLETED)
             if not self.task.cancelled():
                 self.task.cancel()
@@ -227,7 +234,7 @@ class TrackerConnection:
 
 class TrackerResponse:
     """
-    TrackerResponse received from the tracker after an announce request
+    TrackerResponse received from the tracker after an announce request.
     """
 
     def __init__(self, data: dict):

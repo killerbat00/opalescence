@@ -8,14 +8,16 @@ import asyncio
 import contextlib
 import dataclasses
 import logging
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 from .protocol.file_writer import FileWriter
 from .protocol.metainfo import MetaInfoFile
 from .protocol.peer import PeerPool
+from .protocol.peer_info import PeerInfo
 from .protocol.piece_handler import PieceRequester
-from .protocol.tracker import TrackerConnection
+from .protocol.tracker import TrackerConnection, PeersReceived
 from .. import get_app_config
 
 logger = logging.getLogger(__name__)
@@ -33,20 +35,29 @@ class DownloadStats:
     last_updated: float = 0.0
 
 
+class DownloadStatus(Enum):
+    Errored = -1
+    NotStarted = 0
+    Downloading = 1
+    Completed = 2
+
+
 class Download:
     """
     A torrent currently being total_downloaded by the Client.
     This wraps the tracker, requester, and peer handling into a single public API.
     """
 
-    def __init__(self, torrent_fp: Path, destination: Path, local_peer):
+    def __init__(self, torrent_fp: Path, destination: Path, local_peer: PeerInfo):
         self.client_info = local_peer
         self.torrent = MetaInfoFile.from_file(torrent_fp, destination)
         # peers are placed into and retrieved from this queue as needed
         self.peer_queue = asyncio.Queue()
-        # pieces are placed into this queue and written to disck from this queue
+        # pieces are placed into this queue and written to disk from this queue
         self.piece_queue = asyncio.Queue()
-        self.tracker = TrackerConnection(self.client_info, self.torrent, self.peer_queue)
+        # events are placed into this queue and acted on here
+        self.download_queue = asyncio.Queue()
+        self.tracker = TrackerConnection(self.client_info, self.torrent, self.download_queue)
         self.conf = get_app_config()
 
         piece_requester = PieceRequester(self.torrent, self.piece_queue)
@@ -55,6 +66,22 @@ class Download:
         self.download_stats = DownloadStats()
         self.download_task: Optional[asyncio.Task] = None
         self.write_task: Optional[asyncio.Task] = None
+        self.event_task: Optional[asyncio.Task] = None
+
+    def add_peers_to_queue(self, peer_list: list[PeerInfo]):
+        """
+        Adds the given peers to the peer queue.
+        :param peer_list: list of `PeerInfo`
+        """
+        # we only add peers if the list we receive is bigger than the list we have.
+        if peer_list is None or len(peer_list) < self.peer_queue.qsize():
+            return
+
+        while not self.peer_queue.empty():
+            self.peer_queue.get_nowait()
+
+        for peer in peer_list:
+            self.peer_queue.put_nowait(peer)
 
     def download(self):
         self.download_stats.download_started = asyncio.get_event_loop().time()
@@ -62,6 +89,7 @@ class Download:
         self.tracker.start()
         self.download_task = asyncio.create_task(self._download(), name=f"Download task for {self.torrent}")
         self.write_task = asyncio.create_task(self._write_received_pieces(), name=f"Write task for {self.torrent}")
+        self.event_task = asyncio.create_task(self._event_listener(), name=f"Event listener task for {self.torrent}")
         return self.download_task
 
     async def _write_received_pieces(self):
@@ -77,7 +105,7 @@ class Download:
                     await file_writer.write(piece)
                     self.piece_queue.task_done()
             except Exception as exc:
-                if not self.download_task.cancelled() or not self.download_task.done():
+                if not self.download_task.done():
                     self.download_task.cancel()
                 if isinstance(exc, asyncio.CancelledError):
                     try_write_on_exc = False
@@ -87,8 +115,15 @@ class Download:
                         while not self.piece_queue.empty():
                             await file_writer.write(self.piece_queue.get_nowait())
 
-    def _try_update_stats(self):
-        pass
+    async def _event_listener(self):
+        try:
+            while True:
+                event = await self.download_queue.get()
+                if isinstance(event, PeersReceived):
+                    self.add_peers_to_queue(event.data)
+                self.download_queue.task_done()
+        except Exception:
+            raise
 
     async def _download(self):
         """
