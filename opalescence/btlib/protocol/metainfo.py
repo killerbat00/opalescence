@@ -7,9 +7,8 @@ creating a Torrent class (or .torrent file) from a specified file or directory.
 
 from __future__ import annotations
 
-__all__ = ['CreationError', 'FileItem', 'MetaInfoFile']
+__all__ = ['MetaInfoFile']
 
-import dataclasses
 import hashlib
 import os
 from collections import OrderedDict
@@ -17,57 +16,12 @@ from logging import getLogger
 from pathlib import Path
 from typing import List, Optional, Dict
 
-import bencode
-from .errors import DecodeError, EncodeError
+from .bencode import *
+from .errors import DecodeError, EncodeError, MetaInfoCreationError
+from .fileio import FileItem
 from .messages import Piece
 
 logger = getLogger(__name__)
-
-
-class CreationError(Exception):
-    """
-    Raised when we encounter problems creating a torrent.
-    """
-
-
-@dataclasses.dataclass
-class FileItem:
-    """
-    An individual file within a torrent.
-    """
-    path: Path
-    size: int
-    offset: int
-    exists: bool
-
-    @staticmethod
-    def file_for_offset(files: dict[int, FileItem], offset: int) -> tuple[int, int]:
-        """
-        Given a contiguous offset (as if all files were concatenated together), returns the corresponding file index
-        and offset within the file.
-
-        :param files: dictionary of `FileItem`s keyed by their index order
-        :param offset: the contiguous offset to find the file for (as if all files were concatenated together)
-        :return: (file_index, offset_within_file)
-        """
-        size_sum = 0
-        for i, file in files.items():
-            if offset - size_sum < file.size:
-                file_offset = offset - size_sum
-                return i, file_offset
-            size_sum += file.size
-
-    @staticmethod
-    def file_for_piece(files: dict[int, FileItem], piece: Piece) -> tuple[int, int]:
-        """
-        Given a piece, returns the corresponding file index and offset within that file where the piece begins.
-
-        :param files: dictionary of `FileItem`s keyed by their index order
-        :param piece: `Piece` to find the file and offset for
-        :return: (file_index, offset_within_file)
-        """
-        offset = piece.index * piece.mi_length
-        return FileItem.file_for_offset(files, offset)
 
 
 def _get_and_decode(d: dict, k: str, encoding="UTF-8"):
@@ -95,7 +49,7 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
 
     :param decoded_dict: dict representing bencoded .torrent file
     :return:             True if valid
-    :raises:             CreationError
+    :raises:             MetaInfoCreationError
     """
     min_info_req_keys: List[str] = ["piece length", "pieces"]
     min_files_req_keys: List[str] = ["length", "path"]
@@ -103,27 +57,27 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
     dict_keys: List = list(decoded_dict.keys())
     if not dict_keys:
         logger.error("No valid keys in dictionary.")
-        raise CreationError
+        raise MetaInfoCreationError
 
     if "info" not in dict_keys or \
         ("announce" not in dict_keys and
          "announce-list" not in dict_keys):
         logger.error(f"Required key not found.")
-        raise CreationError
+        raise MetaInfoCreationError
 
     info_keys: list = list(decoded_dict["info"].keys())
     if not info_keys:
         logger.error("No valid keys in info dictionary.")
-        raise CreationError
+        raise MetaInfoCreationError
 
     for key in min_info_req_keys:
         if key not in info_keys:
             logger.error(f"Required key not found: {key}")
-            raise CreationError
+            raise MetaInfoCreationError
 
     if len(decoded_dict["info"]["pieces"]) % 20 != 0:
         logger.error("Piece length not a multiple of 20.")
-        raise CreationError
+        raise MetaInfoCreationError
 
     multiple_files: bool = "files" in info_keys
 
@@ -132,17 +86,17 @@ def _validate_torrent_dict(decoded_dict: OrderedDict) -> bool:
 
         if not file_list:
             logger.error("No file list.")
-            raise CreationError
+            raise MetaInfoCreationError
 
         for f in file_list:
             for key in min_files_req_keys:
                 if key not in f.keys():
                     logger.error(f"Required key not found: {key}")
-                    raise CreationError
+                    raise MetaInfoCreationError
     else:
         if "length" not in info_keys:
             logger.error("Required key not found: 'length'")
-            raise CreationError
+            raise MetaInfoCreationError
 
     # we made it!
     return True
@@ -177,7 +131,7 @@ class MetaInfoFile:
 
         :param filename: path to .torrent file
         :param destination: destination ptah for torrent
-        :raises CreationError:
+        :raises MetaInfoCreationError:
         :return: Torrent instance
         """
         logger.info(f"Creating a metainfo object from {filename}")
@@ -185,21 +139,21 @@ class MetaInfoFile:
 
         if not os.path.exists(filename):
             logger.error(f"Path does not exist {filename}")
-            raise CreationError
+            raise MetaInfoCreationError
 
         torrent.destination = destination
 
         try:
             with open(filename, 'rb') as f:
                 data: bytes = f.read()
-                torrent.meta_info = bencode.decode(data)
+                torrent.meta_info = Decode(data)
 
             if not torrent.meta_info or not isinstance(torrent.meta_info, OrderedDict):
                 logger.error(f"Unable to create torrent object. No metainfo decoded from file.")
-                raise CreationError
+                raise MetaInfoCreationError
 
             _validate_torrent_dict(torrent.meta_info)
-            info: bytes = bencode.encode(torrent.meta_info["info"])
+            info: bytes = Encode(torrent.meta_info["info"])
             torrent.info_hash = hashlib.sha1(info).digest()
 
             torrent._gather_files()
@@ -207,7 +161,7 @@ class MetaInfoFile:
 
         except (EncodeError, DecodeError, IOError, Exception) as e:
             logger.debug(f"Encountered {type(e).__name__} in MetaInfoFile.from_file")
-            raise CreationError from e
+            raise MetaInfoCreationError from e
 
         return torrent
 
@@ -224,7 +178,7 @@ class MetaInfoFile:
         :param comment:
         :param piece_size:
         :param private:
-        :raises CreationError:
+        :raises MetaInfoCreationError:
         """
         raise NotImplementedError
 
@@ -233,21 +187,21 @@ class MetaInfoFile:
         Writes the torrent metainfo dictionary back to a .torrent file
 
         :param output_filename: The output filename of the torrent
-        :raises CreationError:
+        :raises MetaInfoCreationError:
         """
         logger.info(f"Writing .torrent file: {output_filename}")
 
         if not output_filename:
             logger.error("No output filename provided.")
-            raise CreationError
+            raise MetaInfoCreationError
 
         with open(output_filename, 'wb+') as f:
             try:
-                data: bytes = bencode.encode(self.meta_info)
+                data: bytes = Encode(self.meta_info)
                 f.write(data)
             except EncodeError as ee:
                 logger.error(f"Encounter {type(ee).__name__} while writing metainfo file {output_filename}.")
-                raise CreationError from ee
+                raise MetaInfoCreationError from ee
 
     def check_existing_pieces(self) -> None:
         """
@@ -317,7 +271,7 @@ class MetaInfoFile:
             file_list = self.meta_info["info"]["files"]
             if not file_list:
                 logger.error("No file list.")
-                raise CreationError
+                raise MetaInfoCreationError
             offset = 0
             for i, f in enumerate(file_list):
                 length = f.get("length", 0)

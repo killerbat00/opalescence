@@ -21,7 +21,7 @@ from collections import deque
 from typing import Optional, List, Tuple
 from urllib.parse import urlencode
 
-import bencode
+from .bencode import *
 from .metainfo import MetaInfoFile
 from .peer_info import PeerInfo
 
@@ -103,7 +103,7 @@ async def http_request(url, params: TrackerParameters) -> TrackerResponse:
         resp = conn.getresponse()
         if resp.status != 200:
             raise TrackerConnectionError
-        tracker_resp = TrackerResponse(bencode.decode(resp.read()))
+        tracker_resp = TrackerResponse(Decode(resp.read()))
         if tracker_resp.failed:
             raise TrackerConnectionError
         return tracker_resp

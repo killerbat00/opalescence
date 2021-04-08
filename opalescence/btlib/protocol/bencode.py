@@ -5,14 +5,14 @@ Provides support for decoding a bencoded string into a python OrderedDict,
 bencoding a decoded OrderedDict, and pretty printing said OrderedDict.
 """
 
-__all__ = ['encode', 'decode']
+__all__ = ['Encode', 'Decode']
 
 import logging
 from collections import OrderedDict
 from io import BytesIO
 from typing import Union, Dict, AnyStr, Optional, List, SupportsInt
 
-import errors
+from .errors import *
 
 BencodingTypes = Union[OrderedDict, Dict, List, AnyStr, SupportsInt]
 
@@ -38,7 +38,7 @@ class _BencodeDelimiters:
     EOF: bytes = b"!"  # eof marker used to break out of empty containers
 
 
-def decode(data: bytes) -> Optional[BencodingTypes]:
+def Decode(data: bytes) -> Optional[BencodingTypes]:
     """
     Public API for decoding bencoded bytes.
     :param data: bencoded bytes
@@ -48,11 +48,11 @@ def decode(data: bytes) -> Optional[BencodingTypes]:
     try:
         decoder = _Decoder(data)
         return decoder.decode()
-    except errors.DecodeError as exc:
+    except DecodeError as exc:
         logger.error("%s" % exc)
 
 
-def encode(data: BencodingTypes) -> bytes:
+def Encode(data: BencodingTypes) -> bytes:
     """
     Public API for bencoding python types to bytes.
     :param data: encoded data
@@ -62,7 +62,7 @@ def encode(data: BencodingTypes) -> bytes:
     try:
         encoder = Encoder(data)
         return encoder.encode()
-    except errors.EncodeError as exc:
+    except EncodeError as exc:
         logger.error("%s" % exc)
 
 
@@ -81,10 +81,10 @@ class _Decoder:
         :raises DecodeError:    if recursion limit is < 0 or no data received
         """
         if recursion_limit <= 0:
-            raise errors.DecodeError(f"Cannot decode. Recursion limit should be greater than 0.")
+            raise DecodeError(f"Cannot decode. Recursion limit should be greater than 0.")
 
         if not data:
-            raise errors.DecodeError(f"Cannot decode. No data received.")
+            raise DecodeError(f"Cannot decode. No data received.")
 
         self._recursion_limit: int = recursion_limit
         self._current_iter: int = 0
@@ -104,7 +104,7 @@ class _Decoder:
             self._data: BytesIO = BytesIO(data)
             self._current_iter = 0
         except TypeError as te:
-            raise errors.DecodeError(f"Expected bytes, received {type(data)}") from te
+            raise DecodeError(f"Expected bytes, received {type(data)}") from te
 
     def decode(self) -> Optional[BencodingTypes]:
         """
@@ -117,7 +117,7 @@ class _Decoder:
             decoded: BencodingTypes = self._decode()
             self._data.close()
         except Exception:
-            raise errors.DecodeError
+            raise DecodeError
 
         if decoded == _BencodeDelimiters.EOF:
             return
@@ -153,7 +153,7 @@ class _Decoder:
         elif char == _BencodeDelimiters.LIST_START:
             return self._decode_list()
         else:
-            raise errors.DecodeError(f"Unable to bdecode {char}. Invalid bencoding key.")
+            raise DecodeError(f"Unable to bdecode {char}. Invalid bencoding key.")
 
     def _decode_dict(self) -> OrderedDict:
         """
@@ -170,7 +170,7 @@ class _Decoder:
         while True:
             key: bytes = self._decode()
             if not isinstance(key, bytes):
-                raise errors.DecodeError(f"Dictionary key must be bytes. Not {type(key)}")
+                raise DecodeError(f"Dictionary key must be bytes. Not {type(key)}")
             if key == _BencodeDelimiters.EOF:
                 break
             val = self._decode()
@@ -179,7 +179,7 @@ class _Decoder:
             keys.append(key)
 
         if keys != sorted(keys):
-            raise errors.DecodeError(f"Invalid dictionary. Keys {keys} not sorted.")
+            raise DecodeError(f"Invalid dictionary. Keys {keys} not sorted.")
 
         return decoded_dict
 
@@ -222,7 +222,7 @@ class _Decoder:
         string_val: bytes = self._data.read(string_len)
 
         if len(string_val) != string_len:
-            raise errors.DecodeError(f"Unable to read specified string {string_len}")
+            raise DecodeError(f"Unable to read specified string {string_len}")
 
         return string_val
 
@@ -242,16 +242,15 @@ class _Decoder:
                 parsed_num += char
             else:
                 if char != delimiter:
-                    raise errors.DecodeError(f"Invalid character while parsing int"
-                                             f"{char}. Expected {delimiter}")
+                    raise DecodeError(f"Invalid character while parsing int {char}. Expected {delimiter}")
                 break
 
         num_str: str = parsed_num.decode("UTF-8")
 
         if len(num_str) == 0:
-            raise errors.DecodeError("Empty strings are not allowed for int keys.")
+            raise DecodeError("Empty strings are not allowed for int keys.")
         elif len(num_str) > 1 and (num_str[0] == '0' or num_str[:2] == '-0'):
-            raise errors.DecodeError("Leading or negative zeros are not allowed for int keys.")
+            raise DecodeError("Leading or negative zeros are not allowed for int keys.")
 
         return int(num_str)
 
@@ -269,7 +268,7 @@ class Encoder:
         :raises EncodeError: when null data received
         """
         if not data:
-            raise errors.EncodeError("Cannot encode. No data received.")
+            raise EncodeError("Cannot encode. No data received.")
 
         self._data: BencodingTypes = data
 
@@ -297,11 +296,11 @@ class Encoder:
         elif isinstance(obj, bytes):
             return self._encode_bytestr(obj)
         elif isinstance(obj, bool):
-            raise errors.EncodeError(f"Unexpected object found {type(obj)}:{obj}")
+            raise EncodeError(f"Unexpected object found {type(obj)}:{obj}")
         elif isinstance(obj, int):
             return self._encode_int(obj)
         else:
-            raise errors.EncodeError(f"Unexpected object found {type(obj)}:{obj}")
+            raise EncodeError(f"Unexpected object found {type(obj)}:{obj}")
 
     def _encode_dict(self, obj: dict) -> bytes:
         """
@@ -318,14 +317,14 @@ class Encoder:
             if isinstance(k, str):
                 k = k.encode("UTF-8")
             else:
-                raise errors.EncodeError(f"Dictionary keys must be bytes. Not {type(k)}")
+                raise EncodeError(f"Dictionary keys must be bytes. Not {type(k)}")
             keys.append(k)
             key = self._encode_bytestr(k)
             contents += key
             contents += self._encode(v)
         contents += _BencodeDelimiters.END
         if keys != sorted(keys):
-            raise errors.EncodeError(f"Invalid dictionary. Keys {keys} are not sorted.")
+            raise EncodeError(f"Invalid dictionary. Keys {keys} are not sorted.")
         return contents
 
     def _encode_list(self, obj: list) -> bytes:
