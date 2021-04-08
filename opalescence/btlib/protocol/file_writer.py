@@ -27,11 +27,18 @@ class FileWriter:
         self._fps: Optional[dict[int, BinaryIO]] = None
 
     def __enter__(self):
+        """
+        Facilitates use as a context manager, opening file streams if necessary.
+        """
         if self._fps is None:
-            self._fps = self._open_files(self._files)
+            self._open_files(self._files)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Exits the context manager, closing files if possible.
+        Propagates any exception that caused this context to be exited.
+        """
         try:
             self._close_files()
 
@@ -42,14 +49,21 @@ class FileWriter:
         return False
 
     def _close_files(self):
+        """
+        Closes all open file streams.
+        """
         if self._fps is None:
             return
 
         for fp in self._fps.values():
-            fp.flush()
-            fp.close()
+            if not fp.closed:
+                fp.close()
 
-    def _open_files(self, files: dict[int, FileItem]) -> dict[int, BinaryIO]:
+    def _open_files(self, files: dict[int, FileItem]):
+        """
+        Opens/creates all the files that will be written, storing the open streams.
+        :param files: dictionary of `FileItem`s this `FileWriter` is writing.
+        """
         file = ""
         self._fps = {}
         try:
@@ -59,7 +73,6 @@ class FileWriter:
         except Exception:
             logger.error(f"Encountered exception opening {file.path}")
             raise
-        return self._fps
 
     def _write_data(self, data_to_write, file_num, offset):
         """
@@ -70,9 +83,11 @@ class FileWriter:
         """
         fp = self._fps[file_num]
         try:
+            if fp.closed:
+                raise OSError
+
             fp.seek(offset, 0)
             fp.write(data_to_write)
-            # fp.flush()
         except (OSError, Exception):
             logger.error(f"Encountered exception when writing to {fp.name}")
             raise

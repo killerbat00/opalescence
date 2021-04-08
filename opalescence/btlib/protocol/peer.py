@@ -3,7 +3,7 @@
 """
 Support for basic communication with a peer.
 The piece-requesting and saving strategies are in piece_handler.py
-The coordination with peers is handled in ../client.py
+The coordination with peers is handled in ../download.py
 
 No data is currently sent to the remote peer.
 """
@@ -175,6 +175,8 @@ class PeerConnection:
         try:
             async for msg in messenger:
                 if self._stop_forever or self._requester.torrent.complete:
+                    # TODO: don't stop forever if we're complete. We may want to continue seeding.
+                    # at minimum, lost interest in the peer.
                     break
                 logger.info(f"{self}: Sent {msg}")
                 if isinstance(msg, Choke):
@@ -319,7 +321,8 @@ class PeerMessenger:
         :returns: The asynchronous iterator for reading messages from the remote peer.
         :raises `PeerError`: if disconnected.
         """
-        await self._connect()
+        if not self._connected:
+            raise PeerError
         return self
 
     async def __anext__(self) -> ProtocolMessage:

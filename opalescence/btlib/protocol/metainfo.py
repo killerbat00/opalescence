@@ -250,8 +250,7 @@ class MetaInfoFile:
 
     def check_existing_pieces(self) -> None:
         """
-        Checks the existing files and disk and verifies their piece
-        hashes, collecting their data as necessary.
+        Checks the existing files on disk and verifies their piece hashes, marking them complete as appropriate.
         """
         assert self.files
 
