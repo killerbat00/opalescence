@@ -16,6 +16,7 @@ import bitstring
 
 from .messages import Request, Piece, Block
 from .peer_info import PeerInfo
+from ..events import Event
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,12 @@ logger = logging.getLogger(__name__)
 class WriteBuffer:
     buffer = b''
     offset = 0
+
+
+class PieceReceivedEvent(Event):
+    def __init__(self, piece):
+        name = self.__class__.__name__
+        super().__init__(name, piece)
 
 
 class PieceRequester:
@@ -164,7 +171,7 @@ class PieceRequester:
         else:
             logger.info(f"Completed piece received: {piece}")
             self.remove_requests_for_piece(piece.index)
-            self.complete_piece_queue.put_nowait(piece)
+            PieceReceivedEvent(piece)
 
     def next_request_for_peer(self, peer: PeerInfo) -> Optional[Request]:
         """

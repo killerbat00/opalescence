@@ -19,6 +19,46 @@ from ..utils import ensure_dir_exists
 logger = logging.getLogger(__name__)
 
 
+@dataclasses.dataclass
+class FileItem:
+    """
+    An individual file within a torrent.
+    """
+    path: Path
+    size: int
+    offset: int
+    exists: bool
+
+    @staticmethod
+    def file_for_offset(files: dict[int, FileItem], offset: int) -> tuple[int, int]:
+        """
+        Given a contiguous offset (as if all files were concatenated together), returns the corresponding file index
+        and offset within the file.
+
+        :param files: dictionary of `FileItem`s keyed by their index order
+        :param offset: the contiguous offset to find the file for (as if all files were concatenated together)
+        :return: (file_index, offset_within_file)
+        """
+        size_sum = 0
+        for i, file in files.items():
+            if offset - size_sum < file.size:
+                file_offset = offset - size_sum
+                return i, file_offset
+            size_sum += file.size
+
+    @staticmethod
+    def file_for_piece(files: dict[int, FileItem], piece: Piece) -> tuple[int, int]:
+        """
+        Given a piece, returns the corresponding file index and offset within that file where the piece begins.
+
+        :param files: dictionary of `FileItem`s keyed by their index order
+        :param piece: `Piece` to find the file and offset for
+        :return: (file_index, offset_within_file)
+        """
+        offset = piece.index * piece.mi_length
+        return FileItem.file_for_offset(files, offset)
+
+
 class FileWriter:
 
     def __init__(self, files: dict[int, FileItem]):

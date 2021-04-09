@@ -5,19 +5,19 @@ Main logic for facilitating the download of a torrent.
 """
 
 import asyncio
-import contextlib
 import dataclasses
 import logging
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from .protocol.file_writer import FileWriter
+from .events import Observer, Event
+from .protocol.fileio import FileWriter
 from .protocol.metainfo import MetaInfoFile
-from .protocol.peer import PeerPool
+from .protocol.peer import PeerConnectionPool
 from .protocol.peer_info import PeerInfo
 from .protocol.piece_handler import PieceRequester
-from .protocol.tracker import TrackerConnection, PeersReceived
+from .protocol.tracker import TrackerConnection
 from .. import get_app_config
 
 logger = logging.getLogger(__name__)
@@ -42,37 +42,46 @@ class DownloadStatus(Enum):
     Completed = 2
 
 
-class Download:
+class DownloadEvent(Event):
+    def __init__(self, name, data):
+        super().__init__(name, data)
+
+
+class Download(Observer):
     """
     A torrent currently being total_downloaded by the Client.
     This wraps the tracker, requester, and peer handling into a single public API.
     """
 
     def __init__(self, torrent_fp: Path, destination: Path, local_peer: PeerInfo):
+        super().__init__()
+
+        self.status = DownloadStatus.NotStarted
         self.client_info = local_peer
         self.torrent = MetaInfoFile.from_file(torrent_fp, destination)
-        # peers are placed into and retrieved from this queue as needed
         self.peer_queue = asyncio.Queue()
-        # pieces are placed into this queue and written to disk from this queue
         self.piece_queue = asyncio.Queue()
-        # events are placed into this queue and acted on here
-        self.download_queue = asyncio.Queue()
-        self.tracker = TrackerConnection(self.client_info, self.torrent, self.download_queue)
+        self.tracker = TrackerConnection(self.client_info, self.torrent)
         self.conf = get_app_config()
 
         piece_requester = PieceRequester(self.torrent, self.piece_queue)
-        self.peer_pool = PeerPool(self.client_info, self.torrent.info_hash, self.peer_queue, self.conf.max_peers,
-                                  piece_requester)
+        self.peer_pool = PeerConnectionPool(self.client_info, self.torrent.info_hash, self.peer_queue,
+                                            self.conf.max_peers,
+                                            piece_requester)
         self.download_stats = DownloadStats()
         self.download_task: Optional[asyncio.Task] = None
-        self.write_task: Optional[asyncio.Task] = None
-        self.event_task: Optional[asyncio.Task] = None
+
+        self.file_writer = FileWriter(self.torrent.files)
+
+        self.register('PeersReceived', self.add_peers_to_queue)
+        self.register('PieceReceivedEvent', self.file_writer.write_piece)
 
     def add_peers_to_queue(self, peer_list: list[PeerInfo]):
         """
         Adds the given peers to the peer queue.
         :param peer_list: list of `PeerInfo`
         """
+        logger.info("Adding more peers to queue.")
         # we only add peers if the list we receive is bigger than the list we have.
         if peer_list is None or len(peer_list) < self.peer_queue.qsize():
             return
@@ -88,42 +97,7 @@ class Download:
         self.download_stats.last_updated = self.download_stats.download_started
         self.tracker.start()
         self.download_task = asyncio.create_task(self._download(), name=f"Download task for {self.torrent}")
-        self.write_task = asyncio.create_task(self._write_received_pieces(), name=f"Write task for {self.torrent}")
-        self.event_task = asyncio.create_task(self._event_listener(), name=f"Event listener task for {self.torrent}")
         return self.download_task
-
-    async def _write_received_pieces(self):
-        """
-        Task that handles writing received pieces to a file.
-        """
-        try_write_on_exc = True
-
-        with FileWriter(self.torrent.files) as file_writer:
-            try:
-                while True:
-                    piece = await self.piece_queue.get()
-                    await file_writer.write(piece)
-                    self.piece_queue.task_done()
-            except Exception as exc:
-                if not self.download_task.done():
-                    self.download_task.cancel()
-                if isinstance(exc, asyncio.CancelledError):
-                    try_write_on_exc = False
-            finally:
-                if try_write_on_exc:
-                    with contextlib.suppress(Exception):
-                        while not self.piece_queue.empty():
-                            await file_writer.write(self.piece_queue.get_nowait())
-
-    async def _event_listener(self):
-        try:
-            while True:
-                event = await self.download_queue.get()
-                if isinstance(event, PeersReceived):
-                    self.add_peers_to_queue(event.data)
-                self.download_queue.task_done()
-        except Exception:
-            raise
 
     async def _download(self):
         """
@@ -166,6 +140,7 @@ class Download:
             logger.debug(f"Ending download loop and cleaning up.")
             self.tracker.task.cancel()
             self.peer_pool.stop()
+            self.file_writer.close()
 
             total_time = asyncio.get_event_loop().time() - self.download_stats.download_started
             msg = f"Download stopped! Took {round(total_time, 5)}s" \

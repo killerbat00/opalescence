@@ -10,7 +10,7 @@ No data is currently sent to the remote peer.
 
 from __future__ import annotations
 
-__all__ = ["PeerConnectionStats", "PeerError", "PeerPool"]
+__all__ = ["PeerConnectionStats", "PeerError", "PeerConnectionPool"]
 
 import asyncio
 import dataclasses
@@ -21,6 +21,7 @@ from typing import Optional
 from .messages import *
 from .peer_info import PeerInfo
 from .piece_handler import PieceRequester
+from ..events import Observer, Event
 
 logger = getLogger(__name__)
 
@@ -38,13 +39,27 @@ class PeerError(Exception):
     """
 
 
-class PeerPool:
+class PeerConnectedEvent(Event):
+    def __init__(self, peer: PeerInfo):
+        name = self.__class__.__name__
+        super().__init__(name, peer)
+
+
+class PeerDisconnectedEvent(Event):
+    def __init__(self, peer: PeerInfo):
+        name = self.__class__.__name__
+        super().__init__(name, peer)
+
+
+class PeerConnectionPool(Observer):
     """
     Manages a number of `PeerConnection`s.
     """
 
     def __init__(self, client_info: PeerInfo, info_hash: bytes, peer_queue: asyncio.Queue,
                  num_peers: int, requester: PieceRequester):
+        super().__init__()
+
         self.client_info = client_info
         self.info_hash = info_hash
         self.peer_queue = peer_queue
@@ -52,10 +67,14 @@ class PeerPool:
         self.requester = requester
         self.stats = PeerConnectionStats()
         self.peers: list[Optional[PeerConnection]] = []
+        self.register('PeerConnectedEvent', self.peer_connected)
+        self.register('PeerDisconnectedEvent', self.peer_disconnected)
+
+        self.start()
 
     def start(self):
         """
-        Creates and starts all `PeerConnection`s
+        Creates and starts all `PeerConnection`s in this pool.
         """
         if len(self.peers) != 0:
             return
@@ -63,6 +82,12 @@ class PeerPool:
         self.peers = [PeerConnection(self.client_info, self.info_hash, self.requester,
                                      self.peer_queue, self.stats)
                       for _ in range(self.num_peers)]
+
+    def peer_connected(self, peer: PeerInfo):
+        print(f"Successfully connected to {peer}")
+
+    def peer_disconnected(self, peer: PeerInfo):
+        print(f"Disconnected from {peer}")
 
     def stop(self):
         """
@@ -143,6 +168,8 @@ class PeerConnection:
                     if self._stop_forever:
                         continue
 
+                    PeerConnectedEvent(self.peer)
+
                     produce_task = asyncio.create_task(self._produce(messenger), name=f"Produce Task for {self}")
                     consume_task = asyncio.create_task(self._consume(messenger), name=f"Consume Task for {self}")
                     await asyncio.gather(produce_task, consume_task)
@@ -154,6 +181,7 @@ class PeerConnection:
             finally:
                 logger.info(f"{self}: Closing connection with peer.")
                 if self.peer:
+                    PeerDisconnectedEvent(self.peer)
                     self._requester.remove_peer(self.peer)
 
                 if not self._stop_forever:
@@ -176,7 +204,7 @@ class PeerConnection:
             async for msg in messenger:
                 if self._stop_forever or self._requester.torrent.complete:
                     # TODO: don't stop forever if we're complete. We may want to continue seeding.
-                    # at minimum, lost interest in the peer.
+                    # at minimum, lose interest in the peer.
                     break
                 logger.info(f"{self}: Sent {msg}")
                 if isinstance(msg, Choke):

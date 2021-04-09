@@ -24,6 +24,7 @@ from urllib.parse import urlencode
 from .bencode import *
 from .metainfo import MetaInfoFile
 from .peer_info import PeerInfo
+from ..events import Event
 
 logger = logging.getLogger(__name__)
 
@@ -50,23 +51,14 @@ class TrackerConnectionCancelledError(Exception):
     """
 
 
-class TrackerEvent:
-    """
-    An event associated with the tracker.
-    """
-
-    def __init__(self):
-        self.data = None
-
-
-class PeersReceived(TrackerEvent):
+class PeersReceived(Event):
     """
     Raised when peers are received from the tracker.
     """
 
-    def __init__(self, data: list[PeerInfo]):
-        super().__init__()
-        self.data = data
+    def __init__(self, peer_list: list[PeerInfo]):
+        name = self.__class__.__name__
+        super().__init__(name, peer_list)
 
 
 @dataclasses.dataclass
@@ -124,12 +116,11 @@ class TrackerConnection:
     """
     DEFAULT_INTERVAL: int = 60  # 1 minute
 
-    def __init__(self, local_info, meta_info: MetaInfoFile, download_queue: asyncio.Queue):
+    def __init__(self, local_info, meta_info: MetaInfoFile):
         self.client_info = local_info
         self.torrent = meta_info
         self.announce_urls = deque(set(url for tier in meta_info.announce_urls for url in tier))
         self.interval = self.DEFAULT_INTERVAL
-        self.download_queue = download_queue
         self.task: Optional[asyncio.Task] = None
 
     def start(self):
@@ -209,7 +200,7 @@ class TrackerConnection:
                     logger.info(f"Ignoring peer. It's us...")
                     continue
                 peers.append(peer_info)
-                self.download_queue.put_nowait(PeersReceived(peers))
+            PeersReceived(peers)
 
     async def cancel_announce(self) -> None:
         """
