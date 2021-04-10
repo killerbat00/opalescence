@@ -6,7 +6,7 @@ Support for communication with HTTP trackers.
 
 from __future__ import annotations
 
-__all__ = ['TrackerResponse', 'TrackerConnectionError', 'TrackerConnection']
+__all__ = ['TrackerResponse', 'TrackerConnection']
 
 import asyncio
 import contextlib
@@ -22,6 +22,7 @@ from typing import Optional, List, Tuple
 from urllib.parse import urlencode
 
 from .bencode import *
+from .errors import TrackerConnectionError, NoTrackersError, TrackerConnectionCancelledError
 from .metainfo import MetaInfoFile
 from .peer_info import PeerInfo
 from ..events import Event
@@ -31,24 +32,6 @@ logger = logging.getLogger(__name__)
 EVENT_STARTED = "started"
 EVENT_COMPLETED = "completed"
 EVENT_STOPPED = "stopped"
-
-
-class TrackerConnectionError(Exception):
-    """
-    Raised when there's an error with the TrackerConnection.
-    """
-
-
-class NoTrackersError(Exception):
-    """
-    Raised when there are no trackers to accept an announce.
-    """
-
-
-class TrackerConnectionCancelledError(Exception):
-    """
-    Raised when the connection has been cancelled by the application.
-    """
 
 
 class PeersReceived(Event):
@@ -73,35 +56,60 @@ class TrackerParameters:
     event: str
 
 
-async def http_request(url, params: TrackerParameters) -> TrackerResponse:
-    url = urllib.parse.urlparse(url)
-    query_params = urllib.parse.parse_qs(url.query)
-    query_params.update(dataclasses.asdict(params))
-    conn = None
+async def http_request(url: str, params: TrackerParameters) -> TrackerResponse:
+    url_info = _construct_url(url, params)
+    if not url_info:
+        raise TrackerConnectionError
 
-    try:
-        if not (params or url):
-            raise TrackerConnectionError
+    scheme, path, url = url_info[0], url_info[1], url_info[2]
 
-        if url.scheme == "http":
-            conn = http.client.HTTPConnection(url.netloc, timeout=5)
-        elif url.scheme == "https":
-            conn = http.client.HTTPSConnection(url.netloc, timeout=5)
+    if scheme == "http":
+        conn = http.client.HTTPConnection(path, timeout=5)
+    else:
+        conn = http.client.HTTPSConnection(path, timeout=5)
 
-        path = url._replace(scheme="", netloc="", query=urllib.parse.urlencode(query_params)).geturl()
+    with contextlib.closing(conn) as tracker_conn:
         await asyncio.get_running_loop().run_in_executor(
-            None, functools.partial(conn.request, "GET", path)
+            None, functools.partial(tracker_conn.request, "GET", url)
         )
-        resp = conn.getresponse()
+        resp = tracker_conn.getresponse()
         if resp.status != 200:
             raise TrackerConnectionError
         tracker_resp = TrackerResponse(Decode(resp.read()))
         if tracker_resp.failed:
             raise TrackerConnectionError
         return tracker_resp
-    finally:
-        if conn is not None:
-            conn.close()
+
+
+def _construct_url(url: str, params: TrackerParameters) -> Optional[tuple[str, str, str]]:
+    """
+    Constructs a tracker URL with the given parameters.
+
+    :param url: The URL from the metainfo file.
+    :param params: The parameters to send to the tracker.
+    :return: tuple of URL scheme, path, and full query parameter string
+    """
+    url = urllib.parse.urlparse(url)
+    scheme = url.scheme
+
+    if scheme not in ["http", "https"]:
+        return
+
+    if not (url.netloc or url.path):
+        return
+
+    query_params = urllib.parse.parse_qs(url.query)
+    query_params.update(dataclasses.asdict(params))
+    query_param_str = urllib.parse.urlencode(query_params)
+
+    path = url.netloc
+    if not path:
+        path = url.path
+    if not path:
+        return
+
+    result_url = url._replace(scheme="", netloc="", query=query_param_str).geturl()
+    return scheme, path, result_url
 
 
 class TrackerConnection:
@@ -181,13 +189,12 @@ class TrackerConnection:
         params = TrackerParameters(self.torrent.info_hash, self.client_info.peer_id_bytes, self.client_info.port,
                                    0, self.torrent.present, remaining, 1, event)
 
-        logger.info(f"Making {event} announce to: {url}")
         try:
             decoded_data = await http_request(url, params)
             if decoded_data is None:
                 raise TrackerConnectionError
         except Exception as e:
-            logger.error(f"{type(e).__name__} received in announce.")
+            logger.error("%s received in announce." % type(e).__name__)
             raise TrackerConnectionError from e
 
         if event != EVENT_COMPLETED and event != EVENT_STOPPED:
@@ -198,10 +205,10 @@ class TrackerConnection:
             for peer in decoded_data.get_peers():
                 peer_info = PeerInfo(peer[0], peer[1])
                 if peer_info == self.client_info:
-                    logger.info(f"Ignoring peer. It's us...")
                     continue
                 peers.append(peer_info)
-            PeersReceived(peers)
+
+            PeersReceived(peers)  # inform observers that we've received peers from the tracker.
 
     async def cancel_announce(self) -> None:
         """
