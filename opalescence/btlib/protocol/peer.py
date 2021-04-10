@@ -158,7 +158,7 @@ class PeerConnection:
                 self.peer = peer_info
                 self.task.set_name(f"{self.peer}")
 
-                logger.info(f"{self}: Opening connection with peer.")
+                logger.info("%s: Opening connection with peer." % self)
                 # TODO: When we start allowing peers to connect to us, we'll need to listen
                 #       on a socket rather than just connecting with the peer.
                 async with PeerMessenger(self.peer, self._stats) as messenger:
@@ -175,22 +175,22 @@ class PeerConnection:
                     await asyncio.gather(produce_task, consume_task)
 
             except Exception as exc:
-                logger.error(f"{self}: {type(exc).__name__} received in download.")
+                logger.error("%s: %s received in download." % (self, type(exc).__name__))
             except BaseException:
                 self._stop_forever = True
             finally:
-                logger.info(f"{self}: Closing connection with peer.")
+                logger.info("%s: Closing connection with peer." % self)
                 if self.peer:
                     PeerDisconnectedEvent(self.peer)
                     self._requester.remove_peer(self.peer)
 
                 if not self._stop_forever:
-                    logger.info(f"{self}: Resetting peer connection.")
+                    logger.info("%s: Resetting peer connection." % self)
                     self.local.reset_state()
                     self._msg_to_send_q = asyncio.Queue()
                     self.peer = None
                     self.task.set_name("[WAITING] PeerConnection")
-        logger.debug(f"{self}: Stopped forever.")
+        logger.debug("%s: Stopped forever" % self)
 
     async def _consume(self, messenger: PeerMessenger):
         """
@@ -206,7 +206,7 @@ class PeerConnection:
                     # TODO: don't stop forever if we're complete. We may want to continue seeding.
                     # at minimum, lose interest in the peer.
                     break
-                logger.info(f"{self}: Sent {msg}")
+                logger.info("%s: Sent %s" % (self, msg))
                 if isinstance(msg, Choke):
                     self.peer.choking = True
                     self._requester.remove_pending_requests_for_peer(self.peer)
@@ -266,7 +266,7 @@ class PeerConnection:
                     self.local.interested = False
 
                 if msg:
-                    logger.debug(f"{self.local}: Sending {msg} to {self.peer}")
+                    logger.debug("%s: Sending %s to %s" % (self.local, msg, self.peer))
                     await messenger.send(msg)
 
                 self._msg_to_send_q.task_done()
@@ -283,7 +283,7 @@ class PeerConnection:
         if self._stop_forever:
             return False
 
-        logger.info(f"{self}: Negotiating handshake.")
+        logger.info("%s: Negotiating handshake." % self)
         sent_handshake = Handshake(self.info_hash, self.local.peer_id_bytes)
         await messenger.send(sent_handshake)
 
@@ -293,12 +293,12 @@ class PeerConnection:
         received_handshake = await messenger.receive_handshake()
 
         if not received_handshake:
-            logger.error(f"{self}: Unable to initiate handshake.")
+            logger.error("%s: Unable to initiate handshake." % self)
             return False
 
         if received_handshake.info_hash != self.info_hash:
-            logger.error(f"{self}: Unable in initiate handshake. Incorrect info hash received. expected: "
-                         f"{self.info_hash}, received {received_handshake.info_hash}")
+            logger.error("%s: Wrong info hash. Expected: %s\tReceived: %s" % (self, self.info_hash,
+                                                                              received_handshake.info_hash))
             return False
 
         if received_handshake.peer_id:

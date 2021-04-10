@@ -121,16 +121,16 @@ class Client:
             download.torrent.check_existing_pieces()
             present = download.torrent.present
             total_size = download.torrent.total_size
-            logger.info(f"We have {present} / {total_size} bytes.")
+            logger.info("We have %s / %s bytes" % (present, total_size))
 
             if present == total_size:
-                logger.info(f"{download.torrent.name} already complete.")
+                logger.info("%s already complete." % download.torrent.name)
                 continue
 
             self._add_task(download.download())
 
         if len(self._tasks) == 0:
-            logger.info(f"{self}: Complete. No torrents to download.")
+            logger.info("Complete. No torrents to download")
             return
 
         self._running = True

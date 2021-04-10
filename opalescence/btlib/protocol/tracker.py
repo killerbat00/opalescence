@@ -177,6 +177,7 @@ class TrackerConnection:
             event = EVENT_COMPLETED
 
         url = self.announce_urls.popleft()
+        logger.info("Making %s announce to %s" % (event, url))
         params = TrackerParameters(self.torrent.info_hash, self.client_info.peer_id_bytes, self.client_info.port,
                                    0, self.torrent.present, remaining, 1, event)
 

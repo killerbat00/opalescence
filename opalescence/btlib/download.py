@@ -123,19 +123,19 @@ class Download(Observer):
                 await asyncio.sleep(2)
 
                 if self.download_task.cancelled():
-                    logger.info(f"{self.torrent}: Download task cancelled.")
+                    logger.info("%s: Download task cancelled." % self.torrent)
                     await self.tracker.cancel_announce()
                     break
 
                 if self.tracker.task.cancelled() or self.tracker.task.done():
-                    logger.info(f"{self.torrent}: Tracker task cancelled or complete.")
+                    logger.info("%s: Tracker task cancelled or complete." % self.torrent)
                     break
             else:
                 await self.tracker.completed()
 
         except Exception as e:
             if not isinstance(e, asyncio.CancelledError):
-                logger.error(f"{type(e).__name__} exception received in client.download.")
+                logger.error("%s exception received in client.download." % type(e).__name__)
         finally:
             logger.debug(f"Ending download loop and cleaning up.")
             self.tracker.task.cancel()

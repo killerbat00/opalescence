@@ -6,13 +6,10 @@ Command Line Interface for Opalescence
 
 import asyncio
 import functools
-import logging
 import signal
 from pathlib import Path
 
-from opalescence.btlib import Client
-
-logger = logging.getLogger("opalescence")
+from opalescence.btlib.client import Client
 
 
 def download(args) -> None:
@@ -26,29 +23,27 @@ def download(args) -> None:
     dest_fp: Path = args.destination
 
     if not torrent_fp.exists():
-        logger.error(f"Torrent filepath does not exist.")
+        print("Torrent filepath does not exist.")
         raise SystemExit
     if not dest_fp.exists():
-        logger.debug(f"Destination filepath does not exist. Creating {dest_fp}.")
+        print(f"Destination filepath does not exist. Creating {dest_fp}.")
         dest_fp.mkdir()
     if not dest_fp.is_dir():
-        logger.error(f"Destination filepath is not a directory.")
+        print(f"Destination filepath is not a directory.")
         raise SystemExit
-
-    print(f"Downloading {torrent_fp.name} to {dest_fp}")
 
     asyncio.run(_download(torrent_fp, dest_fp))
 
 
 async def _download(torrent_fp, dest_fp):
-    logger.info(f"Downloading {torrent_fp} to {dest_fp}")
+    print(f"Downloading {torrent_fp.name} to {dest_fp}")
 
     loop = asyncio.get_event_loop()
     loop.set_debug(__debug__)
     client = Client()
 
     def signal_received(s):
-        logger.debug(f"{s} received. Shutting down...")
+        print(f"{s} received. Shutting down...")
         client.stop()
 
     for signame in ('SIGINT', 'SIGTERM'):

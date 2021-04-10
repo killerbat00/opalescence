@@ -131,23 +131,23 @@ class PieceRequester:
         :param peer: The peer who sent the block
         :param block: The piece message with the data and e'erthang
         """
-        logger.info(f"{peer} sent {block}")
+        logger.info("%s sent %s" % (peer, block))
         self.peer_piece_map[peer].add(block.index)
         self.piece_peer_map[block.index].add(peer)
 
         if block.index > len(self.torrent.pieces):
-            logger.debug(f"Disregarding. Piece {block.index} does not exist.")
+            logger.debug("Disregarding. Piece %s does not exist." % block.index)
             return False
 
         piece = self.torrent.pieces[block.index]
         if piece.complete:
-            logger.debug(f"Disregarding. I already have {block}")
+            logger.debug("Disregarding. I already have %s" % block)
             return False
 
         # Remove the pending requests for this block if there are any
         r = Request(block.index, block.begin, min(piece.remaining, Request.size))
         if not self.remove_request(r):
-            logger.debug(f"Disregarding. I did not request {block}")
+            logger.debug("Disregarding. I did not request %s" % block)
             return False
 
         piece.add_block(block)
@@ -163,13 +163,11 @@ class PieceRequester:
         """
         h = piece.hash()
         if h != self.torrent.piece_hashes[piece.index]:
-            logger.error(
-                f"Hash for received piece {piece.index} doesn't match\n"
-                f"Received: {h}\n"
-                f"Expected: {self.torrent.piece_hashes[piece.index]}")
+            logger.error("Hash for received piece %s doesn't match. Received: %s\tExpected: %s" %
+                         (piece.index, h, self.torrent.piece_hashes[piece.index]))
             piece.reset()
         else:
-            logger.info(f"Completed piece received: {piece}")
+            logger.info("Completed piece received: %s" % piece)
             self.remove_requests_for_piece(piece.index)
             PieceReceivedEvent(piece)
 
@@ -206,13 +204,13 @@ class PieceRequester:
             size = min(piece.remaining, Request.size)
             request = Request(i, piece.next_block, size, peer.peer_id)
             while request in self.pending_requests:
-                logger.info(f"{peer}: We have an outstanding request for {request}")
+                logger.info("%s: We have an outstanding request for %s" % (peer, request))
                 # TODO: move on to the next request/block
                 return
 
-            logger.info(f"{peer}: Successfully got request {request}.")
+            logger.info("%s: Successfully got request %s." % (peer, request))
             self.pending_requests.append(request)
             return request
 
         # There are no pieces the peer can send us :(
-        logger.info(f"{peer}: Has no pieces available to send.")
+        logger.info("%s: Has no pieces available to send." % peer)
