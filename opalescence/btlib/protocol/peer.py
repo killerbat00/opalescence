@@ -83,18 +83,18 @@ class PeerConnectionPool(Observer):
                                      self.peer_queue, self.stats)
                       for _ in range(self.num_peers)]
 
-    def peer_connected(self, peer: PeerInfo):
-        print(f"Successfully connected to {peer}")
-
-    def peer_disconnected(self, peer: PeerInfo):
-        print(f"Disconnected from {peer}")
-
     def stop(self):
         """
         Stops all `PeerConnection`s forever.
         """
         for peer in self.peers:
             peer.stop_forever()
+
+    def peer_connected(self, peer: PeerInfo):
+        print(f"Successfully connected to {peer}")
+
+    def peer_disconnected(self, peer: PeerInfo):
+        print(f"Disconnected from {peer}")
 
     @property
     def num_connected(self):

@@ -4,7 +4,7 @@
 Contains the logic for requesting pieces, as well as that for writing them to disk.
 """
 
-__all__ = ['PieceRequester', 'PieceReceivedEvent']
+__all__ = ['PieceRequester']
 
 import asyncio
 import dataclasses
@@ -17,7 +17,6 @@ import bitstring
 from .errors import NonSequentialBlockError
 from .messages import Request, Piece, Block
 from .peer_info import PeerInfo
-from ..events import Event
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +25,6 @@ logger = logging.getLogger(__name__)
 class WriteBuffer:
     buffer = b''
     offset = 0
-
-
-class PieceReceivedEvent(Event):
-    def __init__(self, piece):
-        name = self.__class__.__name__
-        super().__init__(name, piece)
 
 
 class PieceRequester:
@@ -175,7 +168,7 @@ class PieceRequester:
         else:
             logger.info("Completed piece received: %s" % piece)
             self.remove_requests_for_piece(piece.index)
-            PieceReceivedEvent(piece)
+            self.complete_piece_queue.put_nowait(piece)
 
     def next_request_for_peer(self, peer: PeerInfo) -> Optional[Request]:
         """

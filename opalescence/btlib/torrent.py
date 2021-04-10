@@ -16,8 +16,8 @@ from .protocol.fileio import FileWriter
 from .protocol.metainfo import MetaInfoFile
 from .protocol.peer import PeerConnectionPool
 from .protocol.peer_info import PeerInfo
-from .protocol.piece_handler import PieceRequester, PieceReceivedEvent
-from .protocol.tracker import TrackerConnection, PeersReceivedEvent
+from .protocol.piece_handler import PieceRequester
+from .protocol.tracker import TrackerConnection
 from .. import get_app_config
 
 logger = logging.getLogger(__name__)
@@ -47,9 +47,9 @@ class DownloadEvent(Event):
         super().__init__(name, data)
 
 
-class Download(Observer):
+class Torrent(Observer):
     """
-    A torrent currently being total_downloaded by the Client.
+    A torrent currently being downloaded by the client.
     This wraps the tracker, requester, and peer handling into a single public API.
     """
 
@@ -57,24 +57,33 @@ class Download(Observer):
         super().__init__()
 
         self.status = DownloadStatus.NotStarted
-        self.client_info = local_peer
+        self.conf = get_app_config()
+
         self.torrent = MetaInfoFile.from_file(torrent_fp, destination)
+        self.client_info = local_peer
+
         self.peer_queue = asyncio.Queue()
         self.piece_queue = asyncio.Queue()
-        self.tracker = TrackerConnection(self.client_info, self.torrent)
-        self.conf = get_app_config()
+        self.tracker_response_q = asyncio.Queue()
+
+        self.tracker = TrackerConnection(self.client_info, self.torrent, self.tracker_response_q)
 
         piece_requester = PieceRequester(self.torrent, self.piece_queue)
         self.peer_pool = PeerConnectionPool(self.client_info, self.torrent.info_hash, self.peer_queue,
                                             self.conf.max_peers,
                                             piece_requester)
+        self.file_writer = FileWriter(self.torrent.files)
         self.download_stats = DownloadStats()
         self.download_task: Optional[asyncio.Task] = None
 
-        self.file_writer = FileWriter(self.torrent.files)
-
-        self.register(PeersReceivedEvent, self.add_peers_to_queue)
-        self.register(PieceReceivedEvent, self.file_writer.write_piece)
+    def download(self):
+        self.download_stats.download_started = asyncio.get_event_loop().time()
+        self.download_stats.last_updated = self.download_stats.download_started
+        self.tracker.start()
+        self.file_writer.start(self.piece_queue)
+        asyncio.create_task(self._receive_peers())
+        self.download_task = asyncio.create_task(self._download(), name=f"Torrent task for {self.torrent}")
+        return self.download_task
 
     def add_peers_to_queue(self, peer_list: list[PeerInfo]):
         """
@@ -92,12 +101,14 @@ class Download(Observer):
         for peer in peer_list:
             self.peer_queue.put_nowait(peer)
 
-    def download(self):
-        self.download_stats.download_started = asyncio.get_event_loop().time()
-        self.download_stats.last_updated = self.download_stats.download_started
-        self.tracker.start()
-        self.download_task = asyncio.create_task(self._download(), name=f"Download task for {self.torrent}")
-        return self.download_task
+    async def _receive_peers(self):
+        try:
+            while True:
+                peer_list = await self.tracker_response_q.get()
+                self.add_peers_to_queue(peer_list)
+        except Exception:
+            self.download_task.cancel()
+            raise
 
     async def _download(self):
         """
@@ -121,12 +132,16 @@ class Download(Observer):
                 await asyncio.sleep(2)
 
                 if self.download_task.cancelled():
-                    logger.info("%s: Download task cancelled." % self.torrent)
+                    logger.info("%s: Torrent task cancelled." % self.torrent)
                     await self.tracker.cancel_announce()
                     break
 
                 if self.tracker.task.cancelled() or self.tracker.task.done():
                     logger.info("%s: Tracker task cancelled or complete." % self.torrent)
+                    break
+
+                if self.file_writer._task.cancelled() or self.file_writer._task.done():
+                    logger.info("%s: File writer task cancelled or complete." % self.torrent)
                     break
             else:
                 await self.tracker.completed()
@@ -136,12 +151,12 @@ class Download(Observer):
                 logger.error("%s exception received in client.download." % type(e).__name__)
         finally:
             logger.debug(f"Ending download loop and cleaning up.")
-            self.tracker.task.cancel()
+            self.tracker.stop()
             self.peer_pool.stop()
-            self.file_writer.close()
+            self.file_writer.stop()
 
             total_time = asyncio.get_event_loop().time() - self.download_stats.download_started
-            msg = f"Download stopped! Took {round(total_time, 5)}s" \
+            msg = f"Torrent stopped! Took {round(total_time, 5)}s" \
                   f"\tDownloaded: {self.peer_pool.stats.total_downloaded}\tUploaded:" \
                   f" {self.peer_pool.stats.total_uploaded}" \
                   f"\tEst download speed: " \

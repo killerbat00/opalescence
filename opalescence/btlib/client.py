@@ -16,8 +16,8 @@ from logging import getLogger
 from pathlib import Path
 from typing import Optional, Set
 
-from .download import Download
 from .protocol.peer_info import PeerInfo
+from .torrent import Torrent
 
 logger = getLogger(__name__)
 
@@ -70,7 +70,7 @@ class Client:
         self._task = None
         self._tasks: Set[asyncio.Task] = set()
         self._running = False
-        self._downloading: Optional[list[Download]] = None
+        self._downloading: Optional[list[Torrent]] = None
         self._local_peer = PeerInfo(_retrieve_local_ip(), 6881, _generate_peer_id())
 
     def stop(self):
@@ -148,7 +148,7 @@ class Client:
         if self._running:
             return
 
-        download = Download(torrent_fp, destination, self._local_peer)
+        download = Torrent(torrent_fp, destination, self._local_peer)
         if self._downloading is None:
             self._downloading = []
 
