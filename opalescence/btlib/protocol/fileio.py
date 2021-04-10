@@ -13,7 +13,6 @@ import logging
 from pathlib import Path
 from typing import Optional, BinaryIO
 
-from .messages import Piece
 from ..utils import ensure_dir_exists
 
 logger = logging.getLogger(__name__)
@@ -47,7 +46,7 @@ class FileItem:
             size_sum += file.size
 
     @staticmethod
-    def file_for_piece(files: dict[int, FileItem], piece: Piece) -> tuple[int, int]:
+    def file_for_piece(files: dict[int, FileItem], piece) -> tuple[int, int]:
         """
         Given a piece, returns the corresponding file index and offset within that file where the piece begins.
 
@@ -65,21 +64,43 @@ class FileWriter:
         self._files: dict[int, FileItem] = files
         self._lock = asyncio.Lock()
         self._fps: Optional[dict[int, BinaryIO]] = None
+        self._task: Optional[asyncio.Task] = None
 
-    def write_piece(self, piece):
+    def start(self, piece_queue: asyncio.Queue):
         """
-        Schedules a task that will write a given piece to the appropriate
-        file in an executor that will not block the main thread.
+        Starts this task that writes pieces received from piece_queue
+        :param piece_queue:  piece queue where completed pieces are placed.
+        """
+        if self._task is None:
+            self._task = asyncio.create_task(self.__write_task(piece_queue))
 
-        :param piece: piece to be written
+    def stop(self):
         """
-        asyncio.ensure_future(self.__await_write(piece))
+        Stops the piece writing task.
+        """
+        if self._task:
+            self._task.cancel()
 
-    def close(self):
+    async def __write_task(self, piece_queue: asyncio.Queue):
         """
-        Closes all open file streams.
+        Coroutine scheduled as a task via `start` that consumes completed
+        pieces from the piece_queue and writes them to file.
+
+        :param piece_queue: piece queue containing completed pieces
         """
-        self.__close_files()
+        piece = None
+        try:
+            self.__open_files()
+
+            while True:
+                piece = await piece_queue.get()
+                await self.__await_write(piece)
+                piece_queue.task_done()
+        except Exception as exc:
+            logger.error("Encountered %s exception writing %s" % (type(exc).__name__, piece))
+            raise
+        finally:
+            self.__close_files()
 
     def __open_files(self):
         """
@@ -109,7 +130,7 @@ class FileWriter:
             if not fp.closed:
                 fp.close()
 
-    async def __await_write(self, piece: Piece):
+    async def __await_write(self, piece):
         """
         Writes the `Piece` to the file in an executor. Pieces can be written in any order.
         :param piece: piece to write.
@@ -129,7 +150,7 @@ class FileWriter:
         finally:
             self._lock.release()
 
-    def __write_piece_data(self, piece: Piece):
+    def __write_piece_data(self, piece):
         """
         Writes the piece's data to the appropriate file(s). Pieces can be written in any order.
         :param piece: piece to write.
