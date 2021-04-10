@@ -6,7 +6,7 @@ Support for communication with HTTP trackers.
 
 from __future__ import annotations
 
-__all__ = ['TrackerResponse', 'TrackerConnection', 'PeersReceivedEvent']
+__all__ = ['TrackerResponse', 'TrackerConnection']
 
 import asyncio
 import contextlib
@@ -25,23 +25,12 @@ from .bencode import *
 from .errors import TrackerConnectionError, NoTrackersError, TrackerConnectionCancelledError
 from .metainfo import MetaInfoFile
 from .peer_info import PeerInfo
-from ..events import Event
 
 logger = logging.getLogger(__name__)
 
 EVENT_STARTED = "started"
 EVENT_COMPLETED = "completed"
 EVENT_STOPPED = "stopped"
-
-
-class PeersReceivedEvent(Event):
-    """
-    Raised when peers are received from the tracker.
-    """
-
-    def __init__(self, peer_list: list[PeerInfo]):
-        name = self.__class__.__name__
-        super().__init__(name, peer_list)
 
 
 @dataclasses.dataclass
@@ -124,16 +113,28 @@ class TrackerConnection:
     """
     DEFAULT_INTERVAL: int = 60  # 1 minute
 
-    def __init__(self, local_info, meta_info: MetaInfoFile):
+    def __init__(self, local_info, meta_info: MetaInfoFile, response_queue: asyncio.Queue):
         self.client_info = local_info
         self.torrent = meta_info
         self.announce_urls = deque(set(url for tier in meta_info.announce_urls for url in tier))
         self.interval = self.DEFAULT_INTERVAL
         self.task: Optional[asyncio.Task] = None
+        self.response_queue: asyncio.Queue = response_queue
 
     def start(self):
+        """
+        Starts the task that makes a recurring announce to trackers and places
+        the received peers into a queue.
+        """
         if self.task is None:
             self.task = asyncio.create_task(self._recurring_announce())
+
+    def stop(self):
+        """
+        Stops the recurring announce task to trackers.
+        """
+        if self.task:
+            self.task.cancel()
 
     async def _recurring_announce(self):
         """
@@ -159,11 +160,11 @@ class TrackerConnection:
                 continue
             except NoTrackersError:
                 self.task.cancel()
-        logger.info(f"Recurring announce task ended.")
+        logger.info("Recurring announce task ended.")
 
     async def announce(self, event: str = "") -> None:
         """
-        Makes an announce request to the tracker.
+        Makes an announce request to the tracker and places the received peers into the queue.
 
         :raises TrackerConnectionError: if the tracker's HTTP code is not 200,
                                         we timed out making a request to the tracker,
@@ -208,7 +209,7 @@ class TrackerConnection:
                     continue
                 peers.append(peer_info)
 
-            PeersReceivedEvent(peers)  # inform observers that we've received peers from the tracker.
+            self.response_queue.put_nowait(peers)
 
     async def cancel_announce(self) -> None:
         """
