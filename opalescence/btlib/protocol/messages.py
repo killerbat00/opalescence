@@ -12,12 +12,11 @@ __all__ = ['Message', 'Handshake', 'KeepAlive', 'Choke', 'Unchoke', 'Interested'
 import hashlib
 import struct
 from abc import abstractmethod
-from logging import getLogger
 from typing import Optional, Union
 
 import bitstring
 
-logger = getLogger(__name__)
+from .errors import NonSequentialBlockError
 
 
 class Message:
@@ -362,8 +361,7 @@ class Piece:
         assert self.index == block.index
 
         if block.begin != self.present:
-            logger.error(f"{self}: Block begin index is non-sequential for: {self}\t{block}")
-            return
+            raise NonSequentialBlockError
         self.data += block.data
         self.present += len(block.data)
 
@@ -374,6 +372,12 @@ class Piece:
         self._complete = True
         self.reset()
         self.present = self.length
+
+    def mark_written(self):
+        """
+        Marks the piece as written to disk.
+        """
+        self.mark_complete()
 
     @property
     def complete(self) -> bool:

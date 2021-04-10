@@ -14,6 +14,7 @@ from typing import Dict, List, Set, Optional
 
 import bitstring
 
+from .errors import NonSequentialBlockError
 from .messages import Request, Piece, Block
 from .peer_info import PeerInfo
 from ..events import Event
@@ -150,7 +151,12 @@ class PieceRequester:
             logger.debug("Disregarding. I did not request %s" % block)
             return False
 
-        piece.add_block(block)
+        try:
+            piece.add_block(block)
+        except NonSequentialBlockError:
+            # TODO: Handle non-sequential blocks?
+            logger.error("Block begin index is non-sequential for: %s" % block)
+            pass
         if piece.complete:
             self.piece_complete(piece)
         return True

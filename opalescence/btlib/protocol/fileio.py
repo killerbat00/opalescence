@@ -122,7 +122,7 @@ class FileWriter:
         try:
             await asyncio.get_running_loop().run_in_executor(None,
                                                              functools.partial(self.__write_piece_data, piece))
-            piece.mark_complete()  # purge from memory
+            piece.mark_written()  # purge from memory
         except Exception as e:
             logger.exception(e)
             raise
