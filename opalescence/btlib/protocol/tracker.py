@@ -6,7 +6,7 @@ Support for communication with HTTP trackers.
 
 from __future__ import annotations
 
-__all__ = ['TrackerResponse', 'TrackerConnection']
+__all__ = ['TrackerResponse', 'TrackerConnection', 'PeersReceivedEvent']
 
 import asyncio
 import contextlib
@@ -34,7 +34,7 @@ EVENT_COMPLETED = "completed"
 EVENT_STOPPED = "stopped"
 
 
-class PeersReceived(Event):
+class PeersReceivedEvent(Event):
     """
     Raised when peers are received from the tracker.
     """
@@ -208,7 +208,7 @@ class TrackerConnection:
                     continue
                 peers.append(peer_info)
 
-            PeersReceived(peers)  # inform observers that we've received peers from the tracker.
+            PeersReceivedEvent(peers)  # inform observers that we've received peers from the tracker.
 
     async def cancel_announce(self) -> None:
         """

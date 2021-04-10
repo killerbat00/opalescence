@@ -16,6 +16,8 @@ class Observer:
             self._observing: dict[str, Callable] = {}
 
     def register(self, event_name, callback):
+        if not isinstance(event_name, str):
+            event_name = event_name.__name__
         self._observing[event_name] = callback
 
     @classmethod

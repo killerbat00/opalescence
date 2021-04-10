@@ -4,7 +4,7 @@
 Contains the logic for requesting pieces, as well as that for writing them to disk.
 """
 
-__all__ = ['PieceRequester']
+__all__ = ['PieceRequester', 'PieceReceivedEvent']
 
 import asyncio
 import dataclasses

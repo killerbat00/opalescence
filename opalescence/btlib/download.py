@@ -16,8 +16,8 @@ from .protocol.fileio import FileWriter
 from .protocol.metainfo import MetaInfoFile
 from .protocol.peer import PeerConnectionPool
 from .protocol.peer_info import PeerInfo
-from .protocol.piece_handler import PieceRequester
-from .protocol.tracker import TrackerConnection
+from .protocol.piece_handler import PieceRequester, PieceReceivedEvent
+from .protocol.tracker import TrackerConnection, PeersReceivedEvent
 from .. import get_app_config
 
 logger = logging.getLogger(__name__)
@@ -73,8 +73,8 @@ class Download(Observer):
 
         self.file_writer = FileWriter(self.torrent.files)
 
-        self.register('PeersReceived', self.add_peers_to_queue)
-        self.register('PieceReceivedEvent', self.file_writer.write_piece)
+        self.register(PeersReceivedEvent, self.add_peers_to_queue)
+        self.register(PieceReceivedEvent, self.file_writer.write_piece)
 
     def add_peers_to_queue(self, peer_list: list[PeerInfo]):
         """
@@ -104,8 +104,6 @@ class Download(Observer):
         Creates peer connections, attempts to connect to peers, calls the tracker, and
         serves as the main entrypoint for a torrent.
         """
-        self.peer_pool.start()
-
         try:
             while not self.torrent.complete:
                 # TODO: Fix this, smoother CLI/TUI separation.
