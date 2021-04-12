@@ -70,18 +70,24 @@ class Client:
         self._task = None
         self._tasks: Set[asyncio.Task] = set()
         self._running = False
-        self._downloading: Optional[list[Torrent]] = None
+        self.downloading: Optional[list[Torrent]] = None
         self._local_peer = PeerInfo(_retrieve_local_ip(), 6881, _generate_peer_id())
+
+    def start(self):
+        """
+        Creates an schedules a task that will start all downloads.
+        """
+        if not self._running:
+            self._running = True
+            self._task = asyncio.create_task(self.start_all())
 
     def stop(self):
         """
         Creates and schedules a task that will asynchronously
         cancel all running downloads.
         """
-        if not self._running:
-            return
-
-        asyncio.create_task(self._stop_all())
+        if self._running:
+            asyncio.create_task(self._stop_all())
 
     async def _stop_all(self):
         """
@@ -111,33 +117,23 @@ class Client:
         """
         Starts downloading all current torrents.
         """
-        if self._downloading is None or len(self._downloading) == 0:
+        if self.downloading is None or len(self.downloading) == 0:
             raise ClientError
 
-        if self._running:
-            return
-
-        for download in self._downloading:
-            download.torrent.check_existing_pieces()
-            present = download.torrent.present
-            total_size = download.torrent.total_size
-            logger.info("We have %s / %s bytes" % (present, total_size))
-
-            if present == total_size:
-                logger.info("%s already complete." % download.torrent.name)
-                continue
-
+        for download in self.downloading:
             self._add_task(download.download())
 
         if len(self._tasks) == 0:
             logger.info("Complete. No torrents to download")
             return
 
-        self._running = True
-
-        with contextlib.suppress(asyncio.CancelledError):
+        try:
             # TODO: we return as soon as any download errors. Revisit this.
             await asyncio.gather(*self._tasks, return_exceptions=True)
+        except Exception as exc:
+            logger.error("%s received in client:start_all" % type(exc).__name__)
+
+        self._running = False
 
     def add_torrent(self, *, torrent_fp: Path = None, destination: Path = None):
         """
@@ -149,13 +145,13 @@ class Client:
             return
 
         download = Torrent(torrent_fp, destination, self._local_peer)
-        if self._downloading is None:
-            self._downloading = []
+        if self.downloading is None:
+            self.downloading = []
 
         def exists(d):
             return d.torrent.info_hash == download.torrent.info_hash
 
-        if any(filter(exists, self._downloading)):
+        if any(filter(exists, self.downloading)):
             return
 
-        self._downloading.append(download)
+        self.downloading.append(download)
