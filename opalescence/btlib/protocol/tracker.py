@@ -6,7 +6,7 @@ Support for communication with HTTP trackers.
 
 from __future__ import annotations
 
-__all__ = ['TrackerResponse', 'TrackerConnection']
+__all__ = ['TrackerTask']
 
 import asyncio
 import contextlib
@@ -22,7 +22,8 @@ from typing import Optional, List, Tuple
 from urllib.parse import urlencode
 
 from .bencode import *
-from .errors import TrackerConnectionError, NoTrackersError, TrackerConnectionCancelledError
+from .errors import TrackerConnectionError, NoTrackersError, \
+    TrackerConnectionCancelledError
 from .metainfo import MetaInfoFile
 from .peer_info import PeerInfo
 
@@ -113,58 +114,16 @@ class TrackerConnection:
     """
     DEFAULT_INTERVAL: int = 60  # 1 minute
 
-    def __init__(self, local_info, meta_info: MetaInfoFile, response_queue: asyncio.Queue):
+    def __init__(self, local_info, meta_info: MetaInfoFile):
         self.client_info = local_info
         self.torrent = meta_info
-        self.announce_urls = deque(set(url for tier in meta_info.announce_urls for url in tier))
+        self.announce_urls = deque(
+            set(url for tier in meta_info.announce_urls for url in tier))
         self.interval = self.DEFAULT_INTERVAL
-        self.task: Optional[asyncio.Task] = None
-        self.response_queue: asyncio.Queue = response_queue
 
-    def start(self):
+    async def announce(self, event: str = "") -> TrackerResponse:
         """
-        Starts the task that makes a recurring announce to trackers and places
-        the received peers into a queue.
-        """
-        if self.task is None:
-            self.task = asyncio.create_task(self._recurring_announce())
-
-    def stop(self):
-        """
-        Stops the recurring announce task to trackers.
-        """
-        if self.task:
-            self.task.cancel()
-
-    async def _recurring_announce(self):
-        """
-        Responsible for making the recurring request for peers.
-        """
-        if len(self.announce_urls) == 0:
-            raise NoTrackersError
-
-        event = EVENT_STARTED
-
-        while not self.task.cancelled():
-            try:
-                await self.announce(event)
-
-                if len(self.announce_urls) == 0:
-                    break
-
-                event = ""
-                await asyncio.sleep(self.interval)
-            except (TrackerConnectionCancelledError, asyncio.CancelledError):
-                break
-            except TrackerConnectionError:
-                continue
-            except NoTrackersError:
-                self.task.cancel()
-        logger.info("Recurring announce task ended.")
-
-    async def announce(self, event: str = "") -> None:
-        """
-        Makes an announce request to the tracker and places the received peers into the queue.
+        Makes an announce request to the tracker and returns the received peers.
 
         :raises TrackerConnectionError: if the tracker's HTTP code is not 200,
                                         we timed out making a request to the tracker,
@@ -172,14 +131,11 @@ class TrackerConnection:
                                         are unable to bdecode the tracker's response.
         :raises NoTrackersError:        if there are no tracker URls to query.
         :raises TrackerConnectionCancelledError: if the task has been cancelled.
-        :returns: TrackerResponse object representing the tracker's response
+        :returns: `TrackerResponse` containing the tracker's response on success.
         """
         # TODO: respect proper order of announce urls according to BEP 0012.
         if len(self.announce_urls) == 0:
             raise NoTrackersError
-
-        if self.task.cancelled():
-            raise TrackerConnectionCancelledError
 
         remaining = self.torrent.remaining
         if remaining == 0 and not event:
@@ -187,8 +143,14 @@ class TrackerConnection:
 
         url = self.announce_urls.popleft()
         logger.info("Making %s announce to %s" % (event, url))
-        params = TrackerParameters(self.torrent.info_hash, self.client_info.peer_id_bytes, self.client_info.port,
-                                   0, self.torrent.present, remaining, 1, event)
+        params = TrackerParameters(self.torrent.info_hash,
+                                   self.client_info.peer_id_bytes,
+                                   self.client_info.port,
+                                   0,
+                                   self.torrent.present,
+                                   remaining,
+                                   1,
+                                   event)
 
         try:
             decoded_data = await http_request(url, params)
@@ -201,35 +163,23 @@ class TrackerConnection:
         if event != EVENT_COMPLETED and event != EVENT_STOPPED:
             self.interval = decoded_data.interval
             self.announce_urls.appendleft(url)
-
-            peers = []
-            for peer in decoded_data.get_peers():
-                peer_info = PeerInfo(peer[0], peer[1])
-                if peer_info == self.client_info:
-                    continue
-                peers.append(peer_info)
-
-            self.response_queue.put_nowait(peers)
+            return decoded_data
 
     async def cancel_announce(self) -> None:
         """
         Informs the tracker we are gracefully shutting down.
         :raises TrackerConnectionError:
         """
-        with contextlib.suppress(TrackerConnectionError, NoTrackersError, TrackerConnectionCancelledError):
+        with contextlib.suppress(TrackerConnectionError, NoTrackersError):
             await self.announce(event=EVENT_STOPPED)
-            if not self.task.cancelled():
-                self.task.cancel()
 
     async def completed(self) -> None:
         """
         Informs the tracker we have completed downloading this torrent
         :raises TrackerConnectionError:
         """
-        with contextlib.suppress(TrackerConnectionError, NoTrackersError, TrackerConnectionCancelledError):
+        with contextlib.suppress(TrackerConnectionError, NoTrackersError):
             await self.announce(event=EVENT_COMPLETED)
-            if not self.task.cancelled():
-                self.task.cancel()
 
 
 class TrackerResponse:
@@ -295,3 +245,106 @@ class TrackerResponse:
             return [(p["ip"].decode("UTF-8"), int(p["port"])) for p in peers]
         else:
             raise TrackerConnectionError
+
+    def get_peer_list(self) -> list[PeerInfo]:
+        """
+        :return: a list of `PeerInfo` objects of the returned peers.
+        """
+        peers = []
+        peer_list = self.get_peers()
+        for peer in peer_list:
+            peers.append(PeerInfo(peer[0], peer[1]))
+        return peers
+
+
+class TrackerTask(TrackerConnection):
+    def __init__(self, local_info, meta_info, peer_queue):
+        super().__init__(local_info, meta_info)
+        self._peer_queue: asyncio.Queue[PeerInfo] = peer_queue
+        self.task: Optional[asyncio.Task] = None
+
+    def start(self):
+        if not self.task:
+            self.task = asyncio.create_task(self._main())
+
+    def stop(self):
+        if self.task:
+            self.task.cancel()
+
+    async def _main(self):
+        """
+        Schedules and waits on the coroutines that send a recurring announce to a
+        peer and populate the available peer queue with the response.
+        """
+        tracker_response_queue = asyncio.Queue()
+        try:
+            await asyncio.gather(self._recurring_announce(tracker_response_queue),
+                                 self._receive_peers(tracker_response_queue))
+        except Exception as exc:
+            logger.error("%s received in TrackerTask" % type(exc).__name__)
+            if self.task and not self.task.cancelled():
+                self.task.cancel()
+            raise
+
+    async def _recurring_announce(self, response_queue: asyncio.Queue[TrackerResponse]):
+        """
+        Responsible for making the recurring request for peers and placing
+        the tracker's response into the given queue.
+
+        :param response_queue: Queue to place the response into.
+        """
+        if len(self.announce_urls) == 0:
+            raise NoTrackersError
+
+        event = EVENT_STARTED
+
+        while not self.task.cancelled():
+            try:
+                response_queue.put_nowait(await self.announce(event))
+
+                if len(self.announce_urls) == 0:
+                    break
+
+                event = ""
+                await asyncio.sleep(self.interval)
+            except (TrackerConnectionCancelledError, asyncio.CancelledError):
+                break
+            except TrackerConnectionError:
+                continue
+            except NoTrackersError:
+                self.task.cancel()
+        if self.torrent.complete:
+            await self.completed()
+        else:
+            await self.cancel_announce()
+        logger.info("Recurring announce task ended.")
+
+    async def _receive_peers(self, response_queue: asyncio.Queue[TrackerResponse]):
+        """
+        Listens to `TrackerResponse`s posted to the `response_queue` and populates
+        the peer_queue with the peers returned.
+
+        :param response_queue: Queue to read responses from.
+        """
+        try:
+            while True:
+                response = await response_queue.get()
+
+                logger.info("Adding more peers to queue.")
+
+                peers = None
+                if response:
+                    peers = [peer for peer in response.get_peer_list()
+                             if peer != self.client_info]
+
+                    if peers and len(peers) > self._peer_queue.qsize():
+                        while not self._peer_queue.empty():
+                            self._peer_queue.get_nowait()
+
+                        for peer in peers:
+                            self._peer_queue.put_nowait(peer)
+
+                response_queue.task_done()
+        except Exception:
+            self.task.cancel()
+            raise

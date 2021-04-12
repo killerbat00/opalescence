@@ -17,9 +17,9 @@ class PeerInfo:
 
     def __eq__(self, other):
         # TODO: check equality across info hashes
-        if isinstance(other, PeerInfo) and self.ip == other.ip and self.port == other.port:
-            return True
-        return False
+        return (isinstance(other, PeerInfo)
+                and self.ip == other.ip
+                and self.port == other.port)
 
     def __str__(self):
         return f"{self.ip}:{self.port}"
@@ -30,6 +30,10 @@ class PeerInfo:
     def reset_state(self):
         self.choking = True
         self.interested = False
+
+    @classmethod
+    def from_instance(cls, other):
+        return cls(other.ip, other.port, other.peer_id_bytes)
 
     @property
     def peer_id_bytes(self) -> bytes:

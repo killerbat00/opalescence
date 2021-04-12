@@ -6,8 +6,9 @@ Model classes for messages received over the bittorrent protocol.
 
 from __future__ import annotations
 
-__all__ = ['Message', 'Handshake', 'KeepAlive', 'Choke', 'Unchoke', 'Interested', 'NotInterested', 'Have',
-           'Bitfield', 'Request', 'Block', 'Piece', 'Cancel', 'MESSAGE_TYPES', 'ProtocolMessage']
+__all__ = ['Message', 'Handshake', 'KeepAlive', 'Choke', 'Unchoke',
+           'Interested', 'NotInterested', 'Have', 'Bitfield', 'Request',
+           'Block', 'Piece', 'Cancel', 'MESSAGE_TYPES', 'ProtocolMessage']
 
 import hashlib
 import struct
@@ -84,7 +85,8 @@ class Handshake(Message):
     def __eq__(self, other: Handshake):
         if not isinstance(other, Handshake):
             return False
-        return self.info_hash == other.info_hash and self.peer_id == other.peer_id
+        return self.info_hash == other.info_hash and \
+               self.peer_id == other.peer_id
 
     def encode(self) -> bytes:
         """
@@ -242,14 +244,15 @@ class Request(Message):
     msg_id = 6
     size = 2 ** 14
 
-    def __init__(self, index: int, begin: int, length: int = size, peer_id: str = ""):
+    def __init__(self, index: int, begin: int, length: int = size,
+                 peer_id: str = ""):
         self.index = index
         self.begin = begin
         self.length = length
         self.peer_id = peer_id
 
     def __str__(self):
-        return f"Request: (Index: {self.index}, Begin: {self.begin}, Length: {self.length})"
+        return f"Request: ({self.index}:{self.begin}:{self.length})"
 
     def __hash__(self):
         return hash((self.index, self.begin, self.length))
@@ -257,7 +260,9 @@ class Request(Message):
     def __eq__(self, other: Request):
         if not isinstance(other, Request):
             return False
-        return self.index == other.index and self.begin == other.begin and self.length == other.length
+        return (self.index == other.index and
+                self.begin == other.begin and
+                self.length == other.length)
 
     def encode(self) -> bytes:
         """
@@ -289,7 +294,7 @@ class Block(Message):
         self.data = data
 
     def __str__(self):
-        return f"Block: (Index: {self.index}, Begin: {self.begin}, Length: {len(self.data)})"
+        return f"Block: ({self.index}:{self.begin}:{len(self.data)})"
 
     def __hash__(self):
         return hash((self.index, self.begin, len(self.data)))
@@ -297,7 +302,9 @@ class Block(Message):
     def __eq__(self, other: Block):
         if not isinstance(other, Block):
             return False
-        return self.index == other.index and self.begin == other.begin and self.data == other.data
+        return (self.index == other.index and
+                self.begin == other.begin and
+                self.data == other.data)
 
     def encode(self) -> bytes:
         """
@@ -331,10 +338,11 @@ class Piece:
         self.data: bytes = data
         self.present: int = len(data)
         self._complete: bool = False
+        # the length of pieces as defined in the metainfo file
         self.mi_length: int = mi_length
 
     def __str__(self):
-        return f"Piece: (Index: {self.index}, Length: {self.length}, Remaining: {self.remaining})"
+        return f"Piece: ({self.index}:{self.length}:{self.remaining})"
 
     def __repr__(self):
         return str(self)
@@ -382,14 +390,14 @@ class Piece:
     @property
     def complete(self) -> bool:
         """
-        :return: True if all blocks have been total_downloaded
+        :return: True if all blocks have been bytes_downloaded
         """
         return self._complete or self.present == self.length
 
     @property
     def next_block(self) -> Optional[int]:
         """
-        :return: The offset of the next block, or None if there are no blocks left.
+        :return: The offset of the next block, or None if there are none left.
         """
         if self.complete:
             return 0
@@ -406,8 +414,8 @@ class Piece:
 
     def reset(self):
         """
-        Resets the piece leaving it in a state equivalent to immediately after initializing.
-        Used when we've total_downloaded the piece, but it turned out to be corrupt.
+        Resets the piece leaving it in a state equivalent to immediately after
+        initializing.
         """
         self.data = b''
         self.present = 0
@@ -436,7 +444,7 @@ class Cancel(Message):
         self.length = length
 
     def __str__(self):
-        return f"Cancel: (Index: {self.index}, Begin: {self.begin}, Length: {self.length})"
+        return f"Cancel: ({self.index}:{self.begin}:{self.length})"
 
     def __hash__(self):
         return hash((self.index, self.begin, self.length))
@@ -444,13 +452,16 @@ class Cancel(Message):
     def __eq__(self, other: Cancel):
         if not isinstance(other, Cancel):
             return False
-        return self.index == other.index and self.begin == other.begin and self.length == other.length
+        return (self.index == other.index and
+                self.begin == other.begin and
+                self.length == other.length)
 
     def encode(self) -> bytes:
         """
         :return: the cancel message encoded in bytes
         """
-        return struct.pack(">IBIII", 13, Cancel.msg_id, self.index, self.begin, self.length)
+        return struct.pack(">IBIII", 13, Cancel.msg_id, self.index, self.begin,
+                           self.length)
 
     @classmethod
     def from_request(cls, request: Request) -> Cancel:
@@ -481,5 +492,6 @@ MESSAGE_TYPES = {
     8: Cancel
 }
 
-ProtocolMessage = Union[Handshake, KeepAlive, Choke, Unchoke, Interested, NotInterested, Have, Bitfield, Request,
-                        Block, Cancel]
+ProtocolMessage = Union[
+    Handshake, KeepAlive, Choke, Unchoke, Interested, NotInterested, Have, Bitfield, Request,
+    Block, Cancel]
