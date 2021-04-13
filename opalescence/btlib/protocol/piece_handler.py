@@ -65,6 +65,30 @@ class PieceRequester:
             if b:
                 self.add_available_piece(peer, i)
 
+    def peer_is_interesting(self, peer: PeerInfo) -> bool:
+        """
+        Returns whether or not the peer is interesting to us.
+        We currently check if the peer has at least num_pieces // 2 pieces
+        that we don't have, unless we only need num_pieces // 4 pieces in
+        which case the peer is interesting if it has at least 1.
+
+        :param peer: The peer we're curious about.
+        :return: True if the peer is interesting, False otherwise
+        """
+        if peer not in self.peer_piece_map:
+            return False
+
+        needed = set([i for i, piece in enumerate(self.torrent.pieces)
+                      if not piece.complete])
+        peer_has = set([i for i in self.peer_piece_map[peer] if i in needed])
+
+        if not needed or not peer_has:
+            return False
+
+        if len(needed) <= self.torrent.num_pieces // 4:
+            return True
+        return len(peer_has) >= self.torrent.num_pieces // 2
+
     def remove_requests_for_peer(self, peer: PeerInfo):
         """
         Removes all pending requests for a peer.
