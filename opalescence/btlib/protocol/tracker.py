@@ -130,7 +130,7 @@ class TrackerConnection:
                                         the tracker sent a failure, or we
                                         are unable to bdecode the tracker's response.
         :raises NoTrackersError:        if there are no tracker URls to query.
-        :raises TrackerConnectionCancelledError: if the task has been cancelled.
+        :raises TrackerConnectionCancelledError: if the _task has been cancelled.
         :returns: `TrackerResponse` containing the tracker's response on success.
         """
         # TODO: respect proper order of announce urls according to BEP 0012.
@@ -261,6 +261,7 @@ class TrackerTask(TrackerConnection):
     def __init__(self, local_info, meta_info, peer_queue):
         super().__init__(local_info, meta_info)
         self._peer_queue: asyncio.Queue[PeerInfo] = peer_queue
+        self._tracker_resp_queue: asyncio.Queue[TrackerResponse] = asyncio.Queue()
         self.task: Optional[asyncio.Task] = None
 
     def start(self):
@@ -276,10 +277,9 @@ class TrackerTask(TrackerConnection):
         Schedules and waits on the coroutines that send a recurring announce to a
         peer and populate the available peer queue with the response.
         """
-        tracker_response_queue = asyncio.Queue()
         try:
-            await asyncio.gather(self._recurring_announce(tracker_response_queue),
-                                 self._receive_peers(tracker_response_queue))
+            await asyncio.gather(self._recurring_announce(self._tracker_resp_queue),
+                                 self._receive_peers(self._tracker_resp_queue))
         except Exception as exc:
             logger.error("%s received in TrackerTask" % type(exc).__name__)
             if self.task and not self.task.cancelled():
@@ -317,7 +317,17 @@ class TrackerTask(TrackerConnection):
             await self.completed()
         else:
             await self.cancel_announce()
-        logger.info("Recurring announce task ended.")
+        logger.info("Recurring announce _task ended.")
+
+    def retrieve_more_peers(self):
+        if len(self.announce_urls):
+            raise NoTrackersError
+        if self.torrent.complete:
+            return
+        asyncio.ensure_future(self._retrieve_more())
+
+    async def _retrieve_more(self):
+        self._tracker_resp_queue.put_nowait(await self.announce())
 
     async def _receive_peers(self, response_queue: asyncio.Queue[TrackerResponse]):
         """

@@ -111,28 +111,43 @@ class Torrent:
         """
         tasks = {"Monitor": self.monitor_task,
                  "Tracker": self.tracker.task,
-                 "FileWriter": self.file_writer.task}
+                 "FileWriter": self.file_writer.task,
+                 "PeerPool": self.peer_pool.task}
         last_time = 0.0
         last_downloaded = 0
+        last_time_no_peers = 0.0
         try:
             while not self.torrent.complete:
+                now = asyncio.get_event_loop().time()
+
                 if not last_time:
                     last_time = self.download_started
                 elif not last_downloaded:
                     last_downloaded = self.peer_pool.stats.bytes_downloaded
                 else:
-                    now = asyncio.get_event_loop().time()
                     dt = now - last_time
                     diff = self.peer_pool.stats.bytes_downloaded - last_downloaded
                     self.average_speed = round((diff / dt) / 2 ** 10, 2)
 
                 # monitor tasks
                 for name, task in tasks.items():
+                    if name == "PeerPool" and task is None:
+                        logger.info("PeerPoolConnection stopped.")
+                        raise TorrentError
+
                     if task.cancelled():
-                        logger.info("%s: %s task cancelled." % (self.torrent, name))
+                        logger.info("%s: %s _task cancelled." % (self.torrent, name))
                         if name == "Tracker":
                             await self.tracker.cancel_announce()
                         raise TorrentError
+
+                if self.num_peers == 0:
+                    if not last_time_no_peers:
+                        last_time_no_peers = now
+                    else:
+                        if now - last_time_no_peers >= 3:
+                            self.tracker.retrieve_more_peers()
+                            last_time_no_peers = None
 
                 await asyncio.sleep(.5)
             else:

@@ -204,8 +204,11 @@ class Bitfield(Message):
     """
     msg_id = 5
 
-    def __init__(self, bitfield: bytes):
-        self.bitfield = bitstring.BitArray(bytes=bitfield)
+    def __init__(self, bitfield: Optional[bytes] = None):
+        if bitfield:
+            self.bitfield = bitstring.BitArray(bytes=bitfield)
+        else:
+            self.bitfield = None
 
     def __str__(self):
         return f"Bitfield: {self.bitfield}"
@@ -222,9 +225,17 @@ class Bitfield(Message):
         """
         :return: encoded message to be sent to protocol
         """
+        if self.bitfield is None:
+            return b''
         bitfield_len = len(self.bitfield)
         return struct.pack(f">IB{bitfield_len}s", 1 + bitfield_len,
-                           Bitfield.msg_id, self.bitfield)
+                           Bitfield.msg_id, self.bitfield.tobytes())
+
+    @classmethod
+    def from_str(cls, bitstr: str):
+        ba = cls()
+        ba.bitfield = bitstring.BitArray(bitstr)
+        return ba
 
     @classmethod
     def decode(cls, data: bytes) -> Bitfield:
