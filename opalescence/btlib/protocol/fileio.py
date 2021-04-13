@@ -200,8 +200,6 @@ class FileWriterTask(FileWriter):
         """
         piece = None
         try:
-            self._open_files()
-
             while True:
                 piece = await self._queue.get()
                 await self._await_write(piece)

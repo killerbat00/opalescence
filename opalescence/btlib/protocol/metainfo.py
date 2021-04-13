@@ -149,7 +149,8 @@ class MetaInfoFile:
                 torrent.meta_info = Decode(data)
 
             if not torrent.meta_info or not isinstance(torrent.meta_info, OrderedDict):
-                logger.error("Unable to create torrent object. No metainfo decoded from file.")
+                logger.error("Unable to create torrent object."
+                             "No metainfo decoded from file.")
                 raise MetaInfoCreationError
 
             _validate_torrent_dict(torrent.meta_info)
@@ -200,12 +201,14 @@ class MetaInfoFile:
                 data: bytes = Encode(self.meta_info)
                 f.write(data)
             except EncodeError as ee:
-                logger.error("Encountered %s while writing metainfo file %s" % (type(ee).__name__, output_filename))
+                logger.error("Encountered %s while writing metainfo file %s" %
+                             (type(ee).__name__, output_filename))
                 raise MetaInfoCreationError from ee
 
     def check_existing_pieces(self) -> None:
         """
-        Checks the existing files on disk and verifies their piece hashes, marking them complete as appropriate.
+        Checks the existing files on disk and verifies their piece hashes,
+        marking them complete as appropriate.
         """
         assert self.files
 
@@ -213,6 +216,7 @@ class MetaInfoFile:
         try:
             for i, file in self.files.items():
                 fps[i] = open(file.path, "rb") if file.exists else None
+                fps[i].seek(0)
 
             for i, piece in enumerate(self.pieces):
                 file_index, file_offset = FileItem.file_for_piece(self.files, piece)
@@ -281,7 +285,8 @@ class MetaInfoFile:
                 self.files[i] = FileItem(filepath, length, offset, exists)
                 offset += length
         else:
-            filepath = self.destination / Path(_get_and_decode(self.meta_info["info"], "name"))
+            filepath = self.destination / Path(_get_and_decode(self.meta_info["info"],
+                                                               "name"))
             exists = filepath.exists()
             length = self.meta_info["info"].get("length", 0)
             self.files[0] = FileItem(filepath, length, 0, exists)
@@ -303,6 +308,16 @@ class MetaInfoFile:
             self.pieces.append(Piece(piece_index, piece_length, self.piece_length))
 
     @property
+    def bitfield(self) -> str:
+        res = "0b"
+        for i, p in enumerate(self.pieces):
+            if p.complete:
+                res += "1"
+            else:
+                res += "0"
+        return res
+
+    @property
     def multi_file(self) -> bool:
         """
         Returns True if this is a torrent with multiple files.
@@ -318,7 +333,8 @@ class MetaInfoFile:
         :return: a list of announce URLs for the tracker
         """
         if "announce-list" in self.meta_info:
-            return [[x.decode("UTF-8") for x in url_list] for url_list in self.meta_info["announce-list"]]
+            return [[x.decode("UTF-8") for x in url_list]
+                    for url_list in self.meta_info["announce-list"]]
         return [[_get_and_decode(self.meta_info, "announce")]]
 
     @property
