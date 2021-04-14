@@ -52,37 +52,19 @@ class PeerConnectionPool:
         self.peers: list[Optional[PeerConnection]] = []
         self.piece_queue = piece_queue
 
-        self.task: Optional[asyncio.Task] = None
         self.start()
 
     def start(self):
         """
         Creates and starts all `PeerConnection`s in this pool.
         """
-        if len(self.peers) != 0 or self.task is not None:
+        if len(self.peers) != 0:
             return
 
         self.peers = [
             PeerConnection(self.client_info, self.torrent, self.requester,
                            self.peer_queue, self.piece_queue, self.stats)
             for _ in range(self.max_num_peers)]
-
-        self.task = asyncio.create_task(self._monitor_connected())
-
-    async def _monitor_connected(self):
-        """
-        Periodically checks all peer tasks and stops the pool if no peers
-        have any remaining tasks.
-        """
-        try:
-            while True:
-                no_task = [peer for peer in self.peers if peer._task is None]
-                if len(no_task) == len(self.peers):
-                    raise PeerError
-                await asyncio.sleep(0.5)
-        except Exception:
-            self.stop()
-            self.task = None
 
     def stop(self):
         """
@@ -117,12 +99,12 @@ class PeerConnection:
         self._stop_forever = False
         self._stats = stats
 
-        self._task = asyncio.create_task(self.download(), name="[WAITING] PeerConnection")
+        self.task = asyncio.create_task(self.download(), name="[WAITING] PeerConnection")
 
     def __str__(self):
         if not self.peer:
-            return f"{self._task.get_name()}:{self.torrent.info_hash}"
-        return f"{self._task.get_name()}:{self.torrent.info_hash}"
+            return f"{self.task.get_name()}:{self.torrent.info_hash}"
+        return f"{self.task.get_name()}:{self.torrent.info_hash}"
 
     def __repr__(self):
         return str(self)
@@ -136,8 +118,8 @@ class PeerConnection:
         to new peers or exchanging messages.
         """
         self._stop_forever = True
-        if self._task and not self._task.cancelled():
-            self._task.cancel()
+        if self.task and not self.task.cancelled():
+            self.task.cancel()
 
     def reset(self):
         """
@@ -147,8 +129,8 @@ class PeerConnection:
         if not self.peer:
             return
 
-        if self._task and not self._task.cancelled():
-            self._task.cancel()
+        if self.task and not self.task.cancelled():
+            self.task.cancel()
 
     async def download(self):
         """
@@ -165,7 +147,7 @@ class PeerConnection:
                     continue
 
                 self.peer = peer_info
-                self._task.set_name(f"{self.peer}")
+                self.task.set_name(f"{self.peer}")
 
                 logger.info("%s: Opening connection with peer." % self)
                 # TODO: When we start allowing peers to connect to us,
@@ -199,9 +181,8 @@ class PeerConnection:
                     logger.info("%s: Resetting peer connection." % self)
                     self.local.reset_state()
                     self._msg_to_send_q = asyncio.Queue()
-                    self._task.set_name("[WAITING] PeerConnection")
+                    self.task.set_name("[WAITING] PeerConnection")
         logger.debug("%s: Stopped forever" % self)
-        self._task = None
 
     async def _consume(self, messenger: PeerMessenger):
         """
@@ -225,15 +206,12 @@ class PeerConnection:
                 if isinstance(msg, Choke):
                     self.peer.choking = True
                     self._requester.remove_requests_for_peer(self.peer)
+                    while not self._msg_to_send_q.empty():
+                        self._msg_to_send_q.get_nowait()
                 elif isinstance(msg, Unchoke):
                     self.peer.choking = False
-                    # TODO: add multiple requests
-                    next_request = self._requester.next_request_for_peer(self.peer)
-                    if not next_request:
-                        logger.info("%s: No request available for %s" % (self.peer,
-                                                                         self.local))
-                    else:
-                        self._msg_to_send_q.put_nowait(next_request)
+                    self._requester.fill_peer_request_queue(self.peer,
+                                                            self._msg_to_send_q)
                 elif isinstance(msg, Interested):
                     self.peer.interested = True
                     # TODO: we don't send blocks to the peer
@@ -254,19 +232,14 @@ class PeerConnection:
                     # TODO: we don't send blocks to the peer
                     pass
                 elif isinstance(msg, Block):
-                    # Assume the peer has the whole piece
                     self._received_block(msg)
                     if self.torrent.complete:
                         self.stop_forever()
                         break
 
                     # TODO: better piece requesting, currently in-order tit for tat
-                    next_request = self._requester.next_request_for_peer(self.peer)
-                    if not next_request:
-                        logger.info("%s: No request available for %s" % (self.peer,
-                                                                         self.local))
-                    else:
-                        self._msg_to_send_q.put_nowait(next_request)
+                    self._requester.fill_peer_request_queue(self.peer,
+                                                            self._msg_to_send_q)
                 elif isinstance(msg, Cancel):
                     pass
         except Exception as exc:
@@ -297,10 +270,8 @@ class PeerConnection:
             self._stats.torrent_bytes_wasted += block_size
             return
 
-        self._requester.add_available_piece(self.peer, block.index)
-
         # Remove the pending requests for this block if there are any
-        if not self._requester.remove_requests_for_block(block):
+        if not self._requester.remove_requests_for_block(self.peer, block):
             logger.debug("Disregarding. I did not request %s" % block)
             self._stats.torrent_bytes_wasted += block_size
             return
@@ -480,8 +451,7 @@ class PeerMessenger:
         :raises `PeerError`: if disconnected.
         """
         if not self._connected:
-            raise PeerError(
-                "Cannot send message on disconnected PeerMessenger.")
+            raise PeerError("Cannot send message on disconnected PeerMessenger.")
         data = msg.encode()
         self._stream_writer.write(data)
         self._stats.bytes_uploaded += len(data)
@@ -495,8 +465,7 @@ class PeerMessenger:
         :raises `PeerError`: if disconnected.
         """
         if not self._connected:
-            raise PeerError(
-                "Cannot receive message on disconnected PeerMessenger.")
+            raise PeerError("Cannot receive message on disconnected PeerMessenger.")
 
         data = await self._stream_reader.readexactly(Handshake.msg_len)
         self._stats.bytes_downloaded += Handshake.msg_len
@@ -510,8 +479,7 @@ class PeerMessenger:
         :raises `PeerError`: on exception or if disconnected.
         """
         if not self._connected:
-            raise PeerError(
-                "Cannot receive message on disconnected PeerMessenger.")
+            raise PeerError("Cannot receive message on disconnected PeerMessenger.")
 
         try:
             msg_len = struct.unpack(">I", await self._stream_reader.readexactly(4))[0]

@@ -6,6 +6,7 @@ Contains the logic for requesting pieces, as well as that for writing them to di
 
 __all__ = ['PieceRequester']
 
+import asyncio
 import dataclasses
 import logging
 from collections import defaultdict
@@ -14,6 +15,7 @@ from typing import Optional
 import bitstring
 
 from .messages import Request, Block
+from .metainfo import MetaInfoFile
 from .peer_info import PeerInfo
 
 logger = logging.getLogger(__name__)
@@ -33,15 +35,39 @@ class PieceRequester:
 
     We currently use a naive sequential requesting strategy.
     """
+    _block_size = 2 ** 14
 
-    def __init__(self, torrent):
+    def __init__(self, torrent: MetaInfoFile):
         self.torrent = torrent
-        self.piece_peer_map = {i: set() for i in
-                               range(self.torrent.num_pieces)}
-        self.peer_piece_map = defaultdict(set)
-        self.peer_pending_request_map = defaultdict(set)
-        self.pending_requests: list[Request] = []
-        self.pending_requests2: list[Block] = []
+        # peer identification
+        self.piece_peer_map: dict[int, set[PeerInfo]] = \
+            {i: set() for i in range(self.torrent.num_pieces)}
+        self.peer_piece_map: dict[PeerInfo, set[int]] = defaultdict(set)
+
+        # canonical list of unfulfilled requests
+        self._unfulfilled_requests: list[Request] = self._build_requests()
+        self._peer_unfulfilled_requests: dict[PeerInfo, set[int]] = defaultdict(set)
+
+    def _build_requests(self) -> list[Request]:
+        """
+        Builds the list of unfulfilled requests.
+        When we need to fill a queue with requests, we just make copies of
+        requests in our list and mark the ones we have with the peer we send
+        the request to.
+
+        :return: a list of all the requests needed to download the torrent
+        """
+        requests = []
+        block_size = min(self._block_size, self.torrent.piece_length)
+        for i, piece in enumerate(self.torrent.pieces):
+            if piece.complete:
+                continue
+            piece_offset = 0
+            while (size := min(block_size, piece.length - piece_offset)) > 0:
+                requests.append(Request(i, piece_offset, size))
+                piece_offset += size
+
+        return requests
 
     def add_available_piece(self, peer: PeerInfo, index: int):
         """
@@ -82,51 +108,67 @@ class PieceRequester:
                       if not piece.complete])
         peer_has = set([i for i in self.peer_piece_map[peer] if i in needed])
 
-        if not needed or not peer_has:
-            return False
+        # if not needed or not peer_has:
+        #    return False
 
-        if len(needed) <= self.torrent.num_pieces // 4:
-            return True
-        return len(peer_has) >= self.torrent.num_pieces // 2
+        # if len(needed) <= self.torrent.num_pieces // 4:
+        #    return True
+        # return len(peer_has) >= self.torrent.num_pieces // 2
+
+        return len(peer_has) > 0
 
     def remove_requests_for_peer(self, peer: PeerInfo):
         """
         Removes all pending requests for a peer.
         Called when the peer disconnects or chokes us.
 
-        :param peer: peer whose pending requests ew should remove
+        :param peer: peer whose pending requests we should remove
         """
-        for i, request in enumerate(self.pending_requests):
-            if request.peer_id == peer.peer_id:
-                del self.pending_requests[i]
+        if peer in self._peer_unfulfilled_requests:
+            for request_index in self._peer_unfulfilled_requests[peer]:
+                self._unfulfilled_requests[request_index].peer_id = ""
 
-        if peer in self.peer_pending_request_map:
-            del self.peer_pending_request_map[peer]
+            del self._peer_unfulfilled_requests[peer]
 
-    def remove_requests_for_block(self, block: Block) -> bool:
+    def remove_requests_for_block(self, peer: PeerInfo, block: Block) -> bool:
         """
         Removes all pending requests for the given block.
 
+        :param peer: `PeerInfo` of the peer who sent the block.
         :param block: `Block` to remove from pending requests.
         :return: True if removed, False otherwise
         """
-        removed = False
+        if peer not in self._peer_unfulfilled_requests:
+            return False
+        if len(self._peer_unfulfilled_requests[peer]) == 0:
+            return False
+
+        found = False
         request = Request(block.index, block.begin, len(block.data))
-        for i, pending_request in enumerate(self.pending_requests):
-            if pending_request == request:
-                del self.pending_requests[i]
-                removed = True
-        return removed
+        request_index = None
+        for request_index in self._peer_unfulfilled_requests[peer]:
+            found_rqst = self._unfulfilled_requests[request_index]
+            if found_rqst == request and found_rqst.peer_id == peer.peer_id:
+                found = True
+                break
+
+        if found and request_index:
+            del self._unfulfilled_requests[request_index]
+            self._peer_unfulfilled_requests[peer].discard(request_index)
+        return found
 
     def remove_requests_for_piece(self, piece_index: int):
         """
         Removes all pending requests with the given piece index.
+        Called when a completed piece has been received.
 
         :param piece_index: piece index whose requests should be removed
         """
-        for i, request in enumerate(self.pending_requests):
+        for i, request in enumerate(self._unfulfilled_requests):
             if request.index == piece_index:
-                del self.pending_requests[i]
+                del self._unfulfilled_requests[i]
+                for request_sets in self._peer_unfulfilled_requests.values():
+                    request_sets.discard(i)
 
     def remove_peer(self, peer: PeerInfo):
         """
@@ -135,7 +177,7 @@ class PieceRequester:
 
         :param peer: peer to remove
         """
-        for _, peer_set in self.piece_peer_map.items():
+        for peer_set in self.piece_peer_map.values():
             if peer in peer_set:
                 peer_set.discard(peer)
 
@@ -143,6 +185,10 @@ class PieceRequester:
             del self.peer_piece_map[peer]
 
         self.remove_requests_for_peer(peer)
+
+    def fill_peer_request_queue(self, peer: PeerInfo, msg_queue: asyncio.Queue):
+        num_needed = 10 - msg_queue.qsize()
+        pass
 
     def next_request_for_peer(self, peer: PeerInfo) -> Optional[Request]:
         """
@@ -159,7 +205,7 @@ class PieceRequester:
         :param peer: peer requesting a piece
         :return: piece's index or None if not available
         """
-        if len(self.pending_requests) >= 50:
+        if len(self.pending_requests) >= 25:
             logger.error(f"Too many currently pending requests.")
             return
 
@@ -172,7 +218,7 @@ class PieceRequester:
 
             size = min(piece.remaining, Request.size)
             request = Request(i, piece.next_block, size, peer.peer_id)
-            while request in self.pending_requests:
+            if request in self.pending_requests:
                 # TODO: move on to the next request/block
                 return
 
