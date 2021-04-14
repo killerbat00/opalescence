@@ -111,8 +111,7 @@ class Torrent:
         """
         tasks = {"Monitor": self.monitor_task,
                  "Tracker": self.tracker.task,
-                 "FileWriter": self.file_writer.task,
-                 "PeerPool": self.peer_pool.task}
+                 "FileWriter": self.file_writer.task}
         last_time = 0.0
         last_downloaded = 0
         last_time_no_peers = 0.0
@@ -131,11 +130,7 @@ class Torrent:
 
                 # monitor tasks
                 for name, task in tasks.items():
-                    if name == "PeerPool" and task is None:
-                        logger.info("PeerPoolConnection stopped.")
-                        raise TorrentError
-
-                    if task.cancelled():
+                    if task.cancelled() or task.done():
                         logger.info("%s: %s _task cancelled." % (self.torrent, name))
                         if name == "Tracker":
                             await self.tracker.cancel_announce()
