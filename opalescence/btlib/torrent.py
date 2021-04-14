@@ -51,6 +51,14 @@ class Torrent:
 
         self.peer_queue = asyncio.Queue()
         self.piece_queue = asyncio.Queue()
+
+        # TODO: Move this. Currently PeerConnectionPool -> PieceRequester
+        # and PieceRequester looks at the torrent's pieces, expecting them to
+        # be marked complete if they are. Without this here, we'll request
+        # pieces we already have. It's mostly fine because we disregard the blocks
+        # when we receive them, but not ideal.
+        logger.info("Checking existing pieces...")
+        self.torrent.check_existing_pieces()
         self.peer_pool: PeerConnectionPool = PeerConnectionPool(self.client_info,
                                                                 self.torrent,
                                                                 self.peer_queue,
@@ -90,7 +98,6 @@ class Torrent:
     def download(self):
         self.download_started = asyncio.get_event_loop().time()
 
-        self.torrent.check_existing_pieces()
         logger.info("We have %s / %s bytes" % (self.torrent.present,
                                                self.torrent.total_size))
         self.started_with = self.torrent.present

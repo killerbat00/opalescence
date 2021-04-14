@@ -44,10 +44,10 @@ class PieceRequester:
         self.peer_piece_map: dict[PeerInfo, set[int]] = defaultdict(set)
 
         # canonical list of unfulfilled requests
-        self._unfulfilled_requests: list[Request] = self._build_requests()
-        self._peer_unfulfilled_requests: dict[PeerInfo, set[int]] = defaultdict(set)
+        self._unfulfilled_requests: set[Request] = self._build_requests()
+        self._peer_unfulfilled_requests: dict[PeerInfo, set[Request]] = defaultdict(set)
 
-    def _build_requests(self) -> list[Request]:
+    def _build_requests(self) -> set[Request]:
         """
         Builds the list of unfulfilled requests.
         When we need to fill a queue with requests, we just make copies of
@@ -56,14 +56,14 @@ class PieceRequester:
 
         :return: a list of all the requests needed to download the torrent
         """
-        requests = []
+        requests = set()
         block_size = min(self._block_size, self.torrent.piece_length)
         for i, piece in enumerate(self.torrent.pieces):
             if piece.complete:
                 continue
             piece_offset = 0
             while (size := min(block_size, piece.length - piece_offset)) > 0:
-                requests.append(Request(i, piece_offset, size))
+                requests.add(Request(i, piece_offset, size))
                 piece_offset += size
 
         return requests
@@ -122,10 +122,9 @@ class PieceRequester:
 
         :param peer: peer whose pending requests we should remove
         """
-        for request_index in self._peer_unfulfilled_requests[peer]:
-            self._unfulfilled_requests[request_index].peer_id = ""
-
         if peer in self._peer_unfulfilled_requests:
+            for request in self._peer_unfulfilled_requests[peer]:
+                request.peer_id = ""
             del self._peer_unfulfilled_requests[peer]
 
     def remove_requests_for_block(self, peer: PeerInfo, block: Block) -> bool:
@@ -143,16 +142,12 @@ class PieceRequester:
 
         found = False
         request = Request(block.index, block.begin, len(block.data))
-        request_index = None
-        for request_index in self._peer_unfulfilled_requests[peer]:
-            found_rqst = self._unfulfilled_requests[request_index]
-            if found_rqst == request and found_rqst.peer_id == peer.peer_id:
-                found = True
-                break
 
-        if found and request_index:
-            del self._unfulfilled_requests[request_index]
-            self._peer_unfulfilled_requests[peer].discard(request_index)
+        if request in self._peer_unfulfilled_requests[peer]:
+            self._peer_unfulfilled_requests[peer].discard(request)
+            found = True
+
+            self._unfulfilled_requests.discard(request)
         return found
 
     def remove_requests_for_piece(self, piece_index: int):
@@ -162,11 +157,14 @@ class PieceRequester:
 
         :param piece_index: piece index whose requests should be removed
         """
+        to_discard = []
         for i, request in enumerate(self._unfulfilled_requests):
             if request.index == piece_index:
-                del self._unfulfilled_requests[i]
+                to_discard.append(request)
                 for request_set in self._peer_unfulfilled_requests.values():
                     request_set.discard(i)
+        for r in to_discard:
+            self._unfulfilled_requests.discard(r)
 
     def remove_peer(self, peer: PeerInfo):
         """
@@ -187,11 +185,11 @@ class PieceRequester:
 
         :param peer: The peer asking for a top up
         :param msg_queue: the message queue to place the requests into
-        :return: True if more requests were added, False otherwise
+        :return: True if more requests were added or the peer has any outstanding.
         """
         added_more = False
+        num_needed = 10 - len(self._peer_unfulfilled_requests[peer])
 
-        num_needed = 10 - msg_queue.qsize()
         for _ in range(num_needed):
             request = self.next_request_for_peer(peer)
             if not request:  # no more requests for this peer
@@ -218,14 +216,14 @@ class PieceRequester:
             return
 
         found_request = None
-        for i, request in enumerate(self._unfulfilled_requests):
+        for request in self._unfulfilled_requests:
             if request.peer_id:
                 continue
             if request.index not in self.peer_piece_map[peer]:
                 continue
             request.peer_id = peer.peer_id
-            self._peer_unfulfilled_requests[peer].add(i)
-            found_request = Request(request.index, request.begin, request.length)
+            self._peer_unfulfilled_requests[peer].add(request)
+            found_request = request
             break
 
         return found_request
