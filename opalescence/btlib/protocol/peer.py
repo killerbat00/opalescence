@@ -210,8 +210,13 @@ class PeerConnection:
                         self._msg_to_send_q.get_nowait()
                 elif isinstance(msg, Unchoke):
                     self.peer.choking = False
-                    self._requester.fill_peer_request_queue(self.peer,
-                                                            self._msg_to_send_q)
+                    if self.local.interested:
+                        if not self._requester.fill_peer_request_queue(self.peer,
+                                                                       self._msg_to_send_q):
+                            if self._msg_to_send_q.empty():
+                                logger.debug("%s: Unchoked us and we're interested, "
+                                             "but we don't have any requests to send.")
+                                raise PeerError
                 elif isinstance(msg, Interested):
                     self.peer.interested = True
                     # TODO: we don't send blocks to the peer
@@ -237,9 +242,11 @@ class PeerConnection:
                         self.stop_forever()
                         break
 
-                    # TODO: better piece requesting, currently in-order tit for tat
-                    self._requester.fill_peer_request_queue(self.peer,
-                                                            self._msg_to_send_q)
+                    if not self._requester.fill_peer_request_queue(self.peer,
+                                                                   self._msg_to_send_q):
+                        if self._msg_to_send_q.empty():
+                            logger.debug("%s: No more requests for peer." % self.peer)
+                            raise PeerError
                 elif isinstance(msg, Cancel):
                     pass
         except Exception as exc:
