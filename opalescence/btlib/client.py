@@ -109,7 +109,7 @@ class Client:
         Adds a task to the list of running tasks.
         :param task: task to add to this borg.
         """
-        if task is None or task.cancelled() or task.done() or self._running:
+        if task is None or task.cancelled() or task.done():
             return
         self._tasks.add(task)
 
