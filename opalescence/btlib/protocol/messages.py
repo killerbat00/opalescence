@@ -13,7 +13,7 @@ __all__ = ['Message', 'Handshake', 'KeepAlive', 'Choke', 'Unchoke',
 import hashlib
 import struct
 from abc import abstractmethod
-from typing import Optional, Union
+from typing import Optional, Union, AnyStr
 
 import bitstring
 
@@ -204,11 +204,13 @@ class Bitfield(Message):
     """
     msg_id = 5
 
-    def __init__(self, bitfield: Optional[bytes] = None):
-        if bitfield:
+    def __init__(self, bitfield: Optional[AnyStr]):
+        if isinstance(bitfield, str):
+            self.bitfield = bitstring.BitArray("0b" + bitfield)
+        elif isinstance(bitfield, bytes):
             self.bitfield = bitstring.BitArray(bytes=bitfield)
         else:
-            self.bitfield = None
+            raise TypeError
 
     def __str__(self):
         return f"Bitfield: {self.bitfield}"
@@ -230,12 +232,6 @@ class Bitfield(Message):
         bitfield_len = len(self.bitfield)
         return struct.pack(f">IB{bitfield_len}s", 1 + bitfield_len,
                            Bitfield.msg_id, self.bitfield.tobytes())
-
-    @classmethod
-    def from_str(cls, bitstr: str):
-        ba = cls()
-        ba.bitfield = bitstring.BitArray(bitstr)
-        return ba
 
     @classmethod
     def decode(cls, data: bytes) -> Bitfield:
@@ -298,6 +294,7 @@ class Block(Message):
     <0009+X><7><index><begin><block>
     """
     msg_id = 7
+    size = 2 ** 14
 
     def __init__(self, index: int, begin: int, data: bytes):
         self.index = index  # index of the actual piece
@@ -346,11 +343,23 @@ class Piece:
     def __init__(self, index, length, mi_length, data=b''):
         self.index: int = index
         self.length: int = length
-        self.data: bytes = data
         self.present: int = len(data)
         self._complete: bool = False
         # the length of pieces as defined in the metainfo file
         self.mi_length: int = mi_length
+        self.block_size: int = min(self.mi_length, Block.size)
+        self._blocks: list[Block] = []
+        self._generate_blocks(data)
+
+    def _generate_blocks(self, data: bytes = b''):
+        offset = 0
+        while (size := min(self.block_size, self.length - offset)) > 0:
+            if data:
+                block = Block(self.index, offset, data[offset:offset + size])
+            else:
+                block = Block(self.index, offset, b'')
+            self._blocks.append(block)
+            offset += size
 
     def __str__(self):
         return f"Piece: ({self.index}:{self.length}:{self.remaining})"
@@ -365,9 +374,13 @@ class Piece:
         if not isinstance(other, Piece):
             return False
         equal = self.index == other.index and self.length and other.length
-        if self.data and other.data:
-            equal = equal and self.data == other.data
+        if self.complete and other.complete:
+            equal &= self.data == other.data
         return equal
+
+    @property
+    def data(self) -> bytes:
+        return b''.join([b.data for b in self._blocks])
 
     def add_block(self, block: Block):
         """
@@ -379,9 +392,11 @@ class Piece:
 
         assert self.index == block.index
 
-        if block.begin != self.present:
+        block_index = block.begin // self.block_size
+        if block_index < 0 or block_index > len(self._blocks):
             raise NonSequentialBlockError
-        self.data += block.data
+
+        self._blocks[block_index] = block
         self.present += len(block.data)
 
     def mark_complete(self):
@@ -406,15 +421,6 @@ class Piece:
         return self._complete or self.present == self.length
 
     @property
-    def next_block(self) -> Optional[int]:
-        """
-        :return: The offset of the next block, or None if there are none left.
-        """
-        if self.complete:
-            return 0
-        return self.present
-
-    @property
     def remaining(self) -> int:
         """
         :return: The number of bytes remaining in this piece.
@@ -428,15 +434,16 @@ class Piece:
         Resets the piece leaving it in a state equivalent to immediately after
         initializing.
         """
-        self.data = b''
         self.present = 0
+        self._generate_blocks()
 
     def hash(self) -> Optional[bytes]:
         """
         Returns the hash of the piece's data.
         """
-        if not self.data:
-            return
+        for block in self._blocks:
+            if not block.data:
+                return
         return hashlib.sha1(self.data).digest()
 
 
