@@ -44,10 +44,10 @@ class PieceRequester:
         self.peer_piece_map: dict[PeerInfo, set[int]] = defaultdict(set)
 
         # canonical list of unfulfilled requests
-        self._unfulfilled_requests: set[Request] = self._build_requests()
+        self._unfulfilled_requests: list[Request] = []
         self._peer_unfulfilled_requests: dict[PeerInfo, set[Request]] = defaultdict(set)
 
-    def _build_requests(self) -> set[Request]:
+    def _build_requests(self) -> list[Request]:
         """
         Builds the list of unfulfilled requests.
         When we need to fill a queue with requests, we just make copies of
@@ -56,14 +56,14 @@ class PieceRequester:
 
         :return: a list of all the requests needed to download the torrent
         """
-        requests = set()
+        requests = []
         block_size = min(self._block_size, self.torrent.piece_length)
         for i, piece in enumerate(self.torrent.pieces):
             if piece.complete:
                 continue
             piece_offset = 0
             while (size := min(block_size, piece.length - piece_offset)) > 0:
-                requests.add(Request(i, piece_offset, size))
+                requests.append(Request(i, piece_offset, size))
                 piece_offset += size
 
         return requests
@@ -75,6 +75,8 @@ class PieceRequester:
         :param peer: The peer that has the piece
         :param index: The index of the piece
         """
+        if not self._unfulfilled_requests:
+            self._unfulfilled_requests = self._build_requests()
         self.peer_piece_map[peer].add(index)
 
     def add_peer_bitfield(self, peer: PeerInfo, bitfield: bitstring.BitArray):
@@ -85,6 +87,9 @@ class PieceRequester:
                          to know where to eventually send requests
         :param bitfield: The bitfield sent by the peer
         """
+        if not self._unfulfilled_requests:
+            self._unfulfilled_requests = self._build_requests()
+
         for i, b in enumerate(bitfield):
             if b:
                 self.add_available_piece(peer, i)
@@ -147,7 +152,11 @@ class PieceRequester:
             self._peer_unfulfilled_requests[peer].discard(request)
             found = True
 
-            self._unfulfilled_requests.discard(request)
+            try:
+                self._unfulfilled_requests.remove(request)
+            except ValueError:
+                pass
+
         return found
 
     def remove_requests_for_piece(self, piece_index: int):
@@ -162,9 +171,9 @@ class PieceRequester:
             if request.index == piece_index:
                 to_discard.append(request)
                 for request_set in self._peer_unfulfilled_requests.values():
-                    request_set.discard(i)
+                    request_set.discard(request)
         for r in to_discard:
-            self._unfulfilled_requests.discard(r)
+            self._unfulfilled_requests.remove(r)
 
     def remove_peer(self, peer: PeerInfo):
         """
