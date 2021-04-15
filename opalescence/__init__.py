@@ -6,7 +6,7 @@ Package containing the main opalescence application logic.
 
 __author__ = """Brian Houston Morrow"""
 __email__ = "bhm@brianmorrow.net"
-__version__ = "0.5.0"
+__version__ = "0.5.5"
 __year__ = "2021"
 
 import dataclasses
@@ -17,7 +17,7 @@ import dataclasses
 class AppConfig:
     use_cli: bool = False
     update_sec: int = 2
-    max_peers: int = 2
+    max_peers: int = 15
 
 
 _AppConfig = AppConfig()

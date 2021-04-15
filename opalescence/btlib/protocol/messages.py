@@ -349,9 +349,9 @@ class Piece:
         self.mi_length: int = mi_length
         self.block_size: int = min(self.mi_length, Block.size)
         self._blocks: list[Block] = []
-        self._generate_blocks(data)
+        self.generate_blocks(data)
 
-    def _generate_blocks(self, data: bytes = b''):
+    def generate_blocks(self, data: bytes = b''):
         offset = 0
         while (size := min(self.block_size, self.length - offset)) > 0:
             if data:
@@ -435,7 +435,7 @@ class Piece:
         initializing.
         """
         self.present = 0
-        self._generate_blocks()
+        self.generate_blocks()
 
     def hash(self) -> Optional[bytes]:
         """

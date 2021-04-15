@@ -18,7 +18,6 @@ from .protocol.tracker import TrackerTask
 from .. import get_app_config
 
 logger = logging.getLogger(__name__)
-MAX_PEER_CONNECTIONS = 2
 
 
 class DownloadStatus(Enum):

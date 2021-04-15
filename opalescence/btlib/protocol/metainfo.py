@@ -245,7 +245,7 @@ class MetaInfoFile:
                     piece_data = fp.read(piece.length)
 
                 if len(piece_data) == piece.length:
-                    piece.data = piece_data
+                    piece.generate_blocks(piece_data)
                     if piece.hash() == self.piece_hashes[i]:
                         piece.mark_complete()
                     else:
