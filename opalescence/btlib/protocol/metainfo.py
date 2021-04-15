@@ -216,7 +216,8 @@ class MetaInfoFile:
         try:
             for i, file in self.files.items():
                 fps[i] = open(file.path, "rb") if file.exists else None
-                fps[i].seek(0)
+                if fps[i]:
+                    fps[i].seek(0)
 
             for i, piece in enumerate(self.pieces):
                 file_index, file_offset = FileItem.file_for_piece(self.files, piece)

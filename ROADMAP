@@ -12,6 +12,8 @@ Roadmap to v1.0:
    - - [DONE] %/bytes downloaded (v0.5)
    - - [DONE] # peers (v0.5)
    - - - Verify piece selection/requesting with multiple peers (v0.8)
+   - - - - Mostly [DONE] as of v0.6. Strategy is still sequential, but rarest first isn't
+   - - - - - a far leap.
    - - [DONE] 2s window connection speed (v0.6)
    - - - Streamline statistic collection/output for CLI/TUI (v0.6)
 3. Save state between usages (v0.9)
