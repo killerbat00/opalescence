@@ -51,14 +51,19 @@ class Monitor:
         loop.create_task(self._monitor(loop))
 
     async def _monitor(self, loop):
+        multiplier = 4
+        count = 0
         while loop.is_running():
             start = loop.time()
             await asyncio.sleep(self._interval)
             time_sleeping = loop.time() - start
             self.lag = time_sleeping - self._interval
 
-            tasks = [t for t in asyncio.Task.all_tasks(loop) if not t.done()]
+            tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
             self.active_tasks = len(tasks)
+            count += 1
+            if count % multiplier == 0:
+                print(f"{self.lag} lag. {self.active_tasks} running tasks.")
 
 
 async def _download(torrent_fp, dest_fp):
@@ -67,6 +72,7 @@ async def _download(torrent_fp, dest_fp):
     loop = asyncio.get_event_loop()
     loop.set_debug(__debug__)
     client = Client()
+    monitor = Monitor()
 
     def signal_received(s):
         print(f"{s} received. Shutting down...")
@@ -81,11 +87,12 @@ async def _download(torrent_fp, dest_fp):
               f"\t({t.present}/{t.total_size} bytes)"
               f"\t{t.num_peers} peers."
               f"\t{t.average_speed} KB/s average"
-              f"\t{round(asyncio.get_event_loop().time() - t.download_started)}s elapsed.")
+              f"\t{round(loop.time() - t.download_started)}s elapsed.")
 
     client.add_torrent(torrent_fp=torrent_fp, destination=dest_fp)
     try:
         client.start()
+        monitor.start()
         q = False
         while not q:
             for torrent in client.downloading:

@@ -19,7 +19,7 @@ from typing import List, Optional, Dict
 from .bencode import *
 from .errors import DecodeError, EncodeError, MetaInfoCreationError
 from .fileio import FileItem
-from .messages import Piece
+from .messages import Piece, Block
 
 logger = getLogger(__name__)
 
@@ -215,12 +215,15 @@ class MetaInfoFile:
         fps = {}
         try:
             for i, file in self.files.items():
-                fps[i] = open(file.path, "rb") if file.exists else None
-                if fps[i]:
+                if file.exists:
+                    fps[i] = open(file.path, "rb")
                     fps[i].seek(0)
+                else:
+                    fps[i] = None
 
             for i, piece in enumerate(self.pieces):
-                file_index, file_offset = FileItem.file_for_piece(self.files, piece)
+                file_index, file_offset = FileItem.file_for_offset(self.files,
+                                                                   i * self.piece_length)
 
                 if file_index not in fps:
                     continue  # probably raise an error.
@@ -230,6 +233,7 @@ class MetaInfoFile:
                     continue
 
                 fp.seek(file_offset)
+                # Handle pieces spanning two files.
                 if file_offset + piece.length > file.size:
                     next_file_index = file_index + 1
 
@@ -241,13 +245,13 @@ class MetaInfoFile:
                     fp = fps[next_file_index]
                     fp.seek(0)
                     piece_data += fp.read(piece.length - first_file_len)
+                # piece is contained within a single file
                 else:
                     piece_data = fp.read(piece.length)
 
                 if len(piece_data) == piece.length:
-                    piece.generate_blocks(piece_data)
-                    if piece.hash() == self.piece_hashes[i]:
-                        piece.mark_complete()
+                    if hashlib.sha1(piece_data).digest() == self.piece_hashes[i]:
+                        piece.mark_written()
                     else:
                         piece.reset()
         finally:
@@ -301,22 +305,13 @@ class MetaInfoFile:
         self.piece_hashes = list(_pc(self.meta_info["info"]["pieces"]))
 
         num_pieces = len(self.piece_hashes)
+        block_size = min(self.piece_length, Block.size)
         for piece_index in range(num_pieces):
             piece_length = self.piece_length
             if piece_index == num_pieces - 1:
                 piece_length = self.last_piece_length
 
-            self.pieces.append(Piece(piece_index, piece_length, self.piece_length))
-
-    @property
-    def bitfield(self) -> str:
-        res = "0b"
-        for i, p in enumerate(self.pieces):
-            if p.complete:
-                res += "1"
-            else:
-                res += "0"
-        return res
+            self.pieces.append(Piece(piece_index, piece_length, block_size))
 
     @property
     def multi_file(self) -> bool:

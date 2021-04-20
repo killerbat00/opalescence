@@ -56,7 +56,7 @@ class Torrent:
                                                                 self.peer_queue,
                                                                 self.piece_queue,
                                                                 self.conf.max_peers)
-        self.file_writer: FileWriterTask = FileWriterTask(self.torrent.files,
+        self.file_writer: FileWriterTask = FileWriterTask(self.torrent,
                                                           self.piece_queue)
         self.tracker: TrackerTask = TrackerTask(self.client_info, self.torrent,
                                                 self.peer_queue)
@@ -115,7 +115,6 @@ class Torrent:
                  "FileWriter": self.file_writer.task}
         last_time = 0.0
         last_downloaded = 0
-        last_time_no_peers = 0.0
         try:
             while not self.torrent.complete:
                 now = asyncio.get_event_loop().time()
@@ -137,14 +136,6 @@ class Torrent:
                             await self.tracker.cancel_announce()
                         raise TorrentError
 
-                if self.num_peers == 0:
-                    if not last_time_no_peers:
-                        last_time_no_peers = now
-                    else:
-                        if now - last_time_no_peers >= 3:
-                            self.tracker.retrieve_more_peers()
-                            last_time_no_peers = None
-
                 await asyncio.sleep(.5)
             else:
                 self.status = DownloadStatus.Completed
@@ -153,7 +144,7 @@ class Torrent:
         except Exception as e:
             self.status = DownloadStatus.Errored
             if not isinstance(e, asyncio.CancelledError):
-                logger.error("%s exception received in client.download." % type(
+                logger.error("%s exception received in Torrent.download." % type(
                     e).__name__)
         finally:
             if self.status != DownloadStatus.Errored:

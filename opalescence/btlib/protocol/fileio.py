@@ -15,6 +15,8 @@ import logging
 from pathlib import Path
 from typing import Optional, BinaryIO
 
+from opalescence.btlib.protocol.metainfo import MetaInfoFile
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,24 +48,12 @@ class FileItem:
                 return i, file_offset
             size_sum += file.size
 
-    @staticmethod
-    def file_for_piece(files: dict[int, FileItem], piece) -> tuple[int, int]:
-        """
-        Given a piece, returns the corresponding file index and offset within
-        that file where the piece begins.
-
-        :param files: dictionary of `FileItem`s keyed by their index order
-        :param piece: `Piece` to find the file and offset for
-        :return: (file_index, offset_within_file)
-        """
-        offset = piece.index * piece.mi_length
-        return FileItem.file_for_offset(files, offset)
-
 
 class FileWriter:
 
-    def __init__(self, files: dict[int, FileItem]):
-        self._files: dict[int, FileItem] = files
+    def __init__(self, torrent: MetaInfoFile):
+        self._files: dict[int, FileItem] = torrent.files
+        self._piece_length = torrent.piece_length
         self._lock = asyncio.Lock()
         self._fps: Optional[dict[int, BinaryIO]] = None
 
@@ -129,7 +119,7 @@ class FileWriter:
         """
         assert piece.complete
 
-        offset = piece.index * piece.mi_length
+        offset = piece.index * self._piece_length
         data_to_write = piece.data
         while data_to_write:
             file_num, file_offset = FileItem.file_for_offset(self._files, offset)
@@ -174,8 +164,8 @@ class FileWriterTask(FileWriter):
     handles writing those pieces to disk.
     """
 
-    def __init__(self, files: dict[int, FileItem], piece_queue: asyncio.Queue):
-        super().__init__(files)
+    def __init__(self, torrent: MetaInfoFile, piece_queue: asyncio.Queue):
+        super().__init__(torrent)
         self.task: Optional[asyncio.Task] = None
         self._queue: asyncio.Queue = piece_queue
 

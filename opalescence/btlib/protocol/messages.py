@@ -242,41 +242,50 @@ class Bitfield(Message):
         return cls(bitfield)
 
 
-class Request(Message):
+class IndexableMessage(Message):
+    size = 2 ** 14
+
+    def __init__(self, index: int, begin: int, length: int = size):
+        self.index = index
+        self.begin = begin
+        self.length = length
+
+    def __str__(self):
+        return f"({self.index}:{self.begin}:{self.length})"
+
+    def __eq__(self, other: IndexableMessage):
+        if not isinstance(other, type(self)):
+            return False
+        return (self.index == other.index and
+                self.begin == other.begin and
+                self.length == other.length)
+
+    def __hash__(self):
+        return hash((self.index, self.begin, self.length))
+
+    def encode(self):
+        raise NotImplementedError
+
+    def decode(self, *args, **kwargs):
+        raise NotImplementedError
+
+
+class Request(IndexableMessage):
     """
     request message
 
     <0013><6><index><begin><length>
     """
     msg_id = 6
-    size = 2 ** 14
-
-    def __init__(self, index: int, begin: int, length: int = size,
-                 peer_id: str = ""):
-        self.index = index
-        self.begin = begin
-        self.length = length
-        self.peer_id = peer_id
 
     def __str__(self):
-        return f"Request: ({self.index}:{self.begin}:{self.length})"
-
-    def __hash__(self):
-        return hash((self.index, self.begin, self.length))
-
-    def __eq__(self, other: Request):
-        if not isinstance(other, Request):
-            return False
-        return (self.index == other.index and
-                self.begin == other.begin and
-                self.length == other.length)
+        return f"Request: ({super().__str__()})"
 
     def encode(self) -> bytes:
         """
         :return: the request message encoded in bytes
         """
-        return struct.pack(">IB3I", 13, self.msg_id, self.index, self.begin,
-                           self.length)
+        return struct.pack(">IB3I", 13, self.msg_id, self.index, self.begin, self.length)
 
     @classmethod
     def decode(cls, data: bytes) -> Request:
@@ -287,22 +296,20 @@ class Request(Message):
         return cls(request[0], request[1], request[2])
 
 
-class Block(Message):
+class Block(IndexableMessage):
     """
     block message
 
     <0009+X><7><index><begin><block>
     """
     msg_id = 7
-    size = 2 ** 14
 
     def __init__(self, index: int, begin: int, data: bytes):
-        self.index = index  # index of the actual piece
-        self.begin = begin  # offset into the piece
         self.data = data
+        super().__init__(index, begin, len(data))
 
     def __str__(self):
-        return f"Block: ({self.index}:{self.begin}:{len(self.data)})"
+        return f"Block: ({super().__str__()})"
 
     def __hash__(self):
         return hash((self.index, self.begin, len(self.data)))
@@ -332,6 +339,33 @@ class Block(Message):
         return cls(piece_data[0], piece_data[1], piece_data[2])
 
 
+class Cancel(IndexableMessage):
+    """
+    cancel message
+
+    <0013><8><index><begin><length>
+    """
+    msg_id = 8
+
+    def __str__(self):
+        return f"Cancel: ({super().__str__()})"
+
+    def encode(self) -> bytes:
+        """
+        :return: the cancel message encoded in bytes
+        """
+        return struct.pack(">IBIII", 13, Cancel.msg_id, self.index, self.begin,
+                           self.length)
+
+    @classmethod
+    def decode(cls, data: bytes) -> Cancel:
+        """
+        :return: a decoded cancel message
+        """
+        cancel_data = struct.unpack(">III", data)
+        return cls(cancel_data[0], cancel_data[1], cancel_data[2])
+
+
 class Piece:
     """
     Represents a piece of the torrent.
@@ -340,26 +374,15 @@ class Piece:
     Not really a message itself.
     """
 
-    def __init__(self, index, length, mi_length, data=b''):
+    def __init__(self, index: int, length: int, block_size: int):
         self.index: int = index
         self.length: int = length
-        self.present: int = len(data)
-        self._complete: bool = False
-        # the length of pieces as defined in the metainfo file
-        self.mi_length: int = mi_length
-        self.block_size: int = min(self.mi_length, Block.size)
-        self._blocks: list[Block] = []
-        self.generate_blocks(data)
+        self.present: int = 0
 
-    def generate_blocks(self, data: bytes = b''):
-        offset = 0
-        while (size := min(self.block_size, self.length - offset)) > 0:
-            if data:
-                block = Block(self.index, offset, data[offset:offset + size])
-            else:
-                block = Block(self.index, offset, b'')
-            self._blocks.append(block)
-            offset += size
+        self._block_size: int = block_size
+        self._blocks: list[Block] = []
+        self._written: bool = False
+        self._create_blocks()
 
     def __str__(self):
         return f"Piece: ({self.index}:{self.length}:{self.remaining})"
@@ -380,7 +403,33 @@ class Piece:
 
     @property
     def data(self) -> bytes:
-        return b''.join([b.data for b in self._blocks])
+        if not self._written:
+            return b''.join([b.data for b in self._blocks])
+
+    @property
+    def complete(self) -> bool:
+        """
+        :return: True if all blocks have been bytes_downloaded
+        """
+        return self.present == self.length
+
+    @property
+    def remaining(self) -> int:
+        """
+        :return: The number of bytes remaining in this piece.
+        """
+        return self.length - self.present
+
+    def _create_blocks(self):
+        """
+        Creates the blocks that make up this piece.
+        """
+        if self._written:
+            return
+
+        num_blocks = (self.length + self._block_size - 1) // self._block_size
+        self._blocks = [Block(self.index, idx * self._block_size, b'')
+                        for idx in range(num_blocks)]
 
     def add_block(self, block: Block):
         """
@@ -392,42 +441,20 @@ class Piece:
 
         assert self.index == block.index
 
-        block_index = block.begin // self.block_size
-        if block_index < 0 or block_index > len(self._blocks):
+        block_index = block.begin // self._block_size
+        if block_index < -1 or block_index > len(self._blocks):
             raise NonSequentialBlockError
 
         self._blocks[block_index] = block
         self.present += len(block.data)
 
-    def mark_complete(self):
-        """
-        Marks the piece complete and flushes its data from memory.
-        """
-        self._complete = True
-        self.reset()
-        self.present = self.length
-
     def mark_written(self):
         """
         Marks the piece as written to disk.
         """
-        self.mark_complete()
-
-    @property
-    def complete(self) -> bool:
-        """
-        :return: True if all blocks have been bytes_downloaded
-        """
-        return self._complete or self.present == self.length
-
-    @property
-    def remaining(self) -> int:
-        """
-        :return: The number of bytes remaining in this piece.
-        """
-        if self.complete:
-            return 0
-        return self.length - self.present
+        self.present = self.length
+        self._written = True
+        self._blocks = []
 
     def reset(self):
         """
@@ -435,67 +462,16 @@ class Piece:
         initializing.
         """
         self.present = 0
-        self.generate_blocks()
+        self._written = False
+        self._create_blocks()
 
     def hash(self) -> Optional[bytes]:
         """
         Returns the hash of the piece's data.
         """
-        for block in self._blocks:
-            if not block.data:
-                return
+        if self._written or not self.complete:
+            return
         return hashlib.sha1(self.data).digest()
-
-
-class Cancel(Message):
-    """
-    cancel message
-
-    <0013><8><index><begin><length>
-    """
-    msg_id = 8
-    size = 2 ** 14
-
-    def __init__(self, index: int, begin: int, length: int = size):
-        self.index = index
-        self.begin = begin
-        self.length = length
-
-    def __str__(self):
-        return f"Cancel: ({self.index}:{self.begin}:{self.length})"
-
-    def __hash__(self):
-        return hash((self.index, self.begin, self.length))
-
-    def __eq__(self, other: Cancel):
-        if not isinstance(other, Cancel):
-            return False
-        return (self.index == other.index and
-                self.begin == other.begin and
-                self.length == other.length)
-
-    def encode(self) -> bytes:
-        """
-        :return: the cancel message encoded in bytes
-        """
-        return struct.pack(">IBIII", 13, Cancel.msg_id, self.index, self.begin,
-                           self.length)
-
-    @classmethod
-    def from_request(cls, request: Request) -> Cancel:
-        """
-        :param request: Request message we want to cancel.
-        :return: A Cancel message from a request
-        """
-        return cls(request.index, request.begin, request.length)
-
-    @classmethod
-    def decode(cls, data: bytes) -> Cancel:
-        """
-        :return: a decoded cancel message
-        """
-        cancel_data = struct.unpack(">III", data)
-        return cls(cancel_data[0], cancel_data[1], cancel_data[2])
 
 
 MESSAGE_TYPES = {
@@ -511,5 +487,5 @@ MESSAGE_TYPES = {
 }
 
 ProtocolMessage = Union[
-    Handshake, KeepAlive, Choke, Unchoke, Interested, NotInterested, Have, Bitfield, Request,
-    Block, Cancel]
+    Handshake, KeepAlive, Choke, Unchoke, Interested, NotInterested, Have, Bitfield,
+    Request, Block, Cancel]

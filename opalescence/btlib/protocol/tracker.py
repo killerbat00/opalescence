@@ -319,16 +319,6 @@ class TrackerTask(TrackerConnection):
             await self.cancel_announce()
         logger.info("Recurring announce _task ended.")
 
-    def retrieve_more_peers(self):
-        if len(self.announce_urls):
-            raise NoTrackersError
-        if self.torrent.complete:
-            return
-        asyncio.ensure_future(self._retrieve_more())
-
-    async def _retrieve_more(self):
-        self._tracker_resp_queue.put_nowait(await self.announce())
-
     async def _receive_peers(self, response_queue: asyncio.Queue[TrackerResponse]):
         """
         Listens to `TrackerResponse`s posted to the `response_queue` and populates
@@ -342,7 +332,6 @@ class TrackerTask(TrackerConnection):
 
                 logger.info("Adding more peers to queue.")
 
-                peers = None
                 if response:
                     peers = [peer for peer in response.get_peer_list()
                              if peer != self.client_info]
