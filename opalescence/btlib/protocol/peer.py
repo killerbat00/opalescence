@@ -206,11 +206,11 @@ class PeerConnection:
                 if isinstance(msg, Choke):
                     self.peer.choking = True
                     self._requester.remove_requests_for_peer(self.peer)
-                    while not self._msg_to_send_q.empty():
-                        self._msg_to_send_q.get_nowait()
+                    # Decide if we should only purge requests?
                 elif isinstance(msg, Unchoke):
                     self.peer.choking = False
                     if self.local.interested:
+                        self._msg_to_send_q.put_nowait(Interested())
                         if not self._requester.fill_peer_request_queue(self.peer,
                                                                        self._msg_to_send_q):
                             logger.debug("%s: Unchoked us and we're interested, "
@@ -227,11 +227,13 @@ class PeerConnection:
                     if self._requester.peer_is_interesting(self.peer):
                         if not self.local.interested:
                             self._msg_to_send_q.put_nowait(Interested())
+                            self.local.interested = True
                 elif isinstance(msg, Bitfield):
                     self._requester.add_peer_bitfield(self.peer, msg.bitfield)
                     if self._requester.peer_is_interesting(self.peer):
                         if not self.local.interested:
                             self._msg_to_send_q.put_nowait(Interested())
+                            self.local.interested = True
                 elif isinstance(msg, Request):
                     # TODO: we don't send blocks to the peer
                     pass
