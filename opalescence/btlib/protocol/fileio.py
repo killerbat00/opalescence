@@ -15,7 +15,6 @@ import logging
 from pathlib import Path
 from typing import Optional, BinaryIO
 
-from opalescence.btlib.protocol.metainfo import MetaInfoFile
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,7 @@ class FileItem:
 
 class FileWriter:
 
-    def __init__(self, torrent: MetaInfoFile):
+    def __init__(self, torrent):
         self._files: dict[int, FileItem] = torrent.files
         self._piece_length = torrent.piece_length
         self._lock = asyncio.Lock()
@@ -164,7 +163,7 @@ class FileWriterTask(FileWriter):
     handles writing those pieces to disk.
     """
 
-    def __init__(self, torrent: MetaInfoFile, piece_queue: asyncio.Queue):
+    def __init__(self, torrent, piece_queue: asyncio.Queue):
         super().__init__(torrent)
         self.task: Optional[asyncio.Task] = None
         self._queue: asyncio.Queue = piece_queue
@@ -192,14 +191,11 @@ class FileWriterTask(FileWriter):
         try:
             while True:
                 piece = await self._queue.get()
-                await self._await_write(piece)
+                asyncio.create_task(self._await_write(piece))
                 self._queue.task_done()
         except Exception as exc:
-            if isinstance(exc, asyncio.CancelledError):
-                logger.error("FileWriterTask cancelled.")
-            else:
-                logger.error("Encountered %s exception writing %s" %
-                             (type(exc).__name__, piece))
-            raise
+            logger.error("Encountered %s exception writing %s" %
+                         (type(exc).__name__, piece))
+            self.task.cancel()
         finally:
             self._close_files()
