@@ -10,7 +10,6 @@ from __future__ import annotations
 __all__ = ['ClientError', 'Client']
 
 import asyncio
-import contextlib
 import socket
 from logging import getLogger
 from pathlib import Path
@@ -93,35 +92,27 @@ class Client:
         """
         Cancels and cleans up all running tasks for this client.
         """
-        if not self._running or len(self._tasks) == 0:
+        if not self._running or len(self._tasks) == 0 or self._task.done():
             return
 
         self._running = False
 
         for t in self._tasks:
             t.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await asyncio.gather(*self._tasks, return_exceptions=True)
+        await asyncio.gather(*self._tasks, return_exceptions=True)
+        # TODO: Handle exceptions set on download tasks?
         self._tasks.clear()
-
-    def _add_task(self, task: asyncio.Task):
-        """
-        Adds a task to the list of running tasks.
-        :param task: task to add to this borg.
-        """
-        if task is None or task.cancelled() or task.done():
-            return
-        self._tasks.add(task)
 
     async def start_all(self):
         """
         Starts downloading all current torrents.
         """
         if self.downloading is None or len(self.downloading) == 0:
-            raise ClientError
+            raise ClientError("No torrents to download.")
 
         for download in self.downloading:
-            self._add_task(download.download())
+            if task := download.download():
+                self._tasks.add(task)
 
         if len(self._tasks) == 0:
             logger.info("Complete. No torrents to download")
@@ -129,22 +120,28 @@ class Client:
 
         try:
             # TODO: we return as soon as any download errors. Revisit this.
-            await asyncio.gather(*self._tasks, return_exceptions=True)
+            await asyncio.gather(*self._tasks)
         except Exception as exc:
             logger.error("%s received in client:start_all" % type(exc).__name__)
 
         self._running = False
 
-    def add_torrent(self, *, torrent_fp: Path = None, destination: Path = None):
+    def add_torrent(self, *,
+                    torrent_fp: Path,
+                    destination: Path) -> Optional[tuple[Torrent, asyncio.Event]]:
         """
         Adds a torrent to the Client for downloading.
         :param torrent_fp: The filepath to the .torrent metainfo file.
         :param destination: The destination in which to save the torrent.
+
+        :return: the Torrent instance created and the event set when it's completed.
         """
         if self._running:
+            # TODO: Allow adding new torrents to a running client.
             return
 
-        download = Torrent(torrent_fp, destination, self._local_peer)
+        complete_event = asyncio.Event()
+        download = Torrent(torrent_fp, destination, self._local_peer, complete_event)
         if self.downloading is None:
             self.downloading = []
 
@@ -155,3 +152,4 @@ class Client:
             return
 
         self.downloading.append(download)
+        return download, complete_event
