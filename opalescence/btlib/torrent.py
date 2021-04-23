@@ -40,7 +40,7 @@ class Torrent:
     """
 
     def __init__(self, torrent_fp: Path, destination: Path,
-                 local_peer: PeerInfo):
+                 local_peer: PeerInfo, event: asyncio.Event):
         self.status = DownloadStatus.NotStarted
 
         self.conf = get_app_config()
@@ -66,6 +66,7 @@ class Torrent:
         self.total_time = 0.0
         self.average_speed = 0.0
         self.started_with = 0
+        self.completed_event = event
 
     @property
     def name(self):
@@ -104,6 +105,7 @@ class Torrent:
             return self.monitor_task
         else:
             self.status = DownloadStatus.Completed
+            self.completed_event.set()
 
     async def _download(self):
         """
@@ -130,16 +132,15 @@ class Torrent:
 
                 # monitor tasks
                 for name, task in tasks.items():
-                    if task.cancelled() or task.done():
+                    if task.cancelled():
                         logger.info("%s: %s _task cancelled." % (self.torrent, name))
-                        if name == "Tracker":
-                            await self.tracker.cancel_announce()
                         raise TorrentError
 
                 await asyncio.sleep(.5)
             else:
                 self.status = DownloadStatus.Completed
-                await self.tracker.completed()
+                self.completed_event.set()
+                asyncio.create_task(self.tracker.completed())
 
         except Exception as e:
             self.status = DownloadStatus.Errored
