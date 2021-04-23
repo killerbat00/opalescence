@@ -242,7 +242,8 @@ class _Decoder:
                 parsed_num += char
             else:
                 if char != delimiter:
-                    raise DecodeError(f"Invalid character while parsing int {char}. Expected {delimiter}")
+                    raise DecodeError(f"Invalid character while parsing int {char}."
+                                      f"Expected {delimiter}")
                 break
 
         num_str: str = parsed_num.decode("UTF-8")
