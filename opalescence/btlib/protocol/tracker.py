@@ -21,9 +21,8 @@ from collections import deque
 from typing import Optional, List, Tuple
 from urllib.parse import urlencode
 
-from .bencode import *
-from .errors import TrackerConnectionError, NoTrackersError, \
-    TrackerConnectionCancelledError
+from .bencode import Decode
+from .errors import TrackerConnectionError, NoTrackersError
 from .metainfo import MetaInfoFile
 from .peer_info import PeerInfo
 
@@ -47,6 +46,14 @@ class TrackerParameters:
 
 
 async def http_request(url: str, params: TrackerParameters) -> TrackerResponse:
+    """
+    Makes the HTTP request to the tracker url with the given params.
+    :param url: tracker URL
+    :param params: announce parameters
+    :raises TrackerConnectionError: if a non-200 response or failure response is
+    received.
+    :return: `TrackerResponse` object containing data returned by tracker.
+    """
     url_info = _construct_url(url, params)
     if not url_info:
         raise TrackerConnectionError
@@ -130,7 +137,6 @@ class TrackerConnection:
                                         the tracker sent a failure, or we
                                         are unable to bdecode the tracker's response.
         :raises NoTrackersError:        if there are no tracker URls to query.
-        :raises TrackerConnectionCancelledError: if the _task has been cancelled.
         :returns: `TrackerResponse` containing the tracker's response on success.
         """
         # TODO: respect proper order of announce urls according to BEP 0012.
@@ -168,7 +174,6 @@ class TrackerConnection:
     async def cancel_announce(self) -> None:
         """
         Informs the tracker we are gracefully shutting down.
-        :raises TrackerConnectionError:
         """
         with contextlib.suppress(TrackerConnectionError, NoTrackersError):
             await self.announce(event=EVENT_STOPPED)
@@ -176,7 +181,6 @@ class TrackerConnection:
     async def completed(self) -> None:
         """
         Informs the tracker we have completed downloading this torrent
-        :raises TrackerConnectionError:
         """
         with contextlib.suppress(TrackerConnectionError, NoTrackersError):
             await self.announce(event=EVENT_COMPLETED)
@@ -265,10 +269,16 @@ class TrackerTask(TrackerConnection):
         self.task: Optional[asyncio.Task] = None
 
     def start(self):
+        """
+        Starts this task by scheduling a coroutine on the event loop.
+        """
         if not self.task:
             self.task = asyncio.create_task(self._main())
 
     def stop(self):
+        """
+        Stops this task by cancelling the scheduled coroutine.
+        """
         if self.task:
             self.task.cancel()
 
@@ -277,14 +287,24 @@ class TrackerTask(TrackerConnection):
         Schedules and waits on the coroutines that send a recurring announce to a
         peer and populate the available peer queue with the response.
         """
+        announce_task = asyncio.create_task(
+            self._recurring_announce(self._tracker_resp_queue))
+        receive_task = asyncio.create_task(
+            self._receive_peers(self._tracker_resp_queue))
+
         try:
-            await asyncio.gather(self._recurring_announce(self._tracker_resp_queue),
-                                 self._receive_peers(self._tracker_resp_queue))
+            await asyncio.gather(announce_task, receive_task)
         except Exception as exc:
+            # exceptions raised by announce_task and receive_task
+            # are handled here. We cancel the task here because
+            # otherwise it'd end up as done. We don't really care
+            # when the tracker task is done because torrent completion
+            # will have happened and (should have) triggered cancellation
+            # of this task.
             logger.error("%s received in TrackerTask" % type(exc).__name__)
-            if self.task and not self.task.cancelled():
-                self.task.cancel()
-            raise
+            announce_task.cancel()
+            receive_task.cancel()
+            self.task.cancel()
 
     async def _recurring_announce(self, response_queue: asyncio.Queue[TrackerResponse]):
         """
@@ -292,6 +312,9 @@ class TrackerTask(TrackerConnection):
         the tracker's response into the given queue.
 
         :param response_queue: Queue to place the response into.
+        :raises: All exceptions to the main task except for cancellation. This coroutine
+                 doesn't need to handle itself being cancelled if it's scheduled as a
+                 task.
         """
         if len(self.announce_urls) == 0:
             raise NoTrackersError
@@ -302,21 +325,23 @@ class TrackerTask(TrackerConnection):
             try:
                 response_queue.put_nowait(await self.announce(event))
 
-                if len(self.announce_urls) == 0:
-                    break
-
-                event = ""
-                await asyncio.sleep(self.interval)
-            except (TrackerConnectionCancelledError, asyncio.CancelledError):
+            except asyncio.CancelledError:
                 break
             except TrackerConnectionError:
                 continue
             except NoTrackersError:
-                self.task.cancel()
+                raise
+
+            if len(self.announce_urls) == 0:
+                raise NoTrackersError
+
+            event = ""  # don't reset until we've made the first successful announce
+            await asyncio.sleep(self.interval)
+
         if self.torrent.complete:
-            await self.completed()
+            asyncio.create_task(self.completed())
         else:
-            await self.cancel_announce()
+            asyncio.create_task(self.cancel_announce())
         logger.info("Recurring announce _task ended.")
 
     async def _receive_peers(self, response_queue: asyncio.Queue[TrackerResponse]):
@@ -325,25 +350,27 @@ class TrackerTask(TrackerConnection):
         the peer_queue with the peers returned.
 
         :param response_queue: Queue to read responses from.
+        :raises: All exceptions to the main task except for cancellation. This coroutine
+                 doesn't need to handle itself being cancelled if it's scheduled as a
+                 task.
         """
-        try:
-            while True:
+        while not self.task.cancelled():
+            try:
                 response = await response_queue.get()
+            except Exception:
+                raise
 
-                logger.info("Adding more peers to queue.")
+            logger.info("Adding more peers to queue.")
 
-                if response:
-                    peers = [peer for peer in response.get_peer_list()
-                             if peer != self.client_info]
+            if response:
+                peers = [peer for peer in response.get_peer_list()
+                         if peer != self.client_info]
 
-                    if peers and len(peers) > self._peer_queue.qsize():
-                        while not self._peer_queue.empty():
-                            self._peer_queue.get_nowait()
+                if len(peers) > self._peer_queue.qsize():
+                    while not self._peer_queue.empty():
+                        self._peer_queue.get_nowait()
 
-                        for peer in peers:
-                            self._peer_queue.put_nowait(peer)
+                    for peer in peers:
+                        self._peer_queue.put_nowait(peer)
 
-                response_queue.task_done()
-        except Exception:
-            self.task.cancel()
-            raise
+            response_queue.task_done()
