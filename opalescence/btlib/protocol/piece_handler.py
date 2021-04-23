@@ -57,14 +57,12 @@ class PieceRequester:
         :return: a list of all the requests needed to download the torrent
         """
         requests = []
-        block_size = min(self._block_size, self.torrent.piece_length)
-        for i, piece in enumerate(self.torrent.pieces):
-            if piece.complete:
-                continue
-            piece_offset = 0
-            while (size := min(block_size, piece.length - piece_offset)) > 0:
-                requests.append(Request(i, piece_offset, size))
-                piece_offset += size
+
+        for piece in self.torrent.pieces:
+            for block in piece.blocks:
+                request = Request.from_block(block)
+                if request:
+                    requests.append(request)
 
         return requests
 

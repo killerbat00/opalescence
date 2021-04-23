@@ -278,6 +278,10 @@ class Request(IndexableMessage):
     """
     msg_id = 6
 
+    def __init__(self, index, begin, length):
+        super().__init__(index, begin, length)
+        self.peer_id = None
+
     def __str__(self):
         return f"Request: ({super().__str__()})"
 
@@ -294,6 +298,16 @@ class Request(IndexableMessage):
         """
         request = struct.unpack(">3I", data)
         return cls(request[0], request[1], request[2])
+
+    @classmethod
+    def from_block(cls, block: Block) -> Optional[Request]:
+        """
+        :param block: the block to make a request for
+        :return: a request for the given block
+        """
+        if block.data:
+            return
+        return cls(block.index, block.begin, block.length)
 
 
 class Block(IndexableMessage):
@@ -419,6 +433,15 @@ class Piece:
         :return: The number of bytes remaining in this piece.
         """
         return self.length - self.present
+
+    @property
+    def blocks(self) -> list[Block]:
+        """
+        :return: The list of blocks for this piece if the piece is incomplete.
+        """
+        if self.complete:
+            return []
+        return [block for block in self._blocks if len(block.data) == 0]
 
     def _create_blocks(self):
         """
