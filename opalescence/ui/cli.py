@@ -5,7 +5,6 @@ Command Line Interface for Opalescence
 """
 
 import asyncio
-import functools
 import signal
 from pathlib import Path
 
@@ -43,7 +42,7 @@ class Monitor:
     lag: float = 0
     active_tasks: int = 0
 
-    def __init__(self, interval: float = 0.25):
+    def __init__(self, interval: float = 1.25):
         self._interval = interval
 
     def start(self):
@@ -51,8 +50,6 @@ class Monitor:
         loop.create_task(self._monitor(loop))
 
     async def _monitor(self, loop):
-        multiplier = 4
-        count = 0
         while loop.is_running():
             start = loop.time()
             await asyncio.sleep(self._interval)
@@ -61,9 +58,23 @@ class Monitor:
 
             tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
             self.active_tasks = len(tasks)
-            count += 1
-            if count % multiplier == 0:
-                print(f"{self.lag} lag. {self.active_tasks} running tasks.")
+            print(f"{self.lag} lag. {self.active_tasks} running tasks.")
+
+
+def handle_exception(_, context):
+    exc = context.get("exception", context["message"])
+    print(f"Unhandled exception {type(exc).__name__}")
+    asyncio.create_task(shutdown())
+
+
+async def shutdown(raised_sig=None):
+    if raised_sig:
+        print(f"Received signal {raised_sig.name}. Shutting down.")
+    else:
+        print(f"Shutting down. Not due to a signal.")
+    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    [task.cancel() for task in tasks]
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def _download(torrent_fp, dest_fp):
@@ -71,16 +82,15 @@ async def _download(torrent_fp, dest_fp):
 
     loop = asyncio.get_event_loop()
     loop.set_debug(__debug__)
+
     client = Client()
     monitor = Monitor()
 
-    def signal_received(s):
-        print(f"{s} received. Shutting down...")
-        client.stop()
-
-    for signame in ('SIGINT', 'SIGTERM'):
-        loop.add_signal_handler(getattr(signal, signame),
-                                functools.partial(signal_received, signame))
+    for s in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(
+            s, lambda x=s: asyncio.create_task(shutdown(x))
+        )
+    loop.set_exception_handler(handle_exception)
 
     def print_stats(t):
         print(f"{t.name} progress: {t.pct_complete}% "
@@ -89,36 +99,31 @@ async def _download(torrent_fp, dest_fp):
               f"\t{t.average_speed} KB/s average"
               f"\t{round(loop.time() - t.download_started)}s elapsed.")
 
-    client.add_torrent(torrent_fp=torrent_fp, destination=dest_fp)
+    add_results = client.add_torrent(torrent_fp=torrent_fp, destination=dest_fp)
+    if not add_results:
+        print(f"Unable to add download {torrent_fp}")
+        raise SystemExit
+    torrent, complete_event = add_results
+
+    client.start()
+    monitor.start()
     try:
-        client.start()
-        monitor.start()
-        q = False
-        while not q:
-            for torrent in client.downloading:
-                if torrent.status == DownloadStatus.Completed:
-                    print(f"{torrent.name} complete.")
-                    print_stats(torrent)
-                    q = True
-                    break
+        while not complete_event.is_set():
+            msg = None
+            if not client._running:
+                msg = "Client stopped."
+            if torrent.status in [DownloadStatus.Errored, DownloadStatus.Stopped]:
+                msg = f"{torrent.name} {torrent.status}."
 
-                if torrent.status == DownloadStatus.Errored:
-                    print(f"{torrent.name} error.")
-                    q = True
-                    break
+            print_stats(torrent)
 
-                if torrent.status == DownloadStatus.Stopped:
-                    print(f"{torrent.name} stopped.")
-                    q = True
-                    break
+            if msg:
+                print(msg)
+                break
+            await asyncio.sleep(1)
+        else:
+            print(f"{torrent.name} complete!")
 
-                if not client._running:
-                    print("Client stopped.")
-                    q = True
-                    break
-
-                print_stats(torrent)
-            if not q:
-                await asyncio.sleep(1)
     finally:
+        print_stats(torrent)
         client.stop()
