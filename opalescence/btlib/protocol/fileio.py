@@ -15,7 +15,6 @@ import logging
 from pathlib import Path
 from typing import Optional, BinaryIO
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -68,8 +67,11 @@ class FileWriter:
         self._fps = {}
         try:
             for i, file in self._files.items():
-                file.path.parent.mkdir(parents=True, exist_ok=True)
-                self._fps[i] = open(file.path, "wb+")
+                if not file.exists:
+                    file.path.parent.mkdir(parents=True, exist_ok=True)
+                    self._fps[i] = open(file.path, 'wb+')
+                else:
+                    self._fps[i] = open(file.path, 'ab')
         except Exception as exc:
             logger.error("Encountered %s exception opening %s" % (type(exc).__name__,
                                                                   file.path))
@@ -196,6 +198,6 @@ class FileWriterTask(FileWriter):
         except Exception as exc:
             logger.error("Encountered %s exception writing %s" %
                          (type(exc).__name__, piece))
-            self.task.cancel()
+            raise
         finally:
             self._close_files()

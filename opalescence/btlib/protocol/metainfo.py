@@ -145,8 +145,7 @@ class MetaInfoFile:
 
         try:
             with open(filename, 'rb') as f:
-                data: bytes = f.read()
-                torrent.meta_info = Decode(data)
+                torrent.meta_info = Decode(f.read())
 
             if not torrent.meta_info or not isinstance(torrent.meta_info, OrderedDict):
                 logger.error("Unable to create torrent object."
@@ -165,23 +164,6 @@ class MetaInfoFile:
             raise MetaInfoCreationError from e
 
         return torrent
-
-    @classmethod
-    def from_path(cls, path: str, trackers: list, *,
-                  comment: str = "", piece_size: int = 32768,
-                  private: bool = False) -> MetaInfoFile:
-        """
-        Class method to create a torrent object from a specified filepath. The path can be
-        a single file or a directory
-
-        :param path:
-        :param trackers:
-        :param comment:
-        :param piece_size:
-        :param private:
-        :raises MetaInfoCreationError:
-        """
-        raise NotImplementedError
 
     def to_file(self, output_filename: str):
         """

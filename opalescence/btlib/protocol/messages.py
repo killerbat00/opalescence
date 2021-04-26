@@ -307,7 +307,7 @@ class Request(IndexableMessage):
         """
         if block.data:
             return
-        return cls(block.index, block.begin, block.length)
+        return cls(block.index, block.begin, block.size)
 
 
 class Block(IndexableMessage):
@@ -318,9 +318,9 @@ class Block(IndexableMessage):
     """
     msg_id = 7
 
-    def __init__(self, index: int, begin: int, data: bytes):
-        self.data = data
-        super().__init__(index, begin, len(data))
+    def __init__(self, index: int, begin: int, length: int):
+        self.data = b''
+        super().__init__(index, begin, length)
 
     def __str__(self):
         return f"Block: ({super().__str__()})"
@@ -350,7 +350,9 @@ class Block(IndexableMessage):
         """
         data_len = len(data) - 8  # account for the index and begin bytes
         piece_data = struct.unpack(f">II{data_len}s", data)
-        return cls(piece_data[0], piece_data[1], piece_data[2])
+        inst = cls(piece_data[0], piece_data[1], len(piece_data[2]))
+        inst.data = piece_data[2]
+        return inst
 
 
 class Cancel(IndexableMessage):
@@ -451,7 +453,7 @@ class Piece:
             return
 
         num_blocks = (self.length + self._block_size - 1) // self._block_size
-        self._blocks = [Block(self.index, idx * self._block_size, b'')
+        self._blocks = [Block(self.index, idx * self._block_size, self._block_size)
                         for idx in range(num_blocks)]
 
     def add_block(self, block: Block):

@@ -320,20 +320,17 @@ class TrackerTask(TrackerConnection):
             raise NoTrackersError
 
         event = EVENT_STARTED
+        exc_to_raise = None
 
         while not self.task.cancelled():
             try:
                 response_queue.put_nowait(await self.announce(event))
-
-            except asyncio.CancelledError:
-                break
             except TrackerConnectionError:
                 continue
-            except NoTrackersError:
-                raise
-
-            if len(self.announce_urls) == 0:
-                raise NoTrackersError
+            # if we're cancelled, try to make one last announce.
+            except asyncio.CancelledError as exc:
+                exc_to_raise = exc
+                break
 
             event = ""  # don't reset until we've made the first successful announce
             await asyncio.sleep(self.interval)
@@ -343,6 +340,8 @@ class TrackerTask(TrackerConnection):
         else:
             asyncio.create_task(self.cancel_announce())
         logger.info("Recurring announce _task ended.")
+        if exc_to_raise:
+            raise exc_to_raise
 
     async def _receive_peers(self, response_queue: asyncio.Queue[TrackerResponse]):
         """
@@ -355,10 +354,7 @@ class TrackerTask(TrackerConnection):
                  task.
         """
         while not self.task.cancelled():
-            try:
-                response = await response_queue.get()
-            except Exception:
-                raise
+            response = await response_queue.get()
 
             logger.info("Adding more peers to queue.")
 

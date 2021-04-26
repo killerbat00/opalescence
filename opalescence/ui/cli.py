@@ -123,7 +123,8 @@ async def _download(torrent_fp, dest_fp):
             await asyncio.sleep(1)
         else:
             print(f"{torrent.name} complete!")
-
+    except asyncio.CancelledError:
+        pass  # it's, like, totally whatever man
     finally:
         print_stats(torrent)
         client.stop()
