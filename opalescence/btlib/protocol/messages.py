@@ -277,13 +277,24 @@ class Request(IndexableMessage):
     <0013><6><index><begin><length>
     """
     msg_id = 6
+    stale_time = 2
 
     def __init__(self, index, begin, length):
         super().__init__(index, begin, length)
         self.peer_id = None
+        self.requested_at = None
 
     def __str__(self):
         return f"Request: ({super().__str__()})"
+
+    def is_stale(self, current_time) -> bool:
+        """
+        :param current_time: Current time as a float value.
+        :return: True if the Request was sent >= 2 seconds ago.
+        """
+        if current_time - self.requested_at >= 2:
+            return True
+        return False
 
     def encode(self) -> bytes:
         """

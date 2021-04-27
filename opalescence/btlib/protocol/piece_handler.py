@@ -201,7 +201,7 @@ class PieceRequester:
             request = self.next_request_for_peer(peer)
             if not request:  # no more requests for this peer
                 break
-            msg_queue.put_nowait(request)
+            asyncio.create_task(msg_queue.put(request))
             added_more = True
         return added_more
 
