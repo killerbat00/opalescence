@@ -2,6 +2,10 @@ Roadmap to v1.0:
 1. Still download only
 2. [DONE] Dynamic CLI/TUI (v0.5)
    - Full TUI (v0.6)
+   - Better config handling.
+   - - Save config in home directory
+   - - Save downloading files into home directory by default, provide config. Move upon
+   completion.
    - [DONE] Ensure CLI is helpful at various levels of logging. Don't overlog, can just give stat updates at the highest-level
      now. (v0.5)
    - [DONE] Allow adding torrents (v0.5)
