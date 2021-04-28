@@ -51,3 +51,9 @@ class PeerError(Exception):
     """
     Raised when we encounter an error communicating with the peer.
     """
+
+
+class FileWriterError(Exception):
+    """
+    Raised when we encounter an error writing files.
+    """
