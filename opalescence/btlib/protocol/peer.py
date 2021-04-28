@@ -102,7 +102,9 @@ class PeerConnection:
         self.task = asyncio.create_task(self.download(), name="[WAITING] PeerConnection")
         self._stop_forever = False
         self._last_message_sent = None
+        self._last_message_received = None
         self._recently_sent = collections.deque([], maxlen=10)
+        self._peer_connected_event = asyncio.Event()
 
     def __str__(self):
         if not self.peer:
@@ -163,7 +165,7 @@ class PeerConnection:
                                                  name=f"{self}:produce"))
                 tasks.append(asyncio.create_task(self._consume(received_msg_q),
                                                  name=f"{self}:consume"))
-                tasks.append(asyncio.create_task(self._monitor(),
+                tasks.append(asyncio.create_task(self._monitor_connection(),
                                                  name=f"{self}:monitor"))
                 await asyncio.gather(*tasks)
             except Exception as exc:
@@ -194,36 +196,59 @@ class PeerConnection:
 
         logger.debug("%s: Stopped forever" % self)
 
-    async def _monitor(self):
+    async def _monitor_connection(self):
         """
         Monitors the health of this peer connection, sending
         KeepAlive and resending stale Requests.
         """
-        while not self._stop_forever:
-            if self.peer is not None:
-                now = asyncio.get_event_loop().time()
-                if not self._last_message_sent:
-                    self._last_message_sent = now
-                else:
-                    added = False
-                    if now - self._last_message_sent >= 2:
-                        if (self.local.interested and
-                            len(self._requester._peer_unfulfilled_requests[self.peer])
-                            > 0):
-                            logger.debug(
-                                "%s: Last message sent to the peer > 2 seconds ago."
-                                "Attempting to resend outstanding requests, otherwise"
-                                "we'll send a KeepAlive.")
-                            for msg in self._requester._peer_unfulfilled_requests[
-                                self.peer]:
-                                if isinstance(msg, Request) and msg.is_stale(now):
-                                    asyncio.create_task(self._messages_to_send.put(msg))
-                                    added = True
+        started_at = asyncio.get_event_loop().time()
+        num_keep_alive = 0
+        max_keep_alive = 2
+        check_requests = True
 
-                        if not added:
-                            asyncio.create_task(self._messages_to_send.put(KeepAlive()))
-                            logger.debug("%s: No requests to resend. Sending KeepAlive. "
-                                         "But we probably don't have much use for this peer.")
+        while not self._stop_forever:
+            if not self.peer:
+                break
+
+            now = asyncio.get_event_loop().time()
+
+            # No messages sent or received yet, sleep for now.
+            if not self._last_message_sent or not self._last_message_received:
+                if now - started_at >= 10:
+                    raise PeerError("%s: No messages exchanged with peer for 10 "
+                                    "seconds." % self)
+                await asyncio.sleep(.5)
+                continue
+
+            last_msg_diff = now - self._last_message_sent
+            keep_alive_diff = now - self._last_message_received
+            if keep_alive_diff >= 30:
+                num_keep_alive += 1
+                if num_keep_alive >= max_keep_alive:
+                    raise PeerError("%s: Sent 2 KeepAlives with no response. Closing "
+                                    "connection." % self)
+                asyncio.create_task(self._messages_to_send.put(KeepAlive()))
+
+            if last_msg_diff >= 2 and check_requests:
+                added = False
+                outstanding = self._requester.peer_outstanding_requests(self.peer)
+                if self.local.interested and outstanding:
+                    logger.debug(
+                        "%s: Last message sent to the peer > 2 seconds ago. "
+                        "Attempting to resend outstanding requests." % self)
+                    for msg in outstanding:
+                        if isinstance(msg, Request) and msg.is_stale(now):
+                            msg.num_retries += 1
+                            if msg.num_retries >= 6:
+                                if msg.num_retries == 6:
+                                    logger.debug(
+                                        "%s: Retried request max # of times." % self)
+                                continue
+                            asyncio.create_task(self._messages_to_send.put(msg))
+                            added = True
+
+                    if not added:
+                        check_requests = False
             await asyncio.sleep(.5)
 
     async def _consume(self, received_msg_q: asyncio.Queue):
@@ -249,6 +274,7 @@ class PeerConnection:
                     break
 
                 logger.info("%s: Sent %s" % (self, msg))
+                self._last_message_received = asyncio.get_event_loop().time()
 
                 if isinstance(msg, Choke):
                     self.peer.choking = True

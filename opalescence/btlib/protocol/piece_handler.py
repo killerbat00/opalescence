@@ -130,6 +130,24 @@ class PieceRequester:
                 request.peer_id = ""
             del self._peer_unfulfilled_requests[peer]
 
+    def num_outstanding_requests_for_peer(self, peer: PeerInfo):
+        """
+        Returns the number of unfulfilled requests for a given peer.
+
+        :param peer: The peer to whom we've sent requests
+        :return: the number of unfulfilled requests we've sent the peer
+        """
+        return len(self.peer_outstanding_requests(peer))
+
+    def peer_outstanding_requests(self, peer: PeerInfo):
+        """
+        The set of unfulfilled `Request`s we've sent the peer.
+
+        :param peer: The peer to retrieve unfulfilled requests for
+        :return: The set() of unfulfilled `Request`s we've sent the peer.
+        """
+        return self._peer_unfulfilled_requests[peer]
+
     def remove_requests_for_block(self, peer: PeerInfo, block: Block) -> bool:
         """
         Removes all pending requests for the given block.
