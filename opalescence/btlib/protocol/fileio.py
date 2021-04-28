@@ -6,14 +6,14 @@ Classes and APIs for file reading and writing.
 
 from __future__ import annotations
 
-__all__ = ['FileItem', 'FileWriterTask']
+__all__ = ['FileItem', 'FileWriter']
 
-import asyncio
 import dataclasses
-import functools
 import logging
 from pathlib import Path
 from typing import Optional, BinaryIO
+
+from .errors import FileWriterError
 
 logger = logging.getLogger(__name__)
 
@@ -49,18 +49,17 @@ class FileItem:
 
 class FileWriter:
 
-    def __init__(self, torrent):
-        self._files: dict[int, FileItem] = torrent.files
-        self._piece_length = torrent.piece_length
-        self._lock = asyncio.Lock()
+    def __init__(self, files: dict[int, FileItem], piece_length: int):
+        self._files: dict[int, FileItem] = files
+        self._piece_length = piece_length
         self._fps: Optional[dict[int, BinaryIO]] = None
 
-    def _open_files(self):
+    def open_files(self):
         """
         Opens/creates all the files that will be written and
         stores the open streams for later use.
         """
-        if self._files is None or len(self._files) == 0:
+        if self._files is None or len(self._files) == 0 or self._fps is not None:
             return
 
         file = ""
@@ -75,9 +74,9 @@ class FileWriter:
         except Exception as exc:
             logger.error("Encountered %s exception opening %s" % (type(exc).__name__,
                                                                   file.path))
-            raise
+            raise FileWriterError from exc
 
-    def _close_files(self):
+    def close_files(self):
         """
         Closes all open file streams.
         """
@@ -87,29 +86,6 @@ class FileWriter:
         for fp in self._fps.values():
             if not fp.closed:
                 fp.close()
-
-    async def _await_write(self, piece):
-        """
-        Schedules and awaits for the task in the executor responsible
-        for writing the piece. Marks the piece complete on success.
-
-        :param piece: piece to write
-        """
-        if self._fps is None:
-            self._open_files()
-
-        await self._lock.acquire()
-
-        try:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, functools.partial(
-                self._write_piece_data, piece))
-            piece.mark_written()  # purge from memory
-        except Exception as e:
-            logger.exception(e)
-            raise
-        finally:
-            self._lock.release()
 
     def _write_piece_data(self, piece):
         """
@@ -127,7 +103,7 @@ class FileWriter:
             file = self._files[file_num]
             if file_num not in self._files:
                 logger.error("Too much data and not enough file...")
-                raise
+                raise FileWriterError
 
             logger.info(f"Writing data to %s" % file.path)
 
@@ -147,57 +123,17 @@ class FileWriter:
         :param data_to_write: data to write to file
         :param file_num: file index in self._fps to write to
         :param offset: Offset into the file to begin writing this data
+
+        :raises: Any Exception received on writing.
         """
+        assert self._fps is not None
+
         fp = self._fps[file_num]
         try:
             if fp.closed:
-                raise OSError
+                raise FileWriterError("file already closed: %s" % fp.name)
             fp.seek(offset, 0)
             fp.write(data_to_write)
-        except Exception:
-            logger.error("Encountered exception when writing to %s" % fp.name)
-            raise
-
-
-class FileWriterTask(FileWriter):
-    """
-    This subclass of `FileWriter` accepts a queue where completed pieces are sent and
-    handles writing those pieces to disk.
-    """
-
-    def __init__(self, torrent, piece_queue: asyncio.Queue):
-        super().__init__(torrent)
-        self.task: Optional[asyncio.Task] = None
-        self._queue: asyncio.Queue = piece_queue
-
-    def start(self):
-        """
-        Starts the task that writes pieces received from piece_queue.
-        """
-        if self.task is None:
-            self.task = asyncio.create_task(self._write_pieces())
-
-    def stop(self):
-        """
-        Stops the piece writing task.
-        """
-        if self.task:
-            self.task.cancel()
-
-    async def _write_pieces(self):
-        """
-        Coroutine scheduled as a task via `start` that consumes completed
-        pieces from the piece_queue and writes them to file.
-        """
-        piece = None
-        try:
-            while True:
-                piece = await self._queue.get()
-                asyncio.create_task(self._await_write(piece))
-                self._queue.task_done()
         except Exception as exc:
-            logger.error("Encountered %s exception writing %s" %
-                         (type(exc).__name__, piece))
-            raise
-        finally:
-            self._close_files()
+            logger.error("Encountered exception when writing to %s" % fp.name)
+            raise FileWriterError from exc

@@ -5,12 +5,14 @@ Main logic for facilitating the download of a torrent.
 """
 
 import asyncio
+import functools
 import logging
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from .protocol.fileio import FileWriterTask
+from .protocol.errors import FileWriterError
+from .protocol.fileio import FileWriter
 from .protocol.metainfo import MetaInfoFile
 from .protocol.peer import PeerConnectionPool
 from .protocol.peer_info import PeerInfo
@@ -99,7 +101,6 @@ class Torrent:
         if not self.torrent.complete:
             self.status = DownloadStatus.CollectingPeers
             self.tracker.start()
-            self.file_writer.start()
             self.monitor_task = asyncio.create_task(self._download(),
                                                     name=f"Torrent task for {self.torrent}")
             return self.monitor_task
@@ -157,3 +158,69 @@ class Torrent:
 
             now = asyncio.get_event_loop().time()
             self.total_time = now - self.download_started
+
+
+class FileWriterTask(FileWriter):
+    """
+    This subclass of `FileWriter` accepts a queue where completed pieces are sent and
+    handles writing those pieces to disk.
+    """
+
+    def __init__(self, torrent: MetaInfoFile, piece_queue: asyncio.Queue):
+        super().__init__(torrent.files, torrent.piece_length)
+        self._queue: asyncio.Queue = piece_queue
+        self._lock = asyncio.Lock()
+        self.task: asyncio.Task = asyncio.create_task(self._write_pieces())
+
+    def stop(self):
+        """
+        Stops the piece writing task.
+        """
+        if self.task:
+            self.task.cancel()
+
+    async def _write_pieces(self):
+        """
+        Coroutine scheduled as a task via `start` that consumes completed
+        pieces from the piece_queue and writes them to file.
+        """
+        piece = None
+        try:
+            while True:
+                piece = await self._queue.get()
+                asyncio.create_task(self._await_write(piece))
+                self._queue.task_done()
+        except Exception as exc:
+            logger.error("Encountered %s exception writing %s" %
+                         (type(exc).__name__, piece))
+            if not isinstance(exc, FileWriterError):
+                raise FileWriterError from exc
+            raise
+        finally:
+            self.close_files()
+
+    async def _await_write(self, piece):
+        """
+        Schedules and awaits for the task in the executor responsible
+        for writing the piece. Marks the piece complete on success.
+
+        :param piece: piece to write
+        """
+        self.open_files()
+        if not self._fps:
+            raise FileWriterError("Unable to open files.")
+
+        await self._lock.acquire()
+
+        try:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, functools.partial(
+                self._write_piece_data, piece))
+            piece.mark_written()  # purge from memory
+        except Exception as e:
+            logger.error(e)
+            if not isinstance(e, FileWriterError):
+                raise FileWriterError from e
+            raise
+        finally:
+            self._lock.release()
