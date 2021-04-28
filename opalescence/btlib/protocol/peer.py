@@ -19,7 +19,7 @@ import struct
 from logging import getLogger
 from typing import Optional
 
-from .errors import PeerError, NonSequentialBlockError
+from .errors import PeerError
 from .messages import *
 from .metainfo import MetaInfoFile
 from .peer_info import PeerInfo
@@ -48,8 +48,8 @@ class PeerConnectionPool:
         self.torrent = meta_info
         self.peer_queue = peer_queue
         self.max_num_peers = num_peers
-        self.requester = PieceRequester(self.torrent)
         self.stats = PeerConnectionStats()
+        self.requester = PieceRequester(self.torrent, self.stats)
         self.peers: list[Optional[PeerConnection]] = []
         self.piece_queue = piece_queue
 
@@ -299,7 +299,10 @@ class PeerConnection:
                         if not self.local.interested:
                             asyncio.create_task(self._messages_to_send.put(Interested()))
                 elif isinstance(msg, Block):
-                    self._received_block(msg)
+                    piece = self._requester.peer_received_block(msg, self.peer)
+                    if piece:
+                        self._piece_complete(piece.index)
+
                     if self.torrent.complete:
                         self.stop_forever()
                         break
@@ -310,50 +313,6 @@ class PeerConnection:
                         # raise PeerError
         except Exception as exc:
             raise PeerError from exc
-
-    def _received_block(self, block: Block):
-        """
-        Called when we've received a block from the remote peer.
-        First, see if there are other blocks from that piece already downloaded.
-        If so, add this block to the piece and pend a request for the remaining blocks
-        that we would need.
-
-        :param block: The piece message with the data and e'erthang
-        """
-        if not self.peer or self._stop_forever or not block or not block.data:
-            return
-
-        block_size = len(block.data)
-
-        if block.index >= len(self.torrent.pieces):
-            logger.debug("Disregarding. Piece %s does not exist." % block.index)
-            self._stats.torrent_bytes_wasted += block_size
-            return
-
-        piece = self.torrent.pieces[block.index]
-        if piece.complete:
-            logger.debug("Disregarding. I already have %s" % block)
-            self._stats.torrent_bytes_wasted += block_size
-            return
-
-        # Remove the pending requests for this block if there are any
-        if not self._requester.remove_requests_for_block(self.peer, block):
-            logger.debug("Disregarding. I did not request %s" % block)
-            self._stats.torrent_bytes_wasted += block_size
-            return
-
-        try:
-            piece.add_block(block)
-        except NonSequentialBlockError:
-            # TODO: Handle non-sequential blocks?
-            logger.error("Block begin index is non-sequential for: %s" % block)
-            self._stats.torrent_bytes_wasted += block_size
-            return
-
-        self._stats.torrent_bytes_downloaded += block_size
-
-        if piece.complete:
-            self._piece_complete(piece.index)
 
     def _piece_complete(self, piece_index):
         """
@@ -366,19 +325,8 @@ class PeerConnection:
         piece = self.torrent.pieces[piece_index]
         if not piece.complete:
             return
-
-        h = piece.hash()
-        if h != self.torrent.piece_hashes[piece.index]:
-            logger.error(
-                "Hash for received piece %s doesn't match. Received: %s\tExpected: %s" %
-                (piece.index, h, self.torrent.piece_hashes[piece.index]))
-            piece.reset()
-            self._stats.torrent_bytes_wasted += piece.length
-        else:
-            logger.info("Completed piece received: %s" % piece)
-            self._requester.remove_requests_for_piece(piece.index)
-            asyncio.create_task(self._completed_pieces.put(piece))
-            asyncio.create_task(self._messages_to_send.put(Have(piece.index)))
+        asyncio.create_task(self._completed_pieces.put(piece))
+        asyncio.create_task(self._messages_to_send.put(Have(piece.index)))
 
     async def _produce(self, writer):
         """

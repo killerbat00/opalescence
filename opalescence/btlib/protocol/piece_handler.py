@@ -14,7 +14,8 @@ from typing import Optional
 
 import bitstring
 
-from .messages import Request, Block
+from .errors import NonSequentialBlockError
+from .messages import Request, Block, Piece
 from .metainfo import MetaInfoFile
 from .peer_info import PeerInfo
 
@@ -37,7 +38,7 @@ class PieceRequester:
     """
     _block_size = 2 ** 14
 
-    def __init__(self, torrent: MetaInfoFile):
+    def __init__(self, torrent: MetaInfoFile, stats):
         self.torrent = torrent
 
         # dictionary of peers and indices of the pieces the peer has available
@@ -46,6 +47,8 @@ class PieceRequester:
         # canonical list of unfulfilled requests
         self._unfulfilled_requests: list[Request] = []
         self._peer_unfulfilled_requests: dict[PeerInfo, set[Request]] = defaultdict(set)
+
+        self._stats = stats
 
     def _build_requests(self) -> list[Request]:
         """
@@ -59,10 +62,9 @@ class PieceRequester:
         requests = []
 
         for piece in self.torrent.pieces:
-            for block in piece.blocks:
-                request = Request.from_block(block)
-                if request:
-                    requests.append(request)
+            if not piece.complete:
+                for block in piece.blocks:
+                    requests.append(Request.from_block(block))
 
         return requests
 
@@ -125,19 +127,9 @@ class PieceRequester:
 
         :param peer: peer whose pending requests we should remove
         """
-        if peer in self._peer_unfulfilled_requests:
-            for request in self._peer_unfulfilled_requests[peer]:
-                request.peer_id = ""
-            del self._peer_unfulfilled_requests[peer]
-
-    def num_outstanding_requests_for_peer(self, peer: PeerInfo):
-        """
-        Returns the number of unfulfilled requests for a given peer.
-
-        :param peer: The peer to whom we've sent requests
-        :return: the number of unfulfilled requests we've sent the peer
-        """
-        return len(self.peer_outstanding_requests(peer))
+        for request in self._peer_unfulfilled_requests[peer]:
+            request.peer_id = ""
+        del self._peer_unfulfilled_requests[peer]
 
     def peer_outstanding_requests(self, peer: PeerInfo):
         """
@@ -156,24 +148,21 @@ class PieceRequester:
         :param block: `Block` to remove from pending requests.
         :return: True if removed, False otherwise
         """
-        if peer not in self._peer_unfulfilled_requests:
-            return False
-        if len(self._peer_unfulfilled_requests[peer]) == 0:
+        if not self._peer_unfulfilled_requests[peer]:
             return False
 
         found = False
-        request = Request(block.index, block.begin, len(block.data))
+        request = Request.from_block(block)
 
         if request in self._peer_unfulfilled_requests[peer]:
             self._peer_unfulfilled_requests[peer].discard(request)
-            found = True
-
             try:
                 self._unfulfilled_requests.remove(request)
             except ValueError:
                 pass
-
-        return found
+            finally:
+                return True
+        return False
 
     def remove_requests_for_piece(self, piece_index: int):
         """
@@ -252,3 +241,77 @@ class PieceRequester:
             break
 
         return found_request
+
+    def peer_received_block(self, block: Block, peer: PeerInfo) -> Optional[Piece]:
+        """
+        Called when we've received a block from the remote peer.
+        First, see if there are other blocks from that piece already downloaded.
+        If so, add this block to the piece and pend a request for the remaining blocks
+        that we would need.
+
+        :param block: The piece message with the data and e'erthang
+        :param peer: The peer who sent the block
+        :return: The Piece if the block completes it.
+        """
+        assert peer and block and block.data
+
+        block_size = len(block.data)
+
+        if block.index >= len(self.torrent.pieces):
+            logger.debug("Disregarding. Piece %s does not exist." % block.index)
+            self._stats.torrent_bytes_wasted += block_size
+            return
+
+        piece = self.torrent.pieces[block.index]
+        if piece.complete:
+            logger.debug("Disregarding. I already have %s" % block)
+            self._stats.torrent_bytes_wasted += block_size
+            return
+
+        # Remove the pending requests for this block if there are any
+        request = Request.from_block(block)
+        if not self.remove_requests_for_block(peer, block):
+            logger.debug("Disregarding. I did not request %s" % block)
+            self._stats.torrent_bytes_wasted += block_size
+            return
+
+        try:
+            piece.add_block(block)
+        except NonSequentialBlockError:
+            # TODO: Handle non-sequential blocks?
+            logger.error("Block begin index is non-sequential for: %s" % block)
+            self._stats.torrent_bytes_wasted += block_size
+            return
+
+        if piece.complete:
+            return self._piece_complete(block)
+
+        self._stats.torrent_bytes_downloaded += block_size
+        return
+
+    def _piece_complete(self, block) -> Optional[Piece]:
+        """
+        Called when the last block of a piece has been received.
+        Validates the piece hash matches, writes the data, and marks the
+        piece complete.
+
+        :param block: the block that completes the piece.
+        :return: Piece if it was completed.
+        """
+        piece_index = block.index
+        piece = self.torrent.pieces[piece_index]
+        if not piece.complete:
+            self._stats.torrent_bytes_wasted += len(block.data)
+            return
+
+        h = piece.hash()
+        if h != self.torrent.piece_hashes[piece.index]:
+            logger.error(
+                "Hash for received piece %s doesn't match. Received: %s\tExpected: %s" %
+                (piece.index, h, self.torrent.piece_hashes[piece.index]))
+            piece.reset()
+            self._stats.torrent_bytes_wasted += piece.length
+        else:
+            logger.info("Completed piece received: %s" % piece)
+            self.remove_requests_for_piece(piece.index)
+            return piece
