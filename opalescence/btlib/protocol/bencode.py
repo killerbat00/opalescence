@@ -60,7 +60,7 @@ def Encode(data: BencodingTypes) -> bytes:
     :return: The decoded data transformed into corresponding Python types.
     """
     try:
-        encoder = Encoder(data)
+        encoder = _Encoder(data)
         return encoder.encode()
     except EncodeError as exc:
         logger.error("%s" % exc)
@@ -256,14 +256,14 @@ class _Decoder:
         return int(num_str)
 
 
-class Encoder:
+class _Encoder:
     """
     Encodes a python object and returns the bencoded bytes
     """
 
     def __init__(self, data: BencodingTypes):
         """
-        Creates an Encoder instance with the specified data.
+        Creates an _Encoder instance with the specified data.
 
         :param data:         dict, list, byte, or int data to encode
         :raises EncodeError: when null data received
