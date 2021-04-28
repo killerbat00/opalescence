@@ -85,8 +85,8 @@ class Handshake(Message):
     def __eq__(self, other: Handshake):
         if not isinstance(other, Handshake):
             return False
-        return self.info_hash == other.info_hash and \
-               self.peer_id == other.peer_id
+        return (self.info_hash == other.info_hash and
+                self.peer_id == other.peer_id)
 
     def encode(self) -> bytes:
         """
@@ -283,6 +283,7 @@ class Request(IndexableMessage):
         super().__init__(index, begin, length)
         self.peer_id = None
         self.requested_at = None
+        self.num_retries = 0
 
     def __str__(self):
         return f"Request: ({super().__str__()})"
@@ -351,7 +352,7 @@ class Block(IndexableMessage):
         :return: the piece message encoded in bytes
         """
         data_len = len(self.data)
-        return struct.pack(f">IBII{data_len}s", 9 + data_len, Block.msg_id,
+        return struct.pack(f'>IBII{data_len}s', 9 + data_len, Block.msg_id,
                            self.index, self.begin, self.data)
 
     @classmethod
