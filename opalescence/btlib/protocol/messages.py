@@ -312,13 +312,13 @@ class Request(IndexableMessage):
         return cls(request[0], request[1], request[2])
 
     @classmethod
-    def from_block(cls, block: Block) -> Optional[Request]:
+    def from_block(cls, block: Block) -> Request:
         """
         :param block: the block to make a request for
         :return: a request for the given block
         """
         if block.data:
-            return
+            return cls(block.index, block.begin, len(block.data))
         return cls(block.index, block.begin, block.size)
 
 
