@@ -6,7 +6,6 @@ Opalescence is a simple torrent client.
 """
 import argparse
 import logging
-import os
 import sys
 from pathlib import Path
 
@@ -15,14 +14,15 @@ from opalescence.ui import cli, tui
 
 
 def configure_logging(log_level, app_config):
-    formatter = logging.Formatter(fmt="[%(levelname)12s] %(asctime)s : %(name)s : %(message)s")
-    file_handler = logging.FileHandler(os.path.expanduser("~") + "/opl.log")
-    file_handler.setFormatter(formatter)
+    formatter = logging.Formatter(
+        fmt="%(asctime)s [%(levelname)12s]: %(name)s : %(message)s")
+    # file_handler = logging.FileHandler(os.path.expanduser("~") + "/opl.log")
+    # file_handler.setFormatter(formatter)
     app_logger = logging.getLogger("opalescence")
     app_logger.setLevel(log_level)
-    app_logger.addHandler(file_handler)
+    # app_logger.addHandler(file_handler)
 
-    if not app_config.use_cli:
+    if True:  # not app_config.use_cli:
         stream_handler = logging.StreamHandler(stream=sys.stdout)
         stream_handler.setFormatter(formatter)
         app_logger.addHandler(stream_handler)
@@ -42,7 +42,7 @@ parser.add_argument("-v", "--verbose", help="Print verbose output (but "
                     const=logging.INFO)
 parser.add_argument("-t", "--tui", help="Use the terminal user interface (TUI).",
                     action="store_const", dest="ui_mode",
-                    const="TUI", default="CLI")
+                    const="TUI", default="TUI")
 
 subparsers = parser.add_subparsers()
 download_parser = subparsers.add_parser("download",
@@ -55,17 +55,17 @@ download_parser.add_argument('destination',
                              type=Path)
 
 try:
-    print(f"Welcome to opalescence v{__version__}.")
     args = parser.parse_args()
     config = get_app_config()
     if args.ui_mode == "CLI":
+        print(f"Welcome to opalescence v{__version__}.")
         config.use_cli = True
         configure_logging(args.loglevel, config)
         cli.download(args)
     else:
         config.use_cli = False
         configure_logging(args.loglevel, config)
-        tui.start()
+        tui.start(args)
 except AttributeError:
     parser.print_help()
 finally:
