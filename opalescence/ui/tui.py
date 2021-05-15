@@ -5,7 +5,6 @@ Terminal User Interface for Opalescence
 """
 import curses
 import curses.ascii
-import functools
 import logging
 import time
 
@@ -13,8 +12,9 @@ from opalescence import __version__, __year__, __author__
 
 logger = logging.getLogger("opalescence")
 
-PROG_NAME = f"Opalescence v{__version__}"
-WELCOME_MSG = f"Welcome to {PROG_NAME}"
+PROG_NAME = f"Opalescence"
+PROG_AND_VERSION = f"Opalescence v{__version__}"
+WELCOME_MSG = f"Welcome to {PROG_AND_VERSION}"
 SIG_MSG = f"{PROG_NAME} was created by: {__author__} (c) {__year__}"
 
 COLOR_NONE = None
@@ -24,67 +24,85 @@ COLOR_INVERTED = None
 class WelcomeSplash:
     @staticmethod
     def draw(window, clr):
-        width, height = curses.COLS, curses.LINES
+        height, width = window.getmaxyx()
         content_width = max(len(WELCOME_MSG), len(SIG_MSG)) + 2
         content_height = 4
         pos_x = width // 2 - content_width // 2
         pos_y = height // 2 - content_height // 2
 
         win = curses.newwin(content_height, content_width, pos_x, pos_y)
-        win.bkgd(" ", clr)
         win.border()
+        win.bkgd(" ", clr)
         win.addnstr(1, 1, WELCOME_MSG.center(content_width - 2, " "),
                     content_width - 2, clr)
         win.addnstr(2, 1, SIG_MSG.center(content_width - 2, " "),
                     content_width - 2, clr)
-        win.overwrite(window)
-        window.refresh()
-        time.sleep(2)
+        win.refresh()
+        time.sleep(1.5)
 
 
 class HeaderLine:
     @staticmethod
     def draw(window, clr):
-        width = curses.COLS
-        window.addnstr(0, 0, PROG_NAME.center(width, " "), width, clr)
+        _, width = window.getmaxyx()
+        win = curses.newwin(1, width, 0, 0)
+        try:
+            win.addnstr(0, 0, PROG_AND_VERSION.center(width, " "), width, clr)
+        except curses.error:
+            pass
+        win.refresh()
 
 
 class FooterLine:
     TORRENT_COMMANDS = {
-        "Add": ("(A)dd", lambda x: x),
-        "Delete": ("(D)elete", lambda x: x),
-        "Files": ("(F)iles", lambda x: x),
-        "Config": ("(C)onfig", lambda x: x),
+        "Add": ("a", "(A)dd", lambda x: x),
+        "Remove": ("d", "(R)remove", lambda x: x),
+        "Files": ("f", "(F)iles", lambda x: x),
+        "Info": ("i", "(I)nfo", lambda x: x),
+        "Config": ("c", "(C)onfig", lambda x: x),
     }
 
     APP_COMMANDS = {
-        "Settings": ("(S)ettings", lambda x: x),
-        "Quit": ("(Q)uit", lambda x: x),
+        "Settings": ("s", "(S)ettings", lambda x: x),
+        "Quit": ("q", "(Q)uit", lambda x: x),
         # "QuitWindow": ("(Q)uit*", lambda x: x)
     }
 
     @staticmethod
     def draw(window, clr):
-        width = curses.COLS
-        pos_y = curses.LINES - 1
-        left = " | ".join(cmd[0] for cmd in FooterLine.TORRENT_COMMANDS.values())
-        window.addnstr(pos_y, 0, left, len(left), clr)
-        right = " | ".join(cmd[0] for cmd in FooterLine.APP_COMMANDS.values())
+        height, width = window.getmaxyx()
+        pos_y = height - 1
+        win = curses.newwin(1, width, pos_y, 0)
+        left = " | ".join(cmd[1] for cmd in FooterLine.TORRENT_COMMANDS.values())
+        right = " | ".join(cmd[1] for cmd in FooterLine.APP_COMMANDS.values())
 
         try:
-            window.addnstr(pos_y, width - len(right), right, len(right) + 1, clr)
+            win.addnstr(0, 0, left, len(left), clr)
         except curses.error:
             pass
+        try:
+            win.addnstr(0, width - len(right), right, len(right) + 1, clr)
+        except curses.error:
+            pass
+        win.refresh()
 
 
 class MainScreen:
     @staticmethod
     def draw(window, clr_none, clr_inv):
-        window.clear()
-        window.border()
         HeaderLine.draw(window, clr_inv)
+        InfoSection.draw(window, clr_inv)
         FooterLine.draw(window, clr_inv)
-        window.refresh()
+
+
+class InfoSection:
+    @staticmethod
+    def draw(window, clr_inv):
+        maxy, maxx = window.getmaxyx()
+        win = curses.newwin(9, maxx, maxy - 10, 0)
+        win.border()
+        win.addnstr(0, 1, "Info", 4, clr_inv)
+        win.refresh()
 
 
 class Command:
@@ -102,19 +120,19 @@ class OplTui:
 
     def main(self, root):
         self.root_win = root
-
-        curses.curs_set(0)
+        curses.curs_set(False)
         curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_WHITE)
         self.color_none = curses.color_pair(1)
         self.color_inverted = curses.color_pair(2)
 
-        self.root_win.clear()
         WelcomeSplash.draw(self.root_win, self.color_inverted)
+        self.root_win.clear()
+        self.root_win.refresh()
         MainScreen.draw(self.root_win, self.color_none, self.color_inverted)
         curses.flushinp()
         self.root_win.getch()
-        curses.curs_set(1)
+        curses.curs_set(True)
 
 
 def start(args):
@@ -122,4 +140,4 @@ def start(args):
     TUI entry point
     """
     tui = OplTui()
-    curses.wrapper(functools.partial(tui.main))
+    curses.wrapper(tui.main)
