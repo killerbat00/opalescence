@@ -93,9 +93,38 @@ class TorrentList:
         maxy, maxx = window.getmaxyx()
         win = curses.newwin(maxy - 1 - 9, maxx, 1, 0)
         win.border(" ", " ", 0, " ", curses.ACS_HLINE, curses.ACS_HLINE, " ", " ")
-        win.addnstr(0, 1, "Name", 4, clr_none)
+
+        win.addnstr(0, 0, "Name", 4, clr_none)
         win.addnstr(0, 50, "Up/Down (kbps)", 14, clr_none)
         win.addnstr(0, 70, "% Complete", 10, clr_none)
+
+        t1name = "ubuntu-20.10-desktop-amd64.iso.torrent"
+        clr_downloading = curses.color_pair(3)
+        win.addnstr(1, 0, t1name, len(t1name), clr_downloading)
+        t1speed = "73/1,375"
+        win.addnstr(1, 50, t1speed, len(t1speed), clr_downloading)
+        win.addnstr(1, 70, "68.01", len("68.01"), clr_downloading)
+
+        t2name = "AlpineLinux-2021.torrent"
+        clr_seeding = curses.color_pair(4)
+        win.addnstr(2, 0, t2name, len(t2name), clr_seeding)
+        t2speed = "748/10"
+        win.addnstr(2, 50, t2speed, len(t2speed), clr_seeding)
+        win.addnstr(2, 70, "100", len("100"), clr_seeding)
+
+        t3name = "Project-Gutenberg-bak-2020.torrent"
+        clr_error = curses.color_pair(5)
+        win.addnstr(3, 0, t3name, len(t3name), clr_error)
+        t3speed = "!!/!!"
+        win.addnstr(3, 50, t3speed, len(t3speed), clr_error)
+        win.addnstr(3, 70, "!!!", len("!!!"), clr_error)
+
+        t4name = "ubuntu-18.04-desktop-amd64.iso.torrent"
+        win.addnstr(4, 0, t4name, len(t4name), clr_none)
+        t4speed = "0/0"
+        win.addnstr(4, 50, t4speed, len(t4speed), clr_none)
+        win.addnstr(4, 70, "58.2", len("58.2"), clr_none)
+
         win.refresh()
 
 
@@ -136,6 +165,9 @@ class OplTui:
         curses.curs_set(False)
         curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_WHITE)
+        curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_BLACK)
+        curses.init_pair(4, curses.COLOR_BLUE, curses.COLOR_BLACK)
+        curses.init_pair(5, curses.COLOR_RED, curses.COLOR_BLACK)
         self.color_none = curses.color_pair(1)
         self.color_inverted = curses.color_pair(2)
 
