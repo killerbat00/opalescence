@@ -87,10 +87,23 @@ class FooterLine:
         win.refresh()
 
 
+class TorrentList:
+    @staticmethod
+    def draw(window, clr_none, clr_inv):
+        maxy, maxx = window.getmaxyx()
+        win = curses.newwin(maxy - 1 - 9, maxx, 1, 0)
+        win.border(" ", " ", 0, " ", curses.ACS_HLINE, curses.ACS_HLINE, " ", " ")
+        win.addnstr(0, 1, "Name", 4, clr_none)
+        win.addnstr(0, 50, "Up/Down (kbps)", 14, clr_none)
+        win.addnstr(0, 70, "% Complete", 10, clr_none)
+        win.refresh()
+
+
 class MainScreen:
     @staticmethod
     def draw(window, clr_none, clr_inv):
         HeaderLine.draw(window, clr_inv)
+        TorrentList.draw(window, clr_none, clr_inv)
         InfoSection.draw(window, clr_inv)
         FooterLine.draw(window, clr_inv)
 
@@ -100,8 +113,8 @@ class InfoSection:
     def draw(window, clr_inv):
         maxy, maxx = window.getmaxyx()
         win = curses.newwin(9, maxx, maxy - 10, 0)
-        win.border()
-        win.addnstr(0, 1, "Info", 4, clr_inv)
+        win.border(" ", " ", 0, " ", curses.ACS_HLINE, curses.ACS_HLINE, " ", " ")
+        win.addnstr(0, 0, "Info", 4, clr_inv)
         win.refresh()
 
 
@@ -127,10 +140,10 @@ class OplTui:
         self.color_inverted = curses.color_pair(2)
 
         WelcomeSplash.draw(self.root_win, self.color_inverted)
+        curses.flushinp()
         self.root_win.clear()
         self.root_win.refresh()
         MainScreen.draw(self.root_win, self.color_none, self.color_inverted)
-        curses.flushinp()
         self.root_win.getch()
         curses.curs_set(True)
 
