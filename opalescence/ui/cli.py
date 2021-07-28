@@ -26,14 +26,14 @@ def download(args) -> None:
         print("Torrent filepath does not exist.")
         raise SystemExit
     if dest_fp.exists() and dest_fp.is_file():
-        print(f"Destination filepath is not a directory.")
+        print(f"Destination is not a directory.")
         raise SystemExit
     if not dest_fp.exists():
         try:
-            print(f"Destination filepath does not exist. Creating {dest_fp}")
+            print(f"Destination directory does not exist. Creating {dest_fp}")
             dest_fp.mkdir(parents=True)
         except Exception:
-            print(f"Unable to create filepath {dest_fp}")
+            print(f"Unable to create directory {dest_fp}")
 
     asyncio.run(_download(torrent_fp, dest_fp))
 
@@ -99,27 +99,23 @@ async def _download(torrent_fp, dest_fp):
               f"\t{t.average_speed} KB/s average"
               f"\t{round(loop.time() - t.download_started)}s elapsed.")
 
-    add_results = client.add_torrent(torrent_fp=torrent_fp, destination=dest_fp)
-    if not add_results:
+    if not (torrent := client.add_torrent(torrent_fp=torrent_fp, destination=dest_fp)):
         print(f"Unable to add download {torrent_fp}")
         raise SystemExit
-    torrent, complete_event = add_results
 
     client.start()
     monitor.start()
     try:
-        while not complete_event.is_set():
-            msg = None
-            if not client._running:
-                msg = "Client stopped."
+        while not client.is_complete(torrent):
+            if not client.running:
+                print("Client stopped.")
+                break
+
             if torrent.status in [DownloadStatus.Errored, DownloadStatus.Stopped]:
-                msg = f"{torrent.name} {torrent.status}."
+                print(f"{torrent.name} {torrent.status}.")
+                break
 
             print_stats(torrent)
-
-            if msg:
-                print(msg)
-                break
             await asyncio.sleep(1)
         else:
             print(f"{torrent.name} complete!")
